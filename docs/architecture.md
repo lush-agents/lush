@@ -42,8 +42,7 @@ active work contexts. It owns conversational state that must be shared across
 clients and collaboration channels.
 
 **Events (`services/events`).** Durable append-only event log for system
-activity. It feeds audit trails, usage reporting, billing, and operational
-workflows.
+activity. It feeds audit trails, usage reporting, and operational workflows.
 
 **Scheduler (`services/scheduler`).** Durable scheduling for deferred actions,
 recurring loops, reminders, retry/backoff timers, and agent wakeups. It should
@@ -77,10 +76,6 @@ use this boundary instead of duplicating notification policy.
 inside team chat platforms such as Slack, Microsoft Teams, and Discord.
 Platform-specific adapters should live inside this service behind a shared
 team-chat interface.
-
-**Billing (`services/billing`).** Usage and chargeback boundary for costs
-emitted by services and recorded in the event stream. It will be shaped by
-provider, organization, and account models.
 
 ## Shared Packages
 
