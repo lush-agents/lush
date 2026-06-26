@@ -57,9 +57,13 @@ local subprocess mode for development.
 providers. It owns provider selection, failover policy, pinning, and request
 mediation.
 
-**Tool (`services/tool`).** Mediated access layer for MCP, OpenAPI, and other
+**Tools (`services/tools`).** Mediated access layer for MCP, OpenAPI, and other
 tool integrations. Models should receive scoped capabilities rather than raw
 URLs or credentials.
+
+**Skills (`services/skills`).** Runtime service for publishing, indexing,
+resolving, and loading agent skills. It owns service workflows while
+`packages/skill-catalog` keeps shared skill metadata and catalog primitives.
 
 **Artifacts (`services/artifacts`).** Files, uploads, generated assets, code
 outputs, and other durable work products. It owns metadata, storage references,
@@ -80,9 +84,8 @@ provider, organization, and account models.
 
 ## Shared Packages
 
-**Skill Catalog (`packages/skill-catalog`).** Searchable catalog of agent
-skills that can be loaded on demand. It defines the skill metadata and retrieval
-boundaries used by agents.
+**Skill Catalog (`packages/skill-catalog`).** Shared package for skill metadata
+and catalog primitives used by `services/skills` and agent runtimes.
 
 **Memory (`packages/memory`).** Portable memory boundary for relational, graph,
 and vector-backed stores. It keeps observed facts separate from derived
