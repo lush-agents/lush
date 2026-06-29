@@ -3,6 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@lush/config": "workspace:*",
+    "@lush/db": "workspace:*"
+  },
   "exports": {
     "./openai-compatible": "./src/openai-compatible.ts",
     "./spec": "./src/spec.ts",

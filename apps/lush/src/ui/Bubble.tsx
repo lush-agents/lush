@@ -70,7 +70,7 @@ export function Bubble(props: {
 export function BubbleContent(props: {
   children: JSX.Element;
   // Kept for API parity with the shadcn primitive; Solid callers can pass the
-  // desired child directly until we need polymorphic slot behavior.
+  // Keep this narrow; polymorphic slot behavior is unnecessary here.
   asChild?: boolean;
 } & ClassProps) {
   return (

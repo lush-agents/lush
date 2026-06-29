@@ -16,24 +16,19 @@ The service listens on `http://127.0.0.1:7331`.
 
 ## Auth
 
-Local development uses a minimal bearer-token session boundary:
+The standalone agent service verifies the same short-lived bearer access JWTs as
+the API gateway:
 
-- `POST /auth/dev-session` creates an in-memory development session.
 - `GET /session` returns the active session profile.
-- `POST /agents/lush/chat` requires `Authorization: Bearer <token>`.
+- `POST /agents/:agentSlug/chat` requires `Authorization: Bearer <token>`.
 
-This is intentionally small, but keeps provider credentials server-side and
-starts the access-scoping shape needed for hosted API deployment.
+Sign in and refresh through the API auth routes, then pass the returned
+`accessToken` to direct agent requests. Set `LUSH_AUTH_JWT_PUBLIC_KEY` so the
+agent can verify tokens.
 
 ## Inference Configuration
 
-- `LUSH_INFERENCE_PROVIDER` - `fireworks` or `baseten`; defaults to `fireworks`.
-- `LUSH_INFERENCE_ENDPOINT` - override the OpenAI-compatible chat completions URL.
-- `LUSH_INFERENCE_MODEL` - model name passed to the provider; defaults to
-  `glm-5.2`.
-- `LUSH_INFERENCE_API_KEY` - provider API key. `FIREWORKS_API_KEY` and
-  `BASETEN_API_KEY` are also checked.
 - `LUSH_APP_ORIGIN` - CORS origin for the app; defaults to `*`.
 
-If no API key is configured, the service streams a local development fallback
-response so the frontend can be exercised without provider credentials.
+Inference providers are organization-scoped database state managed through the
+API/UI.

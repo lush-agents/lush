@@ -6,10 +6,8 @@ import type {
 } from "./types";
 
 export const defaultDisplayName = "First Last";
-export const defaultHandle = "first";
 export const defaultOrganizationName = "Example, Inc.";
-export const defaultApiBaseUrl =
-  import.meta.env.VITE_LUSH_API_BASE_URL ?? "http://127.0.0.1:7330";
+export const configuredApiBaseUrl = import.meta.env.VITE_LUSH_API_BASE_URL;
 
 export const workspaceModes: Array<{
   value: WorkspaceMode;
@@ -70,20 +68,65 @@ export const previousSessions: Record<string, string[]> = {
   agent: ["Research assistant", "Code reviewer", "Team chat responder"]
 };
 
-export const accountRoutes: Route[] = [
+export const settingsRoutes: Route[] = [
   {
-    href: "/settings/personal",
-    label: "Personal settings",
+    href: "/settings/profile",
+    label: "Profile",
     eyebrow: "Settings",
-    title: "Personal settings",
+    title: "Profile",
+    body: ""
+  },
+  {
+    href: "/settings/appearance",
+    label: "Appearance",
+    eyebrow: "Settings",
+    title: "Appearance",
     body: ""
   },
   {
     href: "/settings/organization",
-    label: "Organization settings",
-    eyebrow: "Settings",
-    title: "Organization settings",
+    label: "Organization",
+    eyebrow: "Organization settings",
+    title: "Organization",
     body: ""
+  },
+  {
+    href: "/settings/inference",
+    label: "Inference",
+    eyebrow: "Organization settings",
+    title: "Inference",
+    body: ""
+  }
+];
+
+function requiredRoute(routesToSearch: Route[], href: string) {
+  const route = routesToSearch.find((candidate) => candidate.href === href);
+  if (!route) {
+    throw new Error(`Missing route metadata for ${href}`);
+  }
+
+  return route;
+}
+
+export const profileSettingsRoute = requiredRoute(
+  settingsRoutes,
+  "/settings/profile"
+);
+export const organizationSettingsRoute = requiredRoute(
+  settingsRoutes,
+  "/settings/organization"
+);
+
+export const accountRoutes: Route[] = [
+  {
+    ...profileSettingsRoute,
+    label: "Personal settings",
+    title: "Personal settings"
+  },
+  {
+    ...organizationSettingsRoute,
+    label: "Organization settings",
+    title: "Organization settings"
   },
   {
     href: "/sign-out",
@@ -180,11 +223,7 @@ export const appearanceOptions: Array<{
 ];
 
 export function normalizedPath(pathname = window.location.pathname) {
-  if (pathname === "/") {
-    return "/concepts";
-  }
-
-  return pathname.replace(/\/+$/, "") || "/concepts";
+  return pathname.replace(/\/+$/, "") || "/";
 }
 
 export function createId() {
@@ -202,26 +241,11 @@ export function getInitialAppearance(): Appearance {
 }
 
 export function getInitialDisplayName() {
-  return window.localStorage.getItem("lush:display-name") ?? defaultDisplayName;
-}
-
-export function getInitialHandle() {
-  return window.localStorage.getItem("lush:handle") ?? defaultHandle;
-}
-
-export function getInitialApiBaseUrl() {
-  return window.localStorage.getItem("lush:api-base-url") ?? defaultApiBaseUrl;
-}
-
-export function getInitialSessionToken() {
-  return window.localStorage.getItem("lush:session-token") ?? "";
+  return defaultDisplayName;
 }
 
 export function getInitialOrganizationName() {
-  return (
-    window.localStorage.getItem("lush:organization-name") ??
-    defaultOrganizationName
-  );
+  return defaultOrganizationName;
 }
 
 export function resolveDisplayName(displayName: string) {
@@ -232,8 +256,12 @@ export function resolveOrganizationName(organizationName: string) {
   return organizationName.trim() || defaultOrganizationName;
 }
 
-export function resolveApiBaseUrl(apiBaseUrl: string) {
-  const resolved = (apiBaseUrl.trim() || defaultApiBaseUrl).replace(/\/+$/, "");
+export function resolveApiBaseUrl() {
+  const resolved = configuredApiBaseUrl?.trim().replace(/\/+$/, "");
+  if (!resolved) {
+    throw new Error("VITE_LUSH_API_BASE_URL is required.");
+  }
+
   if (!isTauriRuntime()) {
     return resolved;
   }
@@ -255,15 +283,6 @@ function isTauriRuntime() {
   return Boolean(
     (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
   );
-}
-
-export function resolveHandle(handle: string) {
-  const cleaned = handle.trim().replace(/^@+/, "");
-  return cleaned || defaultHandle;
-}
-
-export function formatHandle(handle: string) {
-  return `@${resolveHandle(handle)}`;
 }
 
 export function getFirstName(displayName: string) {

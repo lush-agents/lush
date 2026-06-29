@@ -1,0 +1,23 @@
+---
+title: What is Lush
+description: The product and runtime model behind Lush.
+---
+
+Lush is an open control plane for multi-model AI applications and agent
+runtimes. It gives teams one place to manage model providers, application
+sessions, agent workflows, tools, and organizational policy.
+
+The project is split into client surfaces, service boundaries, and shared
+packages. The API gateway stays thin, authenticates requests, and routes work to
+service-owned runtimes.
+
+## Core ideas
+
+- **Tenant-aware by default.** Users operate inside organizations and
+  memberships.
+- **Provider-neutral inference.** Model providers are configured as
+  organization-scoped state.
+- **Composable services.** Auth, inference, agents, sessions, memory, tools,
+  artifacts, and integrations are separate boundaries.
+- **Managed or self-hosted.** The repository produces the binaries and
+  containers needed for hosted deployments without forking the core code.

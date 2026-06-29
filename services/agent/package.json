@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "bun run src/server.ts",
-    "start": "bun run src/server.ts"
+    "start": "bun run src/server.ts",
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
+    "@lush/authz": "workspace:*",
+    "@lush/config": "workspace:*",
     "@lush/inference": "workspace:*"
   },
   "exports": {

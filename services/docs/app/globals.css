@@ -1,0 +1,6 @@
+@import "tailwindcss";
+@import "fumadocs-ui/style.css";
+
+@source "./**/*.{ts,tsx}";
+@source "../components/**/*.{ts,tsx}";
+@source "../content/**/*.{md,mdx}";

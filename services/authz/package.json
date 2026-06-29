@@ -2,5 +2,19 @@
   "name": "@lush/authz",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "verify-email": "bun run src/verify-email.ts"
+  },
+  "dependencies": {
+    "@lush/config": "workspace:*",
+    "@lush/db": "workspace:*",
+    "dotenv": "^17.4.2",
+    "kysely": "^0.28.7"
+  },
+  "exports": {
+    "./runtime": "./src/runtime.ts",
+    "./spec": "./src/spec.ts"
+  }
 }

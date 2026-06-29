@@ -1,0 +1,20 @@
+services:
+  lush-postgres:
+    image: postgres:17
+    container_name: lush-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: lush
+      POSTGRES_USER: lush
+      POSTGRES_PASSWORD: lush
+    volumes:
+      - lush-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lush -d lush"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  lush-postgres:

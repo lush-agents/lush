@@ -1,31 +1,29 @@
+import { envSchema, readEnvSchema } from "@lush/config/env";
+import {
+  bearerToken,
+  type Principal,
+  resolveAccessPrincipal
+} from "@lush/authz/runtime";
 import {
   type AgentChatMessage,
   getLushAgentMetadata,
   streamLushAgentChat
 } from "./runtime";
 
-const port = Number(process.env.LUSH_AGENT_PORT ?? 7331);
-type DevSession = {
-  token: string;
-  userId: string;
-  organizationId: string;
-  displayName: string;
-  handle: string;
-  organizationName: string;
-  createdAt: string;
-};
-
-const sessions = new Map<string, DevSession>();
+const agentConfig = readEnvSchema({
+  LUSH_AGENT_PORT: envSchema.number(7331),
+  LUSH_APP_ORIGIN: envSchema.optionalString("*")
+});
 
 const corsHeaders = {
-  "access-control-allow-origin": process.env.LUSH_APP_ORIGIN ?? "*",
+  "access-control-allow-origin": agentConfig.LUSH_APP_ORIGIN,
   "access-control-allow-methods": "GET,POST,OPTIONS",
   "access-control-allow-headers": "authorization,content-type",
   "access-control-max-age": "86400"
 };
 
 const server = Bun.serve({
-  port,
+  port: agentConfig.LUSH_AGENT_PORT,
   hostname: "127.0.0.1",
   async fetch(request) {
     const url = new URL(request.url);
@@ -41,40 +39,31 @@ const server = Bun.serve({
       );
     }
 
-    if (request.method === "POST" && url.pathname === "/auth/dev-session") {
-      return createDevSession(request);
-    }
-
     if (request.method === "GET" && url.pathname === "/session") {
-      const session = getSession(request);
-      if (!session) {
+      const auth = await authenticate(request);
+      if (!auth) {
         return unauthorized();
       }
 
-      return Response.json(
-        {
-          user: {
-            id: session.userId,
-            displayName: session.displayName,
-            handle: session.handle
-          },
-          organization: {
-            id: session.organizationId,
-            name: session.organizationName
-          },
-          createdAt: session.createdAt
-        },
-        { headers: corsHeaders }
-      );
+      return Response.json(auth.session, { headers: corsHeaders });
     }
 
-    if (request.method === "POST" && url.pathname === "/agents/lush/chat") {
-      const session = getSession(request);
-      if (!session) {
+    const chatRouteMatch = url.pathname.match(/^\/agents\/([^/]+)\/chat$/);
+    if (request.method === "POST" && chatRouteMatch) {
+      const auth = await authenticate(request);
+      if (!auth) {
         return unauthorized();
       }
 
-      return streamChat(request, session);
+      const agentSlug = decodeURIComponent(chatRouteMatch[1] ?? "");
+      if (agentSlug !== getLushAgentMetadata().id) {
+        return Response.json(
+          { error: "agent_not_found" },
+          { status: 404, headers: corsHeaders }
+        );
+      }
+
+      return streamChat(request, auth.principal);
     }
 
     return Response.json(
@@ -86,51 +75,27 @@ const server = Bun.serve({
 
 console.log(`@lush/agent listening on http://${server.hostname}:${server.port}`);
 
-async function createDevSession(request: Request) {
-  const body = await request.json().catch(() => ({}));
-  const candidate = body && typeof body === "object" ? body as Record<string, unknown> : {};
-  const token = crypto.randomUUID();
-  const session: DevSession = {
-    token,
-    userId: "dev-user",
-    organizationId: "dev-org",
-    displayName:
-      typeof candidate.displayName === "string" && candidate.displayName.trim()
-        ? candidate.displayName.trim()
-        : "First Last",
-    handle:
-      typeof candidate.handle === "string" && candidate.handle.trim()
-        ? candidate.handle.trim().replace(/^@+/, "")
-        : "first",
-    organizationName:
-      typeof candidate.organizationName === "string" &&
-      candidate.organizationName.trim()
-        ? candidate.organizationName.trim()
-        : "Example, Inc.",
-    createdAt: new Date().toISOString()
-  };
+async function authenticate(request: Request) {
+  const token = bearerToken(request);
+  if (!token) {
+    return undefined;
+  }
 
-  sessions.set(token, session);
-
-  return Response.json(
-    {
-      token,
-      user: {
-        id: session.userId,
-        displayName: session.displayName,
-        handle: session.handle
-      },
-      organization: {
-        id: session.organizationId,
-        name: session.organizationName
-      },
-      createdAt: session.createdAt
-    },
-    { headers: corsHeaders }
-  );
+  return resolveAccessPrincipal(token);
 }
 
-async function streamChat(request: Request, session: DevSession) {
+async function streamChat(request: Request, principal: Principal) {
+  if (!principal.organizationId) {
+    return Response.json(
+      {
+        error: "organization_required",
+        message: "An active organization is required"
+      },
+      { status: 403, headers: corsHeaders }
+    );
+  }
+
+  const organizationId = principal.organizationId;
   const body = await request.json().catch(() => undefined);
   const inputMessages = Array.isArray(body?.messages) ? body.messages : [];
   const modelSelection =
@@ -155,7 +120,7 @@ async function streamChat(request: Request, session: DevSession) {
 
       try {
         for await (const chunk of streamLushAgentChat({
-          organizationId: session.organizationId,
+          organizationId,
           modelSelection,
           messages,
           signal: controller.signal
@@ -184,20 +149,9 @@ async function streamChat(request: Request, session: DevSession) {
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       "x-lush-agent": getLushAgentMetadata().id,
-      "x-lush-organization": session.organizationId
+      "x-lush-organization": organizationId
     }
   });
-}
-
-function getSession(request: Request) {
-  const authorization = request.headers.get("authorization");
-  const match = authorization?.match(/^Bearer\s+(.+)$/i);
-
-  if (!match) {
-    return undefined;
-  }
-
-  return sessions.get(match[1]);
 }
 
 function unauthorized() {

@@ -1,0 +1,2034 @@
+import { sql, type Kysely, type Transaction } from "kysely";
+import {
+  ConfigError,
+  envSchema,
+  readEnvSchema,
+  requiredEnvValue
+} from "@lush/config/env";
+import { getDb } from "@lush/db/client";
+import type { Database, UserRole } from "@lush/db/schema";
+
+export type Principal = {
+  userId: string;
+  organizationId: string | null;
+  membershipId: string | null;
+  role: UserRole | null;
+  sessionId: string;
+  tokenId?: string;
+};
+
+export type RequestMeta = {
+  userAgent?: string | null;
+  ipAddress?: string | null;
+};
+
+export type AuthAssertion = {
+  providerId: string | null;
+  kind: "password" | "oidc" | "oauth" | "saml";
+  subject: string;
+  email?: string;
+  emailVerified?: boolean;
+  name?: string;
+  avatarUrl?: string;
+  groups?: string[];
+  claims: Record<string, unknown>;
+};
+
+export type EmailVerificationRequired = {
+  emailVerificationRequired: true;
+  email: string;
+};
+
+export type AuthProviderConfig = {
+  id: string;
+  kind: AuthAssertion["kind"];
+  label: string;
+  organizationId?: string | null;
+  config: Record<string, unknown>;
+};
+
+export type AuthProviderAdapter = {
+  kind: AuthAssertion["kind"];
+  beginLogin(request: Request, provider: AuthProviderConfig): Promise<Response>;
+  completeLogin(
+    request: Request,
+    provider: AuthProviderConfig
+  ): Promise<AuthAssertion>;
+};
+
+export type RegisterAccountRequest = {
+  email: string;
+  password: string;
+  displayName?: string;
+  organizationName?: string;
+};
+
+type NormalizedRegisterAccountRequest = {
+  email: string;
+  password: string;
+  displayName: string;
+  organizationName: string;
+};
+
+export type LoginRequest = {
+  email: string;
+  password: string;
+  organizationId?: string;
+};
+
+export type OrganizationSummary = {
+  id: string;
+  name: string;
+  role: UserRole;
+};
+
+export type CreateOrganizationRequest = {
+  name: string;
+};
+
+export type SwitchOrganizationRequest = {
+  organizationId: string;
+};
+
+export type UpdateCurrentUserRequest = {
+  displayName: string;
+};
+
+export type UpdateCurrentOrganizationRequest = {
+  name: string;
+};
+
+export type DeleteCurrentOrganizationResponse =
+  | {
+      requiresOrganization: false;
+      nextSession: AccessSession;
+      refreshToken: string;
+    }
+  | {
+      requiresOrganization: true;
+      nextSession: AccessSession;
+      refreshToken: string;
+    };
+
+export type UpdateOrganizationMemberRoleRequest = {
+  membershipId: string;
+  role: UserRole;
+};
+
+export type RemoveOrganizationMemberRequest = {
+  membershipId: string;
+};
+
+export type CreateOrganizationInviteRequest = {
+  email: string;
+  role: UserRole;
+  expiresInDays?: number;
+};
+
+const authzConfig = readEnvSchema({
+  LUSH_SESSION_TTL_MS: envSchema.number(30 * 24 * 60 * 60 * 1000),
+  LUSH_ACCESS_TOKEN_TTL_MS: envSchema.number(5 * 60 * 1000),
+  LUSH_AUTH_JWT_ISSUER: envSchema.optionalString("lush-authz"),
+  LUSH_AUTH_JWT_AUDIENCE: envSchema.optionalString("lush-api"),
+  LUSH_AUTH_PASSWORD_ENABLED: envSchema.boolean(true)
+});
+const sessionTtlMs = authzConfig.LUSH_SESSION_TTL_MS;
+const accessTokenTtlMs = authzConfig.LUSH_ACCESS_TOKEN_TTL_MS;
+const jwtIssuer = authzConfig.LUSH_AUTH_JWT_ISSUER;
+const jwtAudience = authzConfig.LUSH_AUTH_JWT_AUDIENCE;
+const passwordAuthEnabled = authzConfig.LUSH_AUTH_PASSWORD_ENABLED;
+
+export type CurrentSession = {
+  sessionId: string;
+  user: {
+    id: string;
+    email: string;
+    emailVerified: boolean;
+    displayName: string;
+  };
+  organization: {
+    id: string;
+    name: string;
+  } | null;
+  membership: {
+    id: string;
+    role: UserRole;
+  } | null;
+  createdAt: string;
+  expiresAt: string;
+};
+
+type RefreshSession = {
+  refreshToken: string;
+  session: CurrentSession;
+};
+
+export type AccessSession = {
+  accessToken: string;
+  accessTokenExpiresAt: string;
+  session: CurrentSession;
+};
+
+export type AccessTokenClaims = {
+  iss: string;
+  aud: string;
+  sub: string;
+  sid: string;
+  org: string | null;
+  mid: string | null;
+  role: UserRole | null;
+  email: string;
+  email_verified: boolean;
+  name: string;
+  org_name: string;
+  session_created_at: string;
+  session_expires_at: string;
+  iat: number;
+  exp: number;
+  jti: string;
+};
+
+export class AuthError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status = 400
+  ) {
+    super(message);
+  }
+}
+
+export const authzActions = [
+  "logout",
+  "logoutAllSessions",
+  "fetchSession",
+  "openClientEvents",
+  "listOrganizations",
+  "switchOrganization",
+  "createOrganization",
+  "updateCurrentUser",
+  "updateCurrentOrganization",
+  "deleteCurrentOrganization",
+  "listOrganizationMembers",
+  "updateOrganizationMemberRole",
+  "removeOrganizationMember",
+  "createOrganizationInvite",
+  "listOrganizationInvites",
+  "fetchInferenceConfig",
+  "createInferenceProvider",
+  "updateInferenceProvider",
+  "updateInferenceModel",
+  "deleteInferenceProvider",
+  "updateInferenceModelDefault",
+  "streamAgentChat"
+] as const;
+
+export type AuthzAction = (typeof authzActions)[number];
+
+const authenticatedActions = new Set<AuthzAction>([
+  "logout",
+  "logoutAllSessions",
+  "fetchSession",
+  "openClientEvents",
+  "listOrganizations",
+  "switchOrganization",
+  "createOrganization",
+  "updateCurrentUser"
+]);
+
+export const roleActionBindings: Record<UserRole, readonly AuthzAction[]> = {
+  admin: [
+    "fetchInferenceConfig",
+    "streamAgentChat",
+    "listOrganizationMembers",
+    "updateCurrentOrganization",
+    "deleteCurrentOrganization",
+    "updateOrganizationMemberRole",
+    "removeOrganizationMember",
+    "createOrganizationInvite",
+    "listOrganizationInvites",
+    "createInferenceProvider",
+    "updateInferenceProvider",
+    "updateInferenceModel",
+    "deleteInferenceProvider",
+    "updateInferenceModelDefault"
+  ],
+  user: [
+    "fetchInferenceConfig",
+    "streamAgentChat",
+    "listOrganizationMembers"
+  ]
+};
+
+const roleActionSets: Record<UserRole, ReadonlySet<AuthzAction>> = {
+  admin: new Set(roleActionBindings.admin),
+  user: new Set(roleActionBindings.user)
+};
+
+export function authorizePrincipal(principal: Principal, action: AuthzAction) {
+  if (authenticatedActions.has(action)) {
+    return {
+      allowed: true as const,
+      action,
+      role: principal.role
+    };
+  }
+
+  if (!principal.organizationId || !principal.membershipId || !principal.role) {
+    throw new AuthError(
+      "organization_required",
+      "An active organization is required",
+      403
+    );
+  }
+
+  if (roleActionSets[principal.role].has(action)) {
+    return {
+      allowed: true as const,
+      action,
+      role: principal.role,
+      organizationId: principal.organizationId
+    };
+  }
+
+  throw new AuthError(
+    "permission_denied",
+    "You do not have permission to perform this action",
+    403
+  );
+}
+
+export async function registerAccount(
+  request: unknown,
+  meta: RequestMeta = {}
+) {
+  ensurePasswordAuthEnabled();
+  const body = normalizeRegisterRequest(request);
+  const db = getDb();
+
+  return db.transaction().execute(async (trx) => {
+    const existingUser = await trx
+      .selectFrom("users")
+      .select("id")
+      .where("email", "=", body.email)
+      .executeTakeFirst();
+
+    if (existingUser) {
+      throw new AuthError("email_in_use", "An account already exists for this email");
+    }
+
+    const now = new Date();
+    const passwordHash = await hashPassword(body.password);
+    const user = await trx
+      .insertInto("users")
+      .values({
+        email: body.email,
+        emailVerified: false,
+        displayName: body.displayName,
+        avatarUrl: null,
+        createdAt: now,
+        updatedAt: now
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    await trx
+      .insertInto("passwordCredentials")
+      .values({
+        userId: user.id,
+        passwordHash,
+        createdAt: now,
+        updatedAt: now
+      })
+      .execute();
+
+    await trx
+      .insertInto("authIdentities")
+      .values({
+        userId: user.id,
+        providerId: null,
+        providerKind: "password",
+        subject: user.email,
+        email: user.email,
+        claims: {},
+        createdAt: now,
+        updatedAt: now
+      })
+      .execute();
+
+    const organization = await trx
+      .insertInto("organizations")
+      .values({
+        name: body.organizationName,
+        slug: await nextOrganizationSlug(trx, body.organizationName),
+        createdAt: now,
+        updatedAt: now
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    const membership = await trx
+      .insertInto("organizationMemberships")
+      .values({
+        organizationId: organization.id,
+        userId: user.id,
+        role: "admin",
+        createdAt: now,
+        updatedAt: now
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    await recordAuditEvent(trx, {
+      organizationId: organization.id,
+      userId: user.id,
+      action: "auth.local_registered",
+      targetType: "user",
+      targetId: user.id,
+      metadata: {}
+    });
+
+    return {
+      emailVerificationRequired: true,
+      email: user.email
+    } satisfies EmailVerificationRequired;
+  });
+}
+
+export async function login(request: unknown, meta: RequestMeta = {}) {
+  ensurePasswordAuthEnabled();
+  const body = normalizeLoginRequest(request);
+  const db = getDb();
+
+  const user = await db
+    .selectFrom("users")
+    .innerJoin("passwordCredentials", "passwordCredentials.userId", "users.id")
+    .select([
+      "users.id",
+      "users.email",
+      "users.emailVerified",
+      "passwordCredentials.passwordHash"
+    ])
+    .where("users.email", "=", body.email)
+    .executeTakeFirst();
+
+  if (!user || !(await verifyPassword(body.password, user.passwordHash))) {
+    throw new AuthError("invalid_credentials", "Invalid email or password", 401);
+  }
+
+  assertEmailVerifiedForAccess(user.emailVerified);
+
+  const membershipQuery = db
+    .selectFrom("organizationMemberships")
+    .innerJoin(
+      "organizations",
+      "organizations.id",
+      "organizationMemberships.organizationId"
+    )
+    .select([
+      "organizationMemberships.id",
+      "organizationMemberships.organizationId",
+      "organizationMemberships.role"
+    ])
+    .where("organizationMemberships.userId", "=", user.id)
+    .orderBy("organizationMemberships.createdAt", "asc");
+
+  const membership = body.organizationId
+    ? await membershipQuery
+        .where("organizationMemberships.organizationId", "=", body.organizationId)
+        .executeTakeFirst()
+    : await membershipQuery.executeTakeFirst();
+
+  if (!membership && body.organizationId) {
+    throw new AuthError("membership_not_found", "No organization membership was found", 403);
+  }
+
+  await recordAuditEvent(db, {
+    organizationId: membership?.organizationId ?? null,
+    userId: user.id,
+    action: "auth.local_login",
+    targetType: "user",
+    targetId: user.id,
+    metadata: {}
+  });
+
+  const refreshSession = await createSession(db, {
+    userId: user.id,
+    organizationId: membership?.organizationId ?? null,
+    membershipId: membership?.id ?? null,
+    meta
+  });
+
+  return {
+    ...(await issueAccessSession(refreshSession)),
+    refreshToken: refreshSession.refreshToken
+  };
+}
+
+export async function refreshAccessSession(
+  refreshToken: string,
+  meta: RequestMeta = {}
+) {
+  const resolved = await resolveRefreshSession(refreshToken, meta);
+  if (!resolved) {
+    throw new AuthError("invalid_session", "Session is no longer valid", 401);
+  }
+
+  return issueAccessSession({
+    refreshToken,
+    session: resolved.session
+  });
+}
+
+export async function resolveAccessPrincipal(accessToken: string) {
+  try {
+    const claims = await verifyAccessToken(accessToken);
+    const session = await loadActiveSessionResponse(getDb(), claims.sid);
+    if (!session || !accessClaimsMatchSession(claims, session)) {
+      return undefined;
+    }
+
+    return {
+      principal: {
+        userId: session.user.id,
+        organizationId: session.organization?.id ?? null,
+        membershipId: session.membership?.id ?? null,
+        role: session.membership?.role ?? null,
+        sessionId: session.sessionId,
+        tokenId: claims.jti
+      },
+      session
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function accessClaimsMatchSession(
+  claims: AccessTokenClaims,
+  session: CurrentSession
+) {
+  return (
+    claims.sub === session.user.id &&
+    claims.sid === session.sessionId &&
+    claims.org === (session.organization?.id ?? null) &&
+    claims.mid === (session.membership?.id ?? null) &&
+    claims.role === (session.membership?.role ?? null) &&
+    claims.email === session.user.email &&
+    claims.email_verified === session.user.emailVerified &&
+    claims.name === session.user.displayName &&
+    claims.org_name === (session.organization?.name ?? "") &&
+    claims.session_created_at === session.createdAt &&
+    claims.session_expires_at === session.expiresAt
+  );
+}
+
+export async function resolveRefreshSession(
+  refreshToken: string,
+  meta: RequestMeta = {}
+) {
+  const db = getDb();
+  const tokenHash = await hashSecret(refreshToken);
+  const row = await db
+    .selectFrom("sessions")
+    .innerJoin("users", "users.id", "sessions.userId")
+    .leftJoin("organizations", "organizations.id", "sessions.organizationId")
+    .leftJoin(
+      "organizationMemberships",
+      "organizationMemberships.id",
+      "sessions.membershipId"
+    )
+    .select([
+      "sessions.id as sessionId",
+      "sessions.userId",
+      "sessions.organizationId",
+      "sessions.membershipId",
+      "sessions.createdAt",
+      "sessions.expiresAt",
+      "organizationMemberships.role",
+      "organizationMemberships.userId as membershipUserId",
+      "organizationMemberships.organizationId as membershipOrganizationId",
+      "users.email",
+      "users.emailVerified",
+      "users.displayName",
+      "organizations.name as organizationName"
+    ])
+    .where("sessions.tokenHash", "=", tokenHash)
+    .where("sessions.revokedAt", "is", null)
+    .where("sessions.expiresAt", ">", new Date())
+    .executeTakeFirst();
+
+  if (!row) {
+    return undefined;
+  }
+
+  if (!sessionRowIsUsable(row)) {
+    await revokeSessionId(db, row.sessionId);
+    return undefined;
+  }
+
+  await db
+    .updateTable("sessions")
+    .set({
+      lastUsedAt: new Date(),
+      userAgent: meta.userAgent ?? null,
+      ipHash: meta.ipAddress ? await hashSecret(meta.ipAddress) : null
+    })
+    .where("id", "=", row.sessionId)
+    .execute();
+
+  return {
+    principal: {
+      userId: row.userId,
+      organizationId: row.organizationId,
+      membershipId: row.membershipId,
+      role: row.role,
+      sessionId: row.sessionId
+    },
+    session: toSessionResponse(row)
+  };
+}
+
+export async function resolvePrincipal(
+  sessionToken: string,
+  meta: RequestMeta = {}
+) {
+  return resolveRefreshSession(sessionToken, meta);
+}
+
+export async function revokeSession(principal: Principal) {
+  await revokeSessionId(getDb(), principal.sessionId);
+
+  return { ok: true as const };
+}
+
+export async function revokeUserSessions(principal: Principal) {
+  await getDb()
+    .updateTable("sessions")
+    .set({ revokedAt: new Date() })
+    .where("userId", "=", principal.userId)
+    .where("revokedAt", "is", null)
+    .execute();
+
+  return { ok: true as const };
+}
+
+async function revokeSessionId(
+  db: Kysely<Database> | Transaction<Database>,
+  sessionId: string
+) {
+  await db
+    .updateTable("sessions")
+    .set({ revokedAt: new Date() })
+    .where("id", "=", sessionId)
+    .execute();
+}
+
+async function revokeMembershipSessions(
+  db: Kysely<Database> | Transaction<Database>,
+  membershipId: string
+) {
+  await db
+    .updateTable("sessions")
+    .set({ revokedAt: new Date() })
+    .where("membershipId", "=", membershipId)
+    .where("revokedAt", "is", null)
+    .execute();
+}
+
+export async function listOrganizations(principal: Principal) {
+  return {
+    activeOrganizationId: principal.organizationId,
+    organizations: await loadUserOrganizations(getDb(), principal.userId)
+  };
+}
+
+export async function switchOrganization(
+  principal: Principal,
+  request: unknown,
+  meta: RequestMeta = {}
+) {
+  const body = normalizeSwitchOrganizationRequest(request);
+  const db = getDb();
+  const membership = await db
+    .selectFrom("organizationMemberships")
+    .select(["id", "organizationId"])
+    .where("userId", "=", principal.userId)
+    .where("organizationId", "=", body.organizationId)
+    .executeTakeFirst();
+
+  if (!membership) {
+    throw new AuthError(
+      "membership_not_found",
+      "No membership was found for this organization",
+      403
+    );
+  }
+
+  await revokeSession(principal);
+  const refreshSession = await createSession(db, {
+    userId: principal.userId,
+    organizationId: membership.organizationId,
+    membershipId: membership.id,
+    meta
+  });
+
+  return {
+    ...(await issueAccessSession(refreshSession)),
+    refreshToken: refreshSession.refreshToken
+  };
+}
+
+export async function createOrganization(
+  principal: Principal,
+  request: unknown,
+  meta: RequestMeta = {}
+) {
+  const body = normalizeCreateOrganizationRequest(request);
+  const db = getDb();
+
+  return db.transaction().execute(async (trx) => {
+    const now = new Date();
+    const organization = await trx
+      .insertInto("organizations")
+      .values({
+        name: body.name,
+        slug: await nextOrganizationSlug(trx, body.name),
+        createdAt: now,
+        updatedAt: now
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    const membership = await trx
+      .insertInto("organizationMemberships")
+      .values({
+        organizationId: organization.id,
+        userId: principal.userId,
+        role: "admin",
+        createdAt: now,
+        updatedAt: now
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    await recordAuditEvent(trx, {
+      organizationId: organization.id,
+      userId: principal.userId,
+      action: "auth.organization_created",
+      targetType: "organization",
+      targetId: organization.id,
+      metadata: {
+        name: organization.name
+      }
+    });
+
+    await revokeSession(principal);
+    const refreshSession = await createSession(trx, {
+      userId: principal.userId,
+      organizationId: organization.id,
+      membershipId: membership.id,
+      meta
+    });
+
+    return {
+      ...(await issueAccessSession(refreshSession)),
+      refreshToken: refreshSession.refreshToken
+    };
+  });
+}
+
+export async function updateCurrentUser(
+  principal: Principal,
+  request: unknown
+) {
+  const body = normalizeUpdateCurrentUserRequest(request);
+  const db = getDb();
+  const now = new Date();
+
+  await db
+    .updateTable("users")
+    .set({
+      displayName: body.displayName,
+      updatedAt: now
+    })
+    .where("id", "=", principal.userId)
+    .execute();
+
+  await recordAuditEvent(db, {
+    organizationId: principal.organizationId,
+    userId: principal.userId,
+    action: "auth.user_updated",
+    targetType: "user",
+    targetId: principal.userId,
+    metadata: {
+      fields: ["displayName"]
+    }
+  });
+
+  return loadSessionResponse(db, principal.sessionId);
+}
+
+export async function updateCurrentOrganization(
+  principal: Principal,
+  request: unknown
+) {
+  assertCanManageOrganization(principal);
+  const organizationId = requireOrganizationId(principal);
+  const body = normalizeUpdateCurrentOrganizationRequest(request);
+  const db = getDb();
+  const now = new Date();
+
+  await db
+    .updateTable("organizations")
+    .set({
+      name: body.name,
+      updatedAt: now
+    })
+    .where("id", "=", organizationId)
+    .execute();
+
+  await recordAuditEvent(db, {
+    organizationId,
+    userId: principal.userId,
+    action: "auth.organization_updated",
+    targetType: "organization",
+    targetId: organizationId,
+    metadata: {
+      fields: ["name"]
+    }
+  });
+
+  return loadSessionResponse(db, principal.sessionId);
+}
+
+export async function deleteCurrentOrganization(
+  principal: Principal,
+  meta: RequestMeta = {}
+): Promise<DeleteCurrentOrganizationResponse> {
+  assertCanManageOrganization(principal);
+  const organizationId = requireOrganizationId(principal);
+  const db = getDb();
+
+  return db.transaction().execute(async (trx) => {
+    const organization = await trx
+      .selectFrom("organizations")
+      .select(["id", "name"])
+      .where("id", "=", organizationId)
+      .executeTakeFirstOrThrow();
+    const nextMembership = await trx
+      .selectFrom("organizationMemberships")
+      .select(["id", "organizationId"])
+      .where("userId", "=", principal.userId)
+      .where("organizationId", "!=", organizationId)
+      .orderBy("createdAt", "asc")
+      .executeTakeFirst();
+
+    await trx
+      .updateTable("sessions")
+      .set({ revokedAt: new Date() })
+      .where("id", "=", principal.sessionId)
+      .execute();
+
+    const nextSession = await createSession(trx, {
+      userId: principal.userId,
+      organizationId: nextMembership?.organizationId ?? null,
+      membershipId: nextMembership?.id ?? null,
+      meta
+    });
+
+    await trx
+      .deleteFrom("organizations")
+      .where("id", "=", organizationId)
+      .execute();
+
+    await recordAuditEvent(trx, {
+      organizationId: nextMembership?.organizationId ?? null,
+      userId: principal.userId,
+      action: "auth.organization_deleted",
+      targetType: "organization",
+      targetId: organization.id,
+      metadata: {
+        organizationId: organization.id,
+        name: organization.name
+      }
+    });
+
+    return {
+      requiresOrganization: !nextMembership,
+      nextSession: await issueAccessSession(nextSession),
+      refreshToken: nextSession.refreshToken
+    };
+  });
+}
+
+export async function listOrganizationMembers(principal: Principal) {
+  return loadOrganizationMembers(getDb(), requireOrganizationId(principal));
+}
+
+export async function updateOrganizationMemberRole(
+  principal: Principal,
+  request: unknown
+) {
+  assertCanManageOrganization(principal);
+  const organizationId = requireOrganizationId(principal);
+  const body = normalizeUpdateOrganizationMemberRoleRequest(request);
+  const db = getDb();
+
+  return db.transaction().execute(async (trx) => {
+    await lockOrganizationMemberships(trx, organizationId);
+    const targetMembership = await loadOrganizationMembership(
+      trx,
+      organizationId,
+      body.membershipId
+    );
+
+    if (!targetMembership) {
+      throw new AuthError(
+        "membership_not_found",
+        "No membership was found for this organization",
+        404
+      );
+    }
+
+    if (targetMembership.role === "admin" && body.role !== "admin") {
+      await assertOrganizationKeepsAdmin(trx, organizationId);
+    }
+
+    await trx
+      .updateTable("organizationMemberships")
+      .set({
+        role: body.role,
+        updatedAt: new Date()
+      })
+      .where("id", "=", body.membershipId)
+      .where("organizationId", "=", organizationId)
+      .execute();
+
+    await recordAuditEvent(trx, {
+      organizationId,
+      userId: principal.userId,
+      action: "auth.organization_member_role_updated",
+      targetType: "organization_membership",
+      targetId: body.membershipId,
+      metadata: {
+        role: body.role
+      }
+    });
+
+    return loadOrganizationMembers(trx, organizationId);
+  });
+}
+
+export async function removeOrganizationMember(
+  principal: Principal,
+  request: unknown
+) {
+  assertCanManageOrganization(principal);
+  const organizationId = requireOrganizationId(principal);
+  const body = normalizeRemoveOrganizationMemberRequest(request);
+  const db = getDb();
+
+  return db.transaction().execute(async (trx) => {
+    await lockOrganizationMemberships(trx, organizationId);
+    const targetMembership = await loadOrganizationMembership(
+      trx,
+      organizationId,
+      body.membershipId
+    );
+
+    if (!targetMembership) {
+      throw new AuthError(
+        "membership_not_found",
+        "No membership was found for this organization",
+        404
+      );
+    }
+
+    if (targetMembership.role === "admin") {
+      await assertOrganizationKeepsAdmin(trx, organizationId);
+    }
+
+    await revokeMembershipSessions(trx, body.membershipId);
+
+    await trx
+      .deleteFrom("organizationMemberships")
+      .where("id", "=", body.membershipId)
+      .where("organizationId", "=", organizationId)
+      .execute();
+
+    await recordAuditEvent(trx, {
+      organizationId,
+      userId: principal.userId,
+      action: "auth.organization_member_removed",
+      targetType: "organization_membership",
+      targetId: body.membershipId,
+      metadata: {}
+    });
+
+    return loadOrganizationMembers(trx, organizationId);
+  });
+}
+
+export async function createOrganizationInvite(
+  principal: Principal,
+  request: unknown
+) {
+  assertCanManageOrganization(principal);
+  const organizationId = requireOrganizationId(principal);
+  const body = normalizeCreateOrganizationInviteRequest(request);
+  const db = getDb();
+  const now = new Date();
+  const expiresAt = new Date(
+    now.getTime() + body.expiresInDays * 24 * 60 * 60 * 1000
+  );
+
+  const invite = await db
+    .insertInto("organizationInvites")
+    .values({
+      organizationId,
+      email: body.email,
+      role: body.role,
+      status: "pending",
+      invitedByUserId: principal.userId,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt,
+      respondedAt: null
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
+  await recordAuditEvent(db, {
+    organizationId,
+    userId: principal.userId,
+    action: "auth.organization_invite_created",
+    targetType: "organization_invite",
+    targetId: invite.id,
+    metadata: {
+      inviteId: invite.id,
+      email: invite.email,
+      role: invite.role,
+      expiresAt: invite.expiresAt.toISOString()
+    }
+  });
+
+  return {
+    invite: toInviteResponse(invite)
+  };
+}
+
+export async function listOrganizationInvites(principal: Principal) {
+  assertCanManageOrganization(principal);
+  const organizationId = requireOrganizationId(principal);
+  const invites = await getDb()
+    .selectFrom("organizationInvites")
+    .selectAll()
+    .where("organizationId", "=", organizationId)
+    .orderBy("createdAt", "desc")
+    .execute();
+
+  return {
+    invites: invites.map(toInviteResponse)
+  };
+}
+
+export async function verifyEmailAddress(email: string) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    throw new AuthError("invalid_email", "A valid email is required");
+  }
+
+  const db = getDb();
+  const user = await db
+    .updateTable("users")
+    .set({
+      emailVerified: true,
+      updatedAt: new Date()
+    })
+    .where("email", "=", normalizedEmail)
+    .returning(["id", "email", "emailVerified"])
+    .executeTakeFirst();
+
+  if (!user) {
+    throw new AuthError("user_not_found", "No user exists for this email", 404);
+  }
+
+  await recordAuditEvent(db, {
+    organizationId: null,
+    userId: user.id,
+    action: "auth.email_verified",
+    targetType: "user",
+    targetId: user.id,
+    metadata: {
+      email: user.email,
+      method: "local_simulation"
+    }
+  });
+
+  return {
+    email: user.email,
+    emailVerified: user.emailVerified
+  };
+}
+
+export function bearerToken(request: Request) {
+  const authorization = request.headers.get("authorization");
+  const match = authorization?.match(/^Bearer\s+(.+)$/i);
+  return match?.[1];
+}
+
+function ensurePasswordAuthEnabled() {
+  if (!passwordAuthEnabled) {
+    throw new AuthError(
+      "password_auth_disabled",
+      "Email/password auth is disabled",
+      403
+    );
+  }
+}
+
+function assertEmailVerifiedForAccess(emailVerified: boolean) {
+  if (!emailVerified) {
+    throw new AuthError(
+      "email_not_verified",
+      "Verify your email before signing in",
+      403
+    );
+  }
+}
+
+function assertCanManageOrganization(principal: Principal) {
+  if (principal.role !== "admin") {
+    throw new AuthError(
+      "insufficient_role",
+      "Only organization admins can manage organization settings",
+      403
+    );
+  }
+}
+
+function requireOrganizationId(principal: Principal) {
+  if (!principal.organizationId) {
+    throw new AuthError(
+      "organization_required",
+      "An active organization is required",
+      403
+    );
+  }
+
+  return principal.organizationId;
+}
+
+export function authAssertionEmailVerified(assertion: AuthAssertion) {
+  if (assertion.emailVerified) {
+    return true;
+  }
+
+  const issuer = typeof assertion.claims.iss === "string" ? assertion.claims.iss : "";
+  return (
+    (assertion.kind === "oauth" || assertion.kind === "oidc") &&
+    Boolean(assertion.email) &&
+    (issuer === "https://accounts.google.com" ||
+      issuer === "accounts.google.com")
+  );
+}
+
+function normalizeRegisterRequest(request: unknown): NormalizedRegisterAccountRequest {
+  const candidate = objectRequest(request);
+  const email = normalizeEmail(candidate.email);
+  const password = typeof candidate.password === "string" ? candidate.password : "";
+  const displayName =
+    typeof candidate.displayName === "string" && candidate.displayName.trim()
+      ? candidate.displayName.trim()
+      : email.split("@")[0];
+  const organizationName =
+    typeof candidate.organizationName === "string" && candidate.organizationName.trim()
+      ? candidate.organizationName.trim()
+      : `${displayName}'s organization`;
+
+  if (!email) {
+    throw new AuthError("invalid_email", "A valid email is required");
+  }
+
+  if (password.length < 8) {
+    throw new AuthError(
+      "invalid_password",
+      "Password must be at least 8 characters"
+    );
+  }
+
+  return {
+    email,
+    password,
+    displayName,
+    organizationName
+  };
+}
+
+function normalizeUpdateCurrentUserRequest(
+  request: unknown
+): UpdateCurrentUserRequest {
+  const candidate = objectRequest(request);
+  const displayName =
+    typeof candidate.displayName === "string" ? candidate.displayName.trim() : "";
+
+  if (!displayName) {
+    throw new AuthError("invalid_display_name", "Display name is required");
+  }
+
+  if (displayName.length > 120) {
+    throw new AuthError(
+      "invalid_display_name",
+      "Display name must be 120 characters or fewer"
+    );
+  }
+
+  return {
+    displayName
+  };
+}
+
+function normalizeCreateOrganizationRequest(
+  request: unknown
+): CreateOrganizationRequest {
+  const candidate = objectRequest(request);
+  const name = normalizeOrganizationName(candidate.name);
+
+  return {
+    name
+  };
+}
+
+function normalizeSwitchOrganizationRequest(
+  request: unknown
+): SwitchOrganizationRequest {
+  const candidate = objectRequest(request);
+  const organizationId =
+    typeof candidate.organizationId === "string"
+      ? candidate.organizationId.trim()
+      : "";
+
+  if (!organizationId) {
+    throw new AuthError("invalid_organization", "Organization is required");
+  }
+
+  return {
+    organizationId
+  };
+}
+
+function normalizeUpdateCurrentOrganizationRequest(
+  request: unknown
+): UpdateCurrentOrganizationRequest {
+  const candidate = objectRequest(request);
+  const name = normalizeOrganizationName(candidate.name);
+
+  return {
+    name
+  };
+}
+
+function normalizeUpdateOrganizationMemberRoleRequest(
+  request: unknown
+): UpdateOrganizationMemberRoleRequest {
+  const candidate = objectRequest(request);
+  const membershipId =
+    typeof candidate.membershipId === "string" ? candidate.membershipId.trim() : "";
+  const role = normalizeUserRole(candidate.role);
+
+  if (!membershipId) {
+    throw new AuthError("invalid_membership", "Membership is required");
+  }
+
+  return {
+    membershipId,
+    role
+  };
+}
+
+function normalizeRemoveOrganizationMemberRequest(
+  request: unknown
+): RemoveOrganizationMemberRequest {
+  const candidate = objectRequest(request);
+  const membershipId =
+    typeof candidate.membershipId === "string" ? candidate.membershipId.trim() : "";
+
+  if (!membershipId) {
+    throw new AuthError("invalid_membership", "Membership is required");
+  }
+
+  return {
+    membershipId
+  };
+}
+
+function normalizeCreateOrganizationInviteRequest(
+  request: unknown
+): Required<CreateOrganizationInviteRequest> {
+  const candidate = objectRequest(request);
+  const email = normalizeEmail(candidate.email);
+  const role = normalizeUserRole(candidate.role);
+  const expiresInDays =
+    typeof candidate.expiresInDays === "number" &&
+    Number.isFinite(candidate.expiresInDays)
+      ? Math.max(1, Math.min(Math.floor(candidate.expiresInDays), 90))
+      : 14;
+
+  if (!email) {
+    throw new AuthError("invalid_email", "A valid email is required");
+  }
+
+  return {
+    email,
+    role,
+    expiresInDays
+  };
+}
+
+function normalizeOrganizationName(value: unknown) {
+  const name = typeof value === "string" ? value.trim() : "";
+
+  if (!name) {
+    throw new AuthError("invalid_organization_name", "Organization name is required");
+  }
+
+  if (name.length > 160) {
+    throw new AuthError(
+      "invalid_organization_name",
+      "Organization name must be 160 characters or fewer"
+    );
+  }
+
+  return name;
+}
+
+function normalizeUserRole(value: unknown): UserRole {
+  if (value === "admin" || value === "user") {
+    return value;
+  }
+
+  throw new AuthError("invalid_role", "Role must be admin or user");
+}
+
+function normalizeLoginRequest(request: unknown): LoginRequest {
+  const candidate = objectRequest(request);
+  const email = normalizeEmail(candidate.email);
+  const password = typeof candidate.password === "string" ? candidate.password : "";
+  const organizationId =
+    typeof candidate.organizationId === "string" && candidate.organizationId
+      ? candidate.organizationId
+      : undefined;
+
+  if (!email || !password) {
+    throw new AuthError("invalid_login", "Email and password are required");
+  }
+
+  return {
+    email,
+    password,
+    organizationId
+  };
+}
+
+function objectRequest(request: unknown) {
+  if (!request || typeof request !== "object") {
+    throw new AuthError("invalid_request", "Invalid auth request");
+  }
+
+  return request as Record<string, unknown>;
+}
+
+function normalizeEmail(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const email = value.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+async function nextOrganizationSlug(
+  db: Kysely<Database> | Transaction<Database>,
+  organizationName: string
+) {
+  const base = slugify(organizationName) || "organization";
+
+  for (let index = 0; index < 100; index += 1) {
+    const slug = index === 0 ? base : `${base}-${index + 1}`;
+    const existing = await db
+      .selectFrom("organizations")
+      .select("id")
+      .where("slug", "=", slug)
+      .executeTakeFirst();
+
+    if (!existing) {
+      return slug;
+    }
+  }
+
+  return `${base}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
+}
+
+async function loadUserOrganizations(
+  db: Kysely<Database> | Transaction<Database>,
+  userId: string
+) {
+  const rows = await db
+    .selectFrom("organizationMemberships")
+    .innerJoin(
+      "organizations",
+      "organizations.id",
+      "organizationMemberships.organizationId"
+    )
+    .select([
+      "organizations.id",
+      "organizations.name",
+      "organizationMemberships.role"
+    ])
+    .where("organizationMemberships.userId", "=", userId)
+    .orderBy("organizationMemberships.createdAt", "asc")
+    .execute();
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    role: row.role
+  })) satisfies OrganizationSummary[];
+}
+
+async function loadOrganizationMembers(
+  db: Kysely<Database> | Transaction<Database>,
+  organizationId: string
+) {
+  const members = await db
+    .selectFrom("organizationMemberships")
+    .innerJoin("users", "users.id", "organizationMemberships.userId")
+    .select([
+      "organizationMemberships.id as membershipId",
+      "organizationMemberships.userId",
+      "organizationMemberships.role",
+      "users.email",
+      "users.displayName"
+    ])
+    .where("organizationMemberships.organizationId", "=", organizationId)
+    .orderBy("organizationMemberships.createdAt", "asc")
+    .execute();
+
+  return {
+    members
+  };
+}
+
+async function lockOrganizationMemberships(
+  db: Transaction<Database>,
+  organizationId: string
+) {
+  await sql`
+    select id
+    from organization_memberships
+    where organization_id = ${organizationId}
+    for update
+  `.execute(db);
+}
+
+async function loadOrganizationMembership(
+  db: Transaction<Database>,
+  organizationId: string,
+  membershipId: string
+) {
+  return db
+    .selectFrom("organizationMemberships")
+    .select(["id", "role"])
+    .where("id", "=", membershipId)
+    .where("organizationId", "=", organizationId)
+    .executeTakeFirst();
+}
+
+async function assertOrganizationKeepsAdmin(
+  db: Transaction<Database>,
+  organizationId: string
+) {
+  const adminCount = await countOrganizationAdmins(db, organizationId);
+  if (adminCount <= 1) {
+    throw new AuthError(
+      "cannot_remove_last_admin",
+      "Every organization must have at least one admin",
+      400
+    );
+  }
+}
+
+async function countOrganizationAdmins(
+  db: Transaction<Database>,
+  organizationId: string
+) {
+  const result = await sql<{ admin_count: number }>`
+    select count(*)::int as admin_count
+    from organization_memberships
+    where organization_id = ${organizationId}
+      and role = 'admin'
+  `.execute(db);
+
+  return result.rows[0]?.admin_count ?? 0;
+}
+
+function toInviteResponse(invite: {
+  id: string;
+  email: string;
+  role: UserRole;
+  status: "pending" | "accepted" | "declined";
+  invitedByUserId: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+  respondedAt: Date | null;
+}) {
+  return {
+    id: invite.id,
+    email: invite.email,
+    role: invite.role,
+    status: invite.status,
+    invitedByUserId: invite.invitedByUserId,
+    createdAt: invite.createdAt.toISOString(),
+    expiresAt: invite.expiresAt.toISOString(),
+    respondedAt: invite.respondedAt?.toISOString() ?? null
+  };
+}
+
+async function createSession(
+  db: Kysely<Database> | Transaction<Database>,
+  options: {
+    userId: string;
+    organizationId: string | null;
+    membershipId: string | null;
+    meta: RequestMeta;
+  }
+) {
+  const user = await db
+    .selectFrom("users")
+    .select(["emailVerified"])
+    .where("id", "=", options.userId)
+    .executeTakeFirstOrThrow();
+  assertEmailVerifiedForAccess(user.emailVerified);
+
+  const refreshToken = randomToken();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + sessionTtlMs);
+  const tokenHash = await hashSecret(refreshToken);
+  const ipHash = options.meta.ipAddress
+    ? await hashSecret(options.meta.ipAddress)
+    : null;
+
+  const row = await db
+    .insertInto("sessions")
+    .values({
+      userId: options.userId,
+      organizationId: options.organizationId,
+      membershipId: options.membershipId,
+      tokenHash,
+      userAgent: options.meta.userAgent ?? null,
+      ipHash,
+      createdAt: now,
+      lastUsedAt: now,
+      expiresAt,
+      revokedAt: null
+    })
+    .returning("id")
+    .executeTakeFirstOrThrow();
+
+  const session = await loadSessionResponse(db, row.id);
+  return {
+    refreshToken,
+    session
+  } satisfies RefreshSession;
+}
+
+async function loadSessionResponse(
+  db: Kysely<Database> | Transaction<Database>,
+  sessionId: string
+) {
+  const row = await db
+    .selectFrom("sessions")
+    .innerJoin("users", "users.id", "sessions.userId")
+    .leftJoin("organizations", "organizations.id", "sessions.organizationId")
+    .leftJoin(
+      "organizationMemberships",
+      "organizationMemberships.id",
+      "sessions.membershipId"
+    )
+    .select([
+      "sessions.id as sessionId",
+      "sessions.userId",
+      "sessions.organizationId",
+      "sessions.membershipId",
+      "sessions.createdAt",
+      "sessions.expiresAt",
+      "organizationMemberships.role",
+      "users.email",
+      "users.emailVerified",
+      "users.displayName",
+      "organizations.name as organizationName"
+    ])
+    .where("sessions.id", "=", sessionId)
+    .executeTakeFirstOrThrow();
+
+  return toSessionResponse(row);
+}
+
+async function loadActiveSessionResponse(
+  db: Kysely<Database> | Transaction<Database>,
+  sessionId: string
+) {
+  const row = await db
+    .selectFrom("sessions")
+    .innerJoin("users", "users.id", "sessions.userId")
+    .leftJoin("organizations", "organizations.id", "sessions.organizationId")
+    .leftJoin(
+      "organizationMemberships",
+      "organizationMemberships.id",
+      "sessions.membershipId"
+    )
+    .select([
+      "sessions.id as sessionId",
+      "sessions.userId",
+      "sessions.organizationId",
+      "sessions.membershipId",
+      "sessions.createdAt",
+      "sessions.expiresAt",
+      "organizationMemberships.role",
+      "organizationMemberships.userId as membershipUserId",
+      "organizationMemberships.organizationId as membershipOrganizationId",
+      "users.email",
+      "users.emailVerified",
+      "users.displayName",
+      "organizations.name as organizationName"
+    ])
+    .where("sessions.id", "=", sessionId)
+    .where("sessions.revokedAt", "is", null)
+    .where("sessions.expiresAt", ">", new Date())
+    .executeTakeFirst();
+
+  if (!row || !sessionRowIsUsable(row)) {
+    return undefined;
+  }
+
+  return toSessionResponse(row);
+}
+
+function sessionRowIsUsable(row: {
+  userId: string;
+  emailVerified: boolean;
+  organizationId: string | null;
+  organizationName: string | null;
+  membershipId: string | null;
+  membershipUserId?: string | null;
+  membershipOrganizationId?: string | null;
+  role: UserRole | null;
+}) {
+  if (!row.emailVerified) {
+    return false;
+  }
+
+  if (!row.organizationId) {
+    return !row.organizationName && !row.membershipId && !row.role;
+  }
+
+  return (
+    Boolean(row.organizationName) &&
+    Boolean(row.membershipId) &&
+    row.membershipUserId === row.userId &&
+    row.membershipOrganizationId === row.organizationId &&
+    Boolean(row.role)
+  );
+}
+
+function toSessionResponse(row: {
+  sessionId: string;
+  userId: string;
+  email: string;
+  emailVerified: boolean;
+  displayName: string;
+  organizationId: string | null;
+  organizationName: string | null;
+  membershipId: string | null;
+  role: UserRole | null;
+  createdAt: Date;
+  expiresAt: Date;
+}) {
+  return {
+    sessionId: row.sessionId,
+    user: {
+      id: row.userId,
+      email: row.email,
+      emailVerified: row.emailVerified,
+      displayName: row.displayName
+    },
+    organization:
+      row.organizationId && row.organizationName
+        ? {
+            id: row.organizationId,
+            name: row.organizationName
+          }
+        : null,
+    membership:
+      row.membershipId && row.role
+        ? {
+            id: row.membershipId,
+            role: row.role
+          }
+        : null,
+    createdAt: row.createdAt.toISOString(),
+    expiresAt: row.expiresAt.toISOString()
+  };
+}
+
+async function issueAccessSession(refreshSession: RefreshSession): Promise<AccessSession> {
+  const now = new Date();
+  const accessTokenExpiresAt = new Date(now.getTime() + accessTokenTtlMs);
+  const accessToken = await signAccessToken({
+    iss: jwtIssuer,
+    aud: jwtAudience,
+    sub: refreshSession.session.user.id,
+    sid: sessionIdFromRefreshSession(refreshSession.session),
+    org: refreshSession.session.organization?.id ?? null,
+    mid: refreshSession.session.membership?.id ?? null,
+    role: refreshSession.session.membership?.role ?? null,
+    email: refreshSession.session.user.email,
+    email_verified: refreshSession.session.user.emailVerified,
+    name: refreshSession.session.user.displayName,
+    org_name: refreshSession.session.organization?.name ?? "",
+    session_created_at: refreshSession.session.createdAt,
+    session_expires_at: refreshSession.session.expiresAt,
+    iat: Math.floor(now.getTime() / 1000),
+    exp: Math.floor(accessTokenExpiresAt.getTime() / 1000),
+    jti: crypto.randomUUID()
+  });
+
+  return {
+    accessToken,
+    accessTokenExpiresAt: accessTokenExpiresAt.toISOString(),
+    session: refreshSession.session
+  };
+}
+
+function sessionIdFromRefreshSession(session: CurrentSession) {
+  return session.sessionId;
+}
+
+async function signAccessToken(claims: AccessTokenClaims) {
+  const header = {
+    alg: "RS256",
+    typ: "JWT"
+  };
+  const signingInput = [
+    base64UrlEncode(JSON.stringify(header)),
+    base64UrlEncode(JSON.stringify(claims))
+  ].join(".");
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    await jwtPrivateKey(),
+    new TextEncoder().encode(signingInput)
+  );
+
+  return `${signingInput}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
+async function verifyAccessToken(token: string): Promise<AccessTokenClaims> {
+  const [encodedHeader, encodedClaims, encodedSignature] = token.split(".");
+  if (!encodedHeader || !encodedClaims || !encodedSignature) {
+    throw new AuthError("invalid_access_token", "Invalid access token", 401);
+  }
+
+  const header = parseJson(base64UrlDecode(encodedHeader));
+  if (header.alg !== "RS256" || header.typ !== "JWT") {
+    throw new AuthError("invalid_access_token", "Invalid access token", 401);
+  }
+
+  const signingInput = `${encodedHeader}.${encodedClaims}`;
+  const verified = await crypto.subtle.verify(
+    "RSASSA-PKCS1-v1_5",
+    await jwtPublicKey(),
+    base64UrlDecodeBytes(encodedSignature),
+    new TextEncoder().encode(signingInput)
+  );
+  if (!verified) {
+    throw new AuthError("invalid_access_token", "Invalid access token", 401);
+  }
+
+  const claims = parseAccessClaims(parseJson(base64UrlDecode(encodedClaims)));
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.iss !== jwtIssuer || claims.aud !== jwtAudience || claims.exp <= now) {
+    throw new AuthError("invalid_access_token", "Invalid access token", 401);
+  }
+
+  return claims;
+}
+
+let cachedPrivateKey: Promise<CryptoKey> | undefined;
+let cachedPublicKey: Promise<CryptoKey> | undefined;
+
+function jwtPrivateKey() {
+  cachedPrivateKey ??= crypto.subtle.importKey(
+    "pkcs8",
+    pemToDer(requiredJwtKey("LUSH_AUTH_JWT_PRIVATE_KEY")),
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: "SHA-256"
+    },
+    false,
+    ["sign"]
+  );
+  return cachedPrivateKey;
+}
+
+function jwtPublicKey() {
+  cachedPublicKey ??= crypto.subtle.importKey(
+    "spki",
+    pemToDer(requiredJwtKey("LUSH_AUTH_JWT_PUBLIC_KEY")),
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: "SHA-256"
+    },
+    false,
+    ["verify"]
+  );
+  return cachedPublicKey;
+}
+
+function requiredJwtKey(name: string) {
+  try {
+    return requiredEnvValue(name).replace(/\\n/g, "\n");
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      throw new AuthError(
+        "auth_key_missing",
+        `${name} is required for access token signing`,
+        500
+      );
+    }
+
+    throw error;
+  }
+}
+
+function pemToDer(pem: string) {
+  const base64 = pem
+    .replace(/-----BEGIN [^-]+-----/g, "")
+    .replace(/-----END [^-]+-----/g, "")
+    .replace(/\s+/g, "");
+  return bytesToArrayBuffer(base64DecodeBytes(base64));
+}
+
+function parseJson(value: string) {
+  try {
+    return JSON.parse(value) as Record<string, unknown>;
+  } catch {
+    throw new AuthError(
+      "invalid_access_token",
+      "Invalid access token",
+      401
+    );
+  }
+}
+
+function parseAccessClaims(value: Record<string, unknown>): AccessTokenClaims {
+  if (
+    typeof value.iss !== "string" ||
+    typeof value.aud !== "string" ||
+    typeof value.sub !== "string" ||
+    typeof value.sid !== "string" ||
+    (typeof value.org !== "string" && value.org !== null) ||
+    (typeof value.mid !== "string" && value.mid !== null) ||
+    (!isUserRole(value.role) && value.role !== null) ||
+    typeof value.email !== "string" ||
+    typeof value.email_verified !== "boolean" ||
+    typeof value.name !== "string" ||
+    typeof value.org_name !== "string" ||
+    typeof value.session_created_at !== "string" ||
+    typeof value.session_expires_at !== "string" ||
+    typeof value.iat !== "number" ||
+    typeof value.exp !== "number" ||
+    typeof value.jti !== "string"
+  ) {
+    throw new AuthError("invalid_access_token", "Invalid access token", 401);
+  }
+
+  return value as AccessTokenClaims;
+}
+
+function isUserRole(value: unknown): value is UserRole {
+  return value === "admin" || value === "user";
+}
+
+function base64UrlEncode(value: string | Uint8Array) {
+  const bytes =
+    typeof value === "string" ? new TextEncoder().encode(value) : value;
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function base64UrlDecode(value: string) {
+  return new TextDecoder().decode(base64UrlDecodeBytes(value));
+}
+
+function base64UrlDecodeBytes(value: string) {
+  return base64DecodeBytes(
+    value.replace(/-/g, "+").replace(/_/g, "/")
+  );
+}
+
+function base64DecodeBytes(value: string) {
+  const padded = value.padEnd(value.length + ((4 - (value.length % 4)) % 4), "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+async function recordAuditEvent(
+  db: Kysely<Database> | Transaction<Database>,
+  event: {
+    organizationId: string | null;
+    userId: string | null;
+    action: string;
+    targetType: string | null;
+    targetId: string | null;
+    metadata: Record<string, unknown>;
+  }
+) {
+  await db
+    .insertInto("auditEvents")
+    .values({
+      organizationId: event.organizationId,
+      userId: event.userId,
+      sessionId: null,
+      action: event.action,
+      targetType: event.targetType,
+      targetId: event.targetId,
+      metadata: event.metadata,
+      createdAt: new Date()
+    })
+    .execute();
+}
+
+async function hashSecret(value: string) {
+  const bytes = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value)
+  );
+  return [...new Uint8Array(bytes)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function randomToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashPassword(password: string) {
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  const iterations = 210_000;
+  const derived = await derivePassword(password, salt, iterations);
+
+  return [
+    "pbkdf2-sha256",
+    iterations.toString(),
+    bytesToHex(salt),
+    bytesToHex(derived)
+  ].join("$");
+}
+
+async function verifyPassword(password: string, passwordHash: string) {
+  const [algorithm, iterationsValue, saltValue, hashValue] = passwordHash.split("$");
+  if (algorithm !== "pbkdf2-sha256" || !iterationsValue || !saltValue || !hashValue) {
+    return false;
+  }
+
+  const iterations = Number(iterationsValue);
+  if (!Number.isInteger(iterations) || iterations <= 0) {
+    return false;
+  }
+
+  const expected = hexToBytes(hashValue);
+  const actual = await derivePassword(password, hexToBytes(saltValue), iterations);
+  return timingSafeEqual(actual, expected);
+}
+
+async function derivePassword(
+  password: string,
+  salt: Uint8Array,
+  iterations: number
+) {
+  const material = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt: bytesToArrayBuffer(salt),
+      iterations
+    },
+    material,
+    256
+  );
+
+  return new Uint8Array(bits);
+}
+
+function timingSafeEqual(left: Uint8Array, right: Uint8Array) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  let result = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    result |= left[index] ^ right[index];
+  }
+
+  return result === 0;
+}
+
+function bytesToHex(bytes: Uint8Array) {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesToArrayBuffer(bytes: Uint8Array) {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  ) as ArrayBuffer;
+}
+
+function hexToBytes(value: string) {
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}

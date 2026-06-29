@@ -1,0 +1,77 @@
+---
+title: Concepts
+description: Core service and product concepts in Lush.
+---
+
+These concepts map to the main product surfaces, service boundaries, and shared
+runtime responsibilities in Lush.
+
+## API
+
+Single entry point for apps and integrations.
+
+The API keeps the product surface simple by authenticating requests, applying
+cross-cutting policy, and routing work to the right backend boundary.
+
+## Sessions
+
+Shared conversations and active work contexts.
+
+Sessions own threads, messages, and active work state so the same interaction
+can move across desktop, web, mobile, and team chat.
+
+## Agents
+
+Agent execution and sandbox orchestration.
+
+The agents boundary manages execution contexts, hosted sandboxes, and local
+development subprocesses behind one control-plane interface.
+
+## Inference
+
+Model routing across providers.
+
+Inference owns provider selection, model pinning, failover behavior, and
+request mediation across interchangeable model backends.
+
+## Tools
+
+Scoped access to MCP, OpenAPI, and tool systems.
+
+Tools mediate external capabilities so models receive narrow, governed access
+instead of raw URLs, credentials, or provider-specific details.
+
+## Skills
+
+Publish, resolve, and load agent skills.
+
+Skills are the runtime layer for discovering and loading agent capabilities.
+The shared skill catalog package keeps the reusable metadata primitives.
+
+## Memory
+
+Portable scoped memory across indexes.
+
+Memory separates observed facts from derived memories and applies scoped access
+controls across relational, graph, and vector-backed stores.
+
+## Scheduler
+
+Deferred actions, loops, and wakeups.
+
+Scheduler owns durable timing for reminders, recurring loops, retry/backoff
+state, and waking agents when work becomes due.
+
+## Artifacts
+
+Files, uploads, and generated work products.
+
+Artifacts track durable outputs such as uploaded files, generated assets, code
+results, storage references, and lifecycle policy.
+
+## Team Chat
+
+Slack, Teams, and Discord integration boundary.
+
+Team Chat exposes Lush workflows inside collaboration platforms while keeping
+platform-specific adapters behind one service interface.

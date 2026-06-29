@@ -1,0 +1,15 @@
+---
+title: Auth
+description: Authentication, refresh, session, and logout route group.
+---
+
+import spec from "../../../generated/openapi/auth.json";
+import { OpenApiRouteGroup } from "../../../components/openapi-route-group";
+
+Lush splits durable session state from request authorization. The refresh token
+is stored only in an HttpOnly cookie, while login and refresh return a
+short-lived access JWT. Browser clients cache that access JWT in tab-scoped
+`sessionStorage` and send it as `Authorization: Bearer ...` on protected API
+requests.
+
+<OpenApiRouteGroup spec={spec} />

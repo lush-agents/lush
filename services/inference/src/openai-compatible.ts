@@ -6,109 +6,22 @@ export type ChatMessage = {
 };
 
 export type ProviderConfig = {
-  provider: string;
   endpoint: string;
   apiKey?: string;
   model: string;
 };
 
-type ProviderId = "fireworks" | "baseten";
-
-type ModelSelection = {
-  provider: ProviderId;
-  model: string;
-};
-
-const providerCatalog: Array<{
-  id: ProviderId;
+export type DiscoveredModel = {
+  id: string;
   label: string;
-  endpoint: string;
-  models: Array<{
-    id: string;
-    label: string;
-  }>;
-}> = [
-  {
-    id: "fireworks",
-    label: "Fireworks",
-    endpoint: "https://api.fireworks.ai/inference/v1/chat/completions",
-    models: [
-      {
-        id: "glm-5.2",
-        label: "GLM 5.2"
-      },
-      {
-        id: "accounts/fireworks/models/deepseek-v3",
-        label: "DeepSeek V3"
-      },
-      {
-        id: "accounts/fireworks/models/qwen3-235b-a22b",
-        label: "Qwen3 235B A22B"
-      }
-    ]
-  },
-  {
-    id: "baseten",
-    label: "Baseten",
-    endpoint: "https://inference.baseten.co/v1/chat/completions",
-    models: [
-      {
-        id: "glm-5.2",
-        label: "GLM 5.2"
-      },
-      {
-        id: "deepseek-v3",
-        label: "DeepSeek V3"
-      },
-      {
-        id: "qwen3-coder",
-        label: "Qwen3 Coder"
-      }
-    ]
-  }
-];
-
-export function getProviderConfig(selection?: string): ProviderConfig {
-  const parsedSelection = parseModelSelection(selection);
-  const provider = parsedSelection?.provider ?? getDefaultProvider();
-  const endpoint =
-    process.env.LUSH_INFERENCE_ENDPOINT ??
-    providerCatalog.find((candidate) => candidate.id === provider)?.endpoint ??
-    providerCatalog[0].endpoint;
-
-  return {
-    provider,
-    endpoint,
-    apiKey: getProviderApiKey(provider),
-    model: parsedSelection?.model ?? process.env.LUSH_INFERENCE_MODEL ?? "glm-5.2"
-  };
-}
-
-export function getProviderStatus() {
-  return {
-    providers: providerCatalog.map((provider) => ({
-      id: provider.id,
-      label: provider.label,
-      configured: Boolean(getProviderApiKey(provider.id)),
-      endpoint:
-        process.env.LUSH_INFERENCE_ENDPOINT && provider.id === getDefaultProvider()
-          ? process.env.LUSH_INFERENCE_ENDPOINT
-          : provider.endpoint,
-      models: provider.models
-    }))
-  };
-}
+  enabled: boolean;
+};
 
 export async function* streamOpenAICompatibleChat(
   config: ProviderConfig,
   messages: ChatMessage[],
   signal: AbortSignal
 ): AsyncGenerator<string> {
-  if (!config.apiKey) {
-    yield* streamDevelopmentFallback(messages, signal);
-    return;
-  }
-
   const response = await fetch(config.endpoint, {
     method: "POST",
     headers: {
@@ -154,53 +67,6 @@ export async function* streamOpenAICompatibleChat(
   }
 }
 
-function getDefaultProvider(): ProviderId {
-  return process.env.LUSH_INFERENCE_PROVIDER === "baseten"
-    ? "baseten"
-    : "fireworks";
-}
-
-function getProviderApiKey(provider: ProviderId) {
-  if (provider === "fireworks") {
-    return (
-      process.env.FIREWORKS_API_KEY ??
-      (getDefaultProvider() === "fireworks"
-        ? process.env.LUSH_INFERENCE_API_KEY
-        : undefined)
-    );
-  }
-
-  return (
-    process.env.BASETEN_API_KEY ??
-    (getDefaultProvider() === "baseten"
-      ? process.env.LUSH_INFERENCE_API_KEY
-      : undefined)
-  );
-}
-
-function parseModelSelection(selection?: string): ModelSelection | undefined {
-  if (!selection) {
-    return undefined;
-  }
-
-  const [provider, ...modelParts] = selection.split(":");
-  const model = modelParts.join(":");
-
-  if ((provider !== "fireworks" && provider !== "baseten") || !model) {
-    return undefined;
-  }
-
-  const providerConfig = providerCatalog.find((candidate) => candidate.id === provider);
-  if (!providerConfig?.models.some((candidate) => candidate.id === model)) {
-    return undefined;
-  }
-
-  return {
-    provider,
-    model
-  };
-}
-
 function parseStreamLine(line: string) {
   const trimmed = line.trim();
 
@@ -222,27 +88,71 @@ function parseStreamLine(line: string) {
   }
 }
 
-async function* streamDevelopmentFallback(
-  messages: ChatMessage[],
-  signal: AbortSignal
-) {
-  const lastUserMessage =
-    [...messages].reverse().find((message) => message.role === "user")?.content ??
-    "";
-  const text = [
-    "I am running in local development fallback mode because no provider API key is configured.",
-    "",
-    "The Lush inference service is wired for streaming chat. Configure `LUSH_INFERENCE_API_KEY` and `LUSH_INFERENCE_ENDPOINT` to call the model provider directly.",
-    "",
-    lastUserMessage ? `You said: ${lastUserMessage}` : ""
-  ].join("\n");
-
-  for (const token of text.split(/(\s+)/)) {
-    if (signal.aborted) {
-      return;
+export async function discoverOpenAICompatibleModels(provider: {
+  baseUrl: string;
+  apiKey: string;
+}) {
+  const response = await fetch(`${provider.baseUrl}/models`, {
+    headers: {
+      authorization: `Bearer ${provider.apiKey}`
     }
+  });
 
-    yield token;
-    await Bun.sleep(18);
+  return parseModelDiscoveryResponse(response);
+}
+
+export async function parseModelDiscoveryResponse(response: Response) {
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `Model discovery failed with ${response.status}: ${text || response.statusText}`
+    );
   }
+
+  const body = await response.json().catch(() => undefined);
+  const data =
+    body && typeof body === "object" && Array.isArray((body as { data?: unknown }).data)
+      ? (body as { data: unknown[] }).data
+      : [];
+  const models = data
+    .map((model) => normalizeDiscoveredModel(model))
+    .filter((model): model is DiscoveredModel => Boolean(model));
+
+  if (models.length === 0) {
+    throw new Error("No models were returned by the provider.");
+  }
+
+  const likelyChatModels = models.filter((model) => isLikelyChatModel(model.id));
+  return likelyChatModels.length > 0 ? likelyChatModels : models;
+}
+
+function normalizeDiscoveredModel(model: unknown) {
+  if (!model || typeof model !== "object") {
+    return undefined;
+  }
+
+  const candidate = model as Record<string, unknown>;
+  const id = candidate.id;
+  if (typeof id !== "string" || !id) {
+    return undefined;
+  }
+
+  const label =
+    typeof candidate.display_name === "string"
+      ? candidate.display_name
+      : typeof candidate.name === "string"
+        ? candidate.name
+        : id;
+
+  return {
+    id,
+    label,
+    enabled: false
+  };
+}
+
+function isLikelyChatModel(id: string) {
+  return /chat|gpt|o\d|claude|llama|qwen|deepseek|glm|mistral|mixtral|sonnet|haiku|opus/i.test(
+    id
+  );
 }

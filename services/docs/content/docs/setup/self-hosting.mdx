@@ -1,0 +1,47 @@
+---
+title: Self Hosting
+description: Deployment requirements for a managed or self-hosted Lush install.
+---
+
+Configure state, origins, and auth keys explicitly for self-hosted deployments.
+Runtime configuration is schema-validated at boot. Missing required values or
+invalid numbers, booleans, and origin lists stop the service with a clear config
+error before it begins accepting requests.
+
+## Required state
+
+- PostgreSQL for users, organizations, memberships, sessions, audit events, and
+  provider configuration.
+- Service-owned tables in the shared database by default.
+- Optional separate database URLs later if a service needs independent scaling.
+
+## Required auth configuration
+
+- `DATABASE_URL`
+- `LUSH_SECRET_KEY`
+- `LUSH_APP_ORIGIN`
+- `LUSH_AUTH_JWT_PRIVATE_KEY`
+- `LUSH_AUTH_JWT_PUBLIC_KEY`
+
+The JWT keys must be an asymmetric keypair. The API signs short-lived access
+JWTs; backing services verify them with the public key.
+
+## Optional runtime configuration
+
+- `LUSH_API_HOST`, default `0.0.0.0`
+- `LUSH_API_PORT`, default `7330`
+- `LUSH_AGENT_PORT`, default `7331`
+- `LUSH_DB_POOL_SIZE`, default `10`
+- `LUSH_SESSION_TTL_MS`, default `2592000000`
+- `LUSH_ACCESS_TOKEN_TTL_MS`, default `300000`
+- `LUSH_AUTH_JWT_ISSUER`, default `lush-authz`
+- `LUSH_AUTH_JWT_AUDIENCE`, default `lush-api`
+
+`LUSH_APP_ORIGIN` is a comma-separated list of browser app origins allowed to
+use credentialed auth. Wildcard origins are rejected.
+
+## Email verification
+
+Email verification is required before access is granted. Hosted deployments send
+a real verification link. Local development simulates that flow with `bun run
+auth:verify-email -- user@example.com`.

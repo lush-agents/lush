@@ -1,16 +1,39 @@
 # API
 
-Single front door for first-party clients and collaboration channels. It should
-stay thin and route requests to the appropriate backend service.
+Single front door for first-party clients and collaboration channels. It routes
+requests to the appropriate backend service.
 
 ## Development
 
 ```sh
+bun run dev
+```
+
+The root dev target creates `.env.development` from `.env.template` if needed
+and generates local JWT signing keys. For API-only work after that file exists:
+
+```sh
+docker compose up -d lush-postgres
+bun run db:migrate
 bun run --cwd services/api dev
 ```
 
 The service listens on `0.0.0.0:7330` by default so local clients can reach it
 through either `http://localhost:7330` or `http://127.0.0.1:7330`.
+
+The public client API is grouped under `/v1beta`, for example
+`/v1beta/auth/register`. New public routes belong in that group until the
+surface is stable enough to promote into `/v1`.
+
+The API requires PostgreSQL for auth, sessions, organization tenancy, and
+inference provider state. Set `DATABASE_URL` for non-default local databases.
+Set `LUSH_APP_ORIGIN` to explicit app origins; wildcard CORS is rejected because
+browser auth uses credentialed session cookies.
+Set `LUSH_AUTH_JWT_PRIVATE_KEY` and `LUSH_AUTH_JWT_PUBLIC_KEY` to an RSA keypair;
+the API signs short-lived access JWTs after login and refresh, and protected
+routes require those bearer tokens. Browser clients keep the refresh token in an
+HttpOnly cookie and cache only the short-lived access JWT in tab-scoped
+`sessionStorage`.
 
 ## API Client Generation
 

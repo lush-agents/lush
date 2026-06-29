@@ -1,0 +1,35 @@
+---
+title: Quick Start
+description: Run Lush locally and create your first verified account.
+---
+
+Lush is developed from a Bun workspace with local services orchestrated by the
+root dev target.
+
+## Prerequisites
+
+- Bun 1.3.x
+- Docker with the daemon running
+- Rust 1.88 or newer for the Tauri desktop shell
+
+## Start the local stack
+
+```sh
+bun install
+bun run dev
+```
+
+The dev target creates `.env.development` if needed, starts PostgreSQL, applies
+migrations, regenerates the API client, and runs the API gateway, app, and docs
+site.
+
+## Create an account
+
+Open the local app URL printed by the `app` process, register with an
+email/password, then verify the email in another terminal:
+
+```sh
+bun run auth:verify-email -- user@example.com
+```
+
+After verification, sign in with the same credentials.

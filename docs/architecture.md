@@ -4,9 +4,8 @@ Lush is an open application layer and control plane for multi-model AI agents.
 It provides a familiar chat, code, work, and agent-building experience on top
 of interchangeable inference providers, tool systems, and agent runtimes.
 
-The repository is scaffolded as a Bun workspace monorepo. The current skeleton
-defines product apps, backend services, and shared packages without committing
-to concrete service implementations yet.
+The repository is a Bun workspace monorepo that separates product apps,
+backend services, and shared packages.
 
 ## Workspace Layout
 
@@ -16,7 +15,7 @@ surfaces. It is intended to ship to web, desktop, iOS, and Android through
 Tauri packaging rather than separate app workspaces per platform.
 
 **`services/*`.** Deployable backend services and control-plane boundaries.
-Services should own durable state or external side effects for one concern and
+Services own durable state or external side effects for one concern and
 communicate through the API surface and event stream.
 
 **`packages/*`.** Shared domain packages that are not independently deployed.
@@ -25,8 +24,8 @@ These packages hold reusable control-plane concepts such as memory and skills.
 ## Services
 
 **API (`services/api`).** Single front door for first-party clients and
-external integrations. It should stay thin, authenticate requests, enforce
-cross-cutting request policy, and route work to the appropriate backend service.
+external integrations. It authenticates requests, enforces cross-cutting request
+policy, and routes work to the appropriate backend service.
 
 **Authn/z (`services/authz`).** Identity, organization, role, and runtime
 access-control service. It owns authorization decisions that other services
@@ -45,8 +44,8 @@ clients and collaboration channels.
 activity. It feeds audit trails, usage reporting, and operational workflows.
 
 **Scheduler (`services/scheduler`).** Durable scheduling for deferred actions,
-recurring loops, reminders, retry/backoff timers, and agent wakeups. It should
-emit due work back into the control plane rather than owning execution itself.
+recurring loops, reminders, retry/backoff timers, and agent wakeups. It emits
+due work back into the control plane rather than owning execution itself.
 
 **Agent (`services/agent`).** Interface to agent sandboxes and execution
 contexts. Backends may include hosted isolation such as gVisor or Kata and a
@@ -57,8 +56,8 @@ providers. It owns provider selection, failover policy, pinning, and request
 mediation.
 
 **Tools (`services/tools`).** Mediated access layer for MCP, OpenAPI, and other
-tool integrations. Models should receive scoped capabilities rather than raw
-URLs or credentials.
+tool integrations. Models receive scoped capabilities rather than raw URLs or
+credentials.
 
 **Skills (`services/skills`).** Runtime service for publishing, indexing,
 resolving, and loading agent skills. It owns service workflows while
@@ -74,8 +73,8 @@ use this boundary instead of duplicating notification policy.
 
 **Team Chat (`services/team-chat`).** Service for exposing Lush workflows
 inside team chat platforms such as Slack, Microsoft Teams, and Discord.
-Platform-specific adapters should live inside this service behind a shared
-team-chat interface.
+Platform-specific adapters live inside this service behind a shared team-chat
+interface.
 
 ## Shared Packages
 
