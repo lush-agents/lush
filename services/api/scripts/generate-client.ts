@@ -15,19 +15,44 @@ function routeConstantName(id: string) {
 
 function functionSource(route: (typeof routes)[number]) {
   const constantName = routeConstantName(route.id);
-  const authParameter = route.auth ? "sessionToken: string, " : "";
+  const params = pathParams(route.path);
+  const pathArguments = params.map((param) => `${param}: string`);
+  const leadingPathArguments =
+    pathArguments.length > 0 ? `${pathArguments.join(", ")},\n  ` : "";
+  const authParameter = route.auth ? "sessionToken: string | undefined, " : "";
   const authHeader = route.auth
-    ? "authorization: `Bearer ${sessionToken}`,\n      "
+    ? "...authorizationHeaders(sessionToken),\n      "
     : "";
+  const pathExpression =
+    params.length > 0
+      ? `routePath(${constantName}.path, { ${params.join(", ")} })`
+      : `${constantName}.path`;
+
+  if (route.kind === "event-stream") {
+    return `export function ${route.id}(
+  apiBaseUrl: string,
+  ${leadingPathArguments}${authParameter}signal?: AbortSignal
+) {
+  return fetch(apiUrl(apiBaseUrl, ${pathExpression}), {
+    credentials: "include",
+    headers: {
+      ${authHeader}accept: "text/event-stream"
+    },
+    signal
+  });
+}
+`;
+  }
 
   if (route.kind === "stream") {
     return `export function ${route.id}(
   apiBaseUrl: string,
-  ${authParameter}body: ${route.requestType},
+  ${leadingPathArguments}${authParameter}body: ${route.requestType},
   signal?: AbortSignal
 ) {
-  return fetch(apiUrl(apiBaseUrl, ${constantName}.path), {
+  return fetch(apiUrl(apiBaseUrl, ${pathExpression}), {
     method: ${JSON.stringify(route.method)},
+    credentials: "include",
     headers: {
       ${authHeader}"content-type": "application/json"
     },
@@ -41,9 +66,10 @@ function functionSource(route: (typeof routes)[number]) {
   if (route.method === "GET") {
     return `export async function ${route.id}(
   apiBaseUrl: string,
-  ${authParameter.trimEnd()}
+  ${leadingPathArguments}${authParameter.trimEnd()}
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, ${constantName}.path), {
+  const response = await fetch(apiUrl(apiBaseUrl, ${pathExpression}), {
+    credentials: "include",
     headers: {
       ${authHeader}
     }
@@ -60,10 +86,11 @@ function functionSource(route: (typeof routes)[number]) {
 
   return `export async function ${route.id}(
   apiBaseUrl: string,
-  ${authParameter}body: ${route.requestType}
+  ${leadingPathArguments}${authParameter}body: ${route.requestType}
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, ${constantName}.path), {
+  const response = await fetch(apiUrl(apiBaseUrl, ${pathExpression}), {
     method: ${JSON.stringify(route.method)},
+    credentials: "include",
     headers: {
       ${authHeader}"content-type": "application/json"
     },
@@ -101,10 +128,35 @@ export function apiUrl(apiBaseUrl: string, path: string) {
   return \`\${resolveApiBaseUrl(apiBaseUrl)}\${path}\`;
 }
 
+export function routePath(path: string, params: Record<string, string>) {
+  return path.replace(/:([A-Za-z0-9_]+)/g, (_match, key: string) => {
+    const value = params[key];
+    if (!value) {
+      throw new Error(\`Missing API route parameter: \${key}\`);
+    }
+
+    return encodeURIComponent(value);
+  });
+}
+
+export class ApiError extends Error {
+  constructor(
+    readonly routeId: string,
+    readonly status: number,
+    readonly details: string,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
 async function apiError(routeId: string, response: Response) {
   const details = await response.text().catch(() => "");
   const message = parseErrorMessage(details);
-  return new Error(
+  return new ApiError(
+    routeId,
+    response.status,
+    details,
     \`\${routeId} failed with \${response.status}\${message ? \`: \${message}\` : ""}\`
   );
 }
@@ -130,9 +182,17 @@ function parseErrorMessage(details: string) {
   return details;
 }
 
+function authorizationHeaders(sessionToken: string | undefined): Record<string, string> {
+  return sessionToken ? { authorization: \`Bearer \${sessionToken}\` } : {};
+}
+
 ${routes.map(functionSource).join("\n")}
 `;
 
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, source);
 console.log(`Generated ${outputPath}`);
+
+function pathParams(path: string) {
+  return Array.from(path.matchAll(/:([A-Za-z0-9_]+)/g), (match) => match[1]);
+}

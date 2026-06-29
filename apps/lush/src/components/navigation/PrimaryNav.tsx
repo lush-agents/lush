@@ -15,7 +15,7 @@ export function PrimaryNav(props: {
             props.onNavigate(route.href);
           }}
           aria-current={props.path === route.href ? "page" : undefined}
-          class={`block rounded-md px-3 py-2 text-xs font-medium transition ${
+          class={`block rounded-md px-3 py-1.5 text-[0.625rem] font-medium transition ${
             props.path === route.href
               ? "bg-[var(--color-brand-strong)] text-white"
               : "text-[var(--color-subtle)] hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)]"

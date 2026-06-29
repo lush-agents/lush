@@ -1,21 +1,21 @@
 export const agentTypes = `
-export type LushChatMessage = {
+export type AgentChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
 
-export type LushChatRequest = {
+export type AgentChatRequest = {
   modelSelection: string;
-  messages: LushChatMessage[];
+  messages: AgentChatMessage[];
 };
 `;
 
 export const agentRoutes = [
   {
-    id: "streamLushChat",
+    id: "streamAgentChat",
     method: "POST",
-    path: "/agents/lush/chat",
-    requestType: "LushChatRequest",
+    path: "/agents/:agentSlug/chat",
+    requestType: "AgentChatRequest",
     responseType: "Response",
     auth: true,
     kind: "stream"

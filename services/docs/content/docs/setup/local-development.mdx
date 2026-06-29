@@ -1,0 +1,34 @@
+---
+title: Local Development
+description: Run the complete local Lush stack.
+---
+
+The root `bun run dev` command is the recommended local entry point.
+
+It performs these steps:
+
+- Preflights Docker with `docker ps`.
+- Creates `.env.development` from `.env.template` if needed, including local
+  JWT keys and `LUSH_SECRET_KEY`.
+- Starts the `lush-postgres` Compose service.
+- Waits for PostgreSQL readiness.
+- Runs database migrations.
+- Regenerates the API client.
+- Starts the API gateway, app, and docs site.
+- Mirrors logs to stdout and `logs/<service>.log`.
+
+## Useful commands
+
+```sh
+bun run dev
+bun run db:migrate
+bun run api:codegen
+bun run auth:verify-email -- user@example.com
+```
+
+The app runs on `http://localhost:5874`. The API gateway runs on
+`http://localhost:7330`. The docs site runs on `http://localhost:7332`.
+
+Local services read the generated `.env.development` file through the same
+schema-validated config path used in hosted deployments. Delete the file to
+regenerate local-only secrets from `.env.template`.

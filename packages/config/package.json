@@ -1,0 +1,15 @@
+{
+  "name": "@lush/config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "exports": {
+    "./env": "./src/env.ts"
+  }
+}

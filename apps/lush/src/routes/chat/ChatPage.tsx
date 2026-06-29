@@ -7,9 +7,10 @@ import {
   Show
 } from "solid-js";
 import {
-  streamLushChat,
+  streamAgentChat,
+  type AgentChatMessage,
   type InferenceProviderStatus,
-  type LushChatMessage
+  type UserRole,
 } from "@lush/api-client";
 import logoUrl from "../../assets/lush-logo.svg?url";
 import { createId, getFirstName } from "../../lib/app-data";
@@ -59,7 +60,9 @@ export function ChatPage(props: {
   apiBaseUrl: string;
   defaultModelSelection: string;
   providers: InferenceProviderStatus[];
-  ensureSession: (force?: boolean) => Promise<string>;
+  currentRole?: UserRole;
+  ensureSession: (force?: boolean) => Promise<string | undefined>;
+  onNavigate: (href: string) => void;
 }) {
   let transcriptRef: HTMLDivElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
@@ -292,7 +295,7 @@ export function ChatPage(props: {
           status: "error",
           content:
             current.content ||
-            "I could not reach the local Lush API. Start it with `bun run dev`."
+            "I could not reach the configured Lush API."
         }));
       }
     } finally {
@@ -400,11 +403,19 @@ export function ChatPage(props: {
         <div class="flex items-center justify-between gap-3">
           <ModelPicker
             providers={props.providers}
+            canConfigureModels={props.currentRole === "admin"}
             selectedModelSelection={activeModelSelection()}
             selectedModelLabel={activeModelLabel()}
             open={modelMenuOpen()}
-            disabled={isStreaming() || props.providers.length === 0}
+            disabled={
+              isStreaming() ||
+              (props.providers.length === 0 && props.currentRole !== "admin")
+            }
             onOpenChange={setModelMenuOpen}
+            onConfigureModels={() => {
+              setModelMenuOpen(false);
+              props.onNavigate("/settings/inference");
+            }}
             onSelect={(modelSelection) => {
               setSelectedModelSelection(modelSelection);
               setModelMenuOpen(false);
@@ -422,7 +433,7 @@ export function ChatPage(props: {
             </Show>
             <button
               type="submit"
-              disabled={!input().trim() || isStreaming()}
+              disabled={!input().trim() || isStreaming() || !activeModelSelection()}
               class="rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               Send
@@ -436,11 +447,13 @@ export function ChatPage(props: {
 
 function ModelPicker(props: {
   providers: InferenceProviderStatus[];
+  canConfigureModels: boolean;
   selectedModelSelection: string;
   selectedModelLabel: string;
   open: boolean;
   disabled: boolean;
   onOpenChange: (open: boolean) => void;
+  onConfigureModels: () => void;
   onSelect: (modelSelection: string) => void;
 }) {
   return (
@@ -462,37 +475,52 @@ function ModelPicker(props: {
         </button>
       )}
     >
-      <For each={props.providers}>
-        {(provider) => (
-          <div class="py-1">
-            <div class="px-2 py-1 text-xs font-medium text-[var(--color-muted)]">
-              {provider.label}
-            </div>
-            <For each={provider.models}>
-              {(model) => {
-                const modelSelection = `${provider.id}:${model.id}`;
-                const selected = () =>
-                  props.selectedModelSelection === modelSelection;
+      <Show
+        when={props.providers.length > 0}
+        fallback={
+          <Show when={props.canConfigureModels}>
+            <button
+              type="button"
+              onClick={props.onConfigureModels}
+              class="block w-full rounded px-2 py-1.5 text-left text-xs font-medium text-[var(--color-brand-soft)] transition hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)]"
+            >
+              Configure providers and models
+            </button>
+          </Show>
+        }
+      >
+        <For each={props.providers}>
+          {(provider) => (
+            <div class="py-1">
+              <div class="px-2 py-1 text-xs font-medium text-[var(--color-muted)]">
+                {provider.label}
+              </div>
+              <For each={provider.models}>
+                {(model) => {
+                  const modelSelection = `${provider.id}:${model.id}`;
+                  const selected = () =>
+                    props.selectedModelSelection === modelSelection;
 
-                return (
-                  <button
-                    type="button"
-                    aria-pressed={selected()}
-                    onClick={() => props.onSelect(modelSelection)}
-                    class={`block w-full rounded px-2 py-1.5 text-left text-xs font-medium transition ${
-                      selected()
-                        ? "bg-[var(--color-brand)] text-white"
-                        : "text-[var(--color-text)] hover:bg-[var(--color-panel-hover)]"
-                    }`}
-                  >
-                    {model.label}
-                  </button>
-                );
-              }}
-            </For>
-          </div>
-        )}
-      </For>
+                  return (
+                    <button
+                      type="button"
+                      aria-pressed={selected()}
+                      onClick={() => props.onSelect(modelSelection)}
+                      class={`block w-full rounded px-2 py-1.5 text-left text-xs font-medium transition ${
+                        selected()
+                          ? "bg-[var(--color-brand)] text-white"
+                          : "text-[var(--color-text)] hover:bg-[var(--color-panel-hover)]"
+                      }`}
+                    >
+                      {model.label}
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          )}
+        </For>
+      </Show>
     </Dropdown>
   );
 }
@@ -516,12 +544,12 @@ function getModelLabel(
 
 function postChat(
   apiBaseUrl: string,
-  sessionToken: string,
+  sessionToken: string | undefined,
   modelSelection: string,
-  messages: LushChatMessage[],
+  messages: AgentChatMessage[],
   signal: AbortSignal
 ) {
-  return streamLushChat(apiBaseUrl, sessionToken, {
+  return streamAgentChat(apiBaseUrl, "lush", sessionToken, {
     messages,
     modelSelection
   }, signal);

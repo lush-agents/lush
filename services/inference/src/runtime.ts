@@ -1,20 +1,17 @@
-import {
-  getProviderConfig,
-  streamOpenAICompatibleChat,
-  type ProviderConfig
-} from "./openai-compatible";
+import { requiredEnvValue } from "@lush/config/env";
+import { getDb } from "@lush/db/client";
+import type {
+  InferenceProviderKind,
+  InferenceProviderModelRow
+} from "@lush/db/schema";
+import { adapterForProvider } from "./providers";
 
 export type InferenceChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
 
-export type InferenceProviderKind =
-  | "baseten"
-  | "fireworks"
-  | "anthropic"
-  | "openai"
-  | "openai-compatible";
+export type { InferenceProviderKind };
 
 export type WorkspaceMode = "chat" | "code" | "work" | "agents";
 
@@ -54,8 +51,6 @@ export type StreamInferenceChatOptions = {
   signal: AbortSignal;
 };
 
-const organizationProviders = new Map<string, ConnectedProvider[]>();
-const organizationModelDefaults = new Map<string, ModelDefaults>();
 const workspaceModes: WorkspaceMode[] = ["chat", "code", "work", "agents"];
 const emptyModelDefaults: ModelDefaults = {
   chat: "",
@@ -72,11 +67,11 @@ const providerBaseUrls: Record<InferenceProviderKind, string> = {
   "openai-compatible": ""
 };
 
-export function getInferenceConfig(organizationId: string) {
-  const providers = organizationProviders.get(organizationId) ?? [];
-  const modelDefaults = reconcileModelDefaults(
+export async function getInferenceConfig(organizationId: string) {
+  const providers = await loadConnectedProviders(organizationId);
+  const modelDefaults = await reconcileModelDefaults(
     organizationId,
-    getOrganizationModelDefaults(organizationId),
+    await getOrganizationModelDefaults(organizationId),
     providers
   );
 
@@ -97,23 +92,65 @@ export async function createInferenceProvider(
   }
 
   const models = await discoverModels(normalized);
-  const provider: ConnectedProvider = {
-    id: crypto.randomUUID(),
-    kind: normalized.kind,
-    label: normalized.label,
-    baseUrl: normalized.baseUrl,
-    apiKey: normalized.apiKey,
-    enabled: true,
-    models
-  };
-  const providers = organizationProviders.get(organizationId) ?? [];
-  providers.push(provider);
-  organizationProviders.set(organizationId, providers);
+  const db = getDb();
+  const now = new Date();
+
+  const provider = await db.transaction().execute(async (trx) => {
+    const providerRow = await trx
+      .insertInto("inferenceProviders")
+      .values({
+        organizationId,
+        kind: normalized.kind,
+        label: normalized.label,
+        baseUrl: normalized.baseUrl,
+        encryptedApiKey: await encryptSecret(normalized.apiKey, {
+          organizationId,
+          kind: normalized.kind
+        }),
+        enabled: true,
+        createdAt: now,
+        updatedAt: now
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    if (models.length > 0) {
+      await trx
+        .insertInto("inferenceProviderModels")
+        .values(
+          models.map((model) => ({
+            providerId: providerRow.id,
+            modelId: model.id,
+            label: model.label,
+            enabled: model.enabled,
+            createdAt: now,
+            updatedAt: now
+          }))
+        )
+        .execute();
+    }
+
+    return {
+      id: providerRow.id,
+      kind: providerRow.kind,
+      label: providerRow.label,
+      baseUrl: providerRow.baseUrl,
+      apiKey: normalized.apiKey,
+      enabled: providerRow.enabled,
+      models
+    };
+  });
+
+  await reconcileModelDefaults(
+    organizationId,
+    await getOrganizationModelDefaults(organizationId),
+    await loadConnectedProviders(organizationId)
+  );
 
   return sanitizeProvider(provider);
 }
 
-export function updateInferenceProvider(
+export async function updateInferenceProvider(
   organizationId: string,
   request: unknown
 ) {
@@ -121,12 +158,24 @@ export function updateInferenceProvider(
     throw new InferenceError("invalid_provider_update", "Invalid provider update");
   }
 
-  const provider = findProvider(organizationId, request.providerId);
-  provider.enabled = request.enabled;
+  const result = await getDb()
+    .updateTable("inferenceProviders")
+    .set({
+      enabled: request.enabled,
+      updatedAt: new Date()
+    })
+    .where("id", "=", request.providerId)
+    .where("organizationId", "=", organizationId)
+    .executeTakeFirst();
+
+  if (Number(result.numUpdatedRows) === 0) {
+    throw new InferenceError("provider_not_found", "Provider was not found");
+  }
+
   return getInferenceConfig(organizationId);
 }
 
-export function updateInferenceModel(
+export async function updateInferenceModel(
   organizationId: string,
   request: unknown
 ) {
@@ -134,17 +183,25 @@ export function updateInferenceModel(
     throw new InferenceError("invalid_model_update", "Invalid model update");
   }
 
-  const provider = findProvider(organizationId, request.providerId);
-  const model = provider.models.find((candidate) => candidate.id === request.modelId);
-  if (!model) {
+  await findProvider(organizationId, request.providerId);
+  const result = await getDb()
+    .updateTable("inferenceProviderModels")
+    .set({
+      enabled: request.enabled,
+      updatedAt: new Date()
+    })
+    .where("providerId", "=", request.providerId)
+    .where("modelId", "=", request.modelId)
+    .executeTakeFirst();
+
+  if (Number(result.numUpdatedRows) === 0) {
     throw new InferenceError("model_not_found", "Model was not found");
   }
 
-  model.enabled = request.enabled;
   return getInferenceConfig(organizationId);
 }
 
-export function updateInferenceModelDefault(
+export async function updateInferenceModelDefault(
   organizationId: string,
   request: unknown
 ) {
@@ -155,7 +212,7 @@ export function updateInferenceModelDefault(
     );
   }
 
-  const providers = organizationProviders.get(organizationId) ?? [];
+  const providers = await loadConnectedProviders(organizationId);
   if (
     request.modelSelection &&
     !getAvailableModelSelections(providers).includes(request.modelSelection)
@@ -163,17 +220,28 @@ export function updateInferenceModelDefault(
     throw new InferenceError("model_not_enabled", "Model is not enabled");
   }
 
-  const current = getOrganizationModelDefaults(organizationId);
-  const next = {
-    ...current,
-    [request.mode]: request.modelSelection
-  };
-  organizationModelDefaults.set(organizationId, next);
+  const now = new Date();
+  await getDb()
+    .insertInto("inferenceModelDefaults")
+    .values({
+      organizationId,
+      mode: request.mode,
+      modelSelection: request.modelSelection,
+      createdAt: now,
+      updatedAt: now
+    })
+    .onConflict((oc) =>
+      oc.columns(["organizationId", "mode"]).doUpdateSet({
+        modelSelection: request.modelSelection,
+        updatedAt: now
+      })
+    )
+    .execute();
 
   return getInferenceConfig(organizationId);
 }
 
-export function deleteInferenceProvider(
+export async function deleteInferenceProvider(
   organizationId: string,
   request: unknown
 ) {
@@ -181,23 +249,23 @@ export function deleteInferenceProvider(
     throw new InferenceError("invalid_provider_delete", "Invalid provider delete");
   }
 
-  const providers = organizationProviders.get(organizationId) ?? [];
-  const nextProviders = providers.filter(
-    (provider) => provider.id !== request.providerId
-  );
+  const result = await getDb()
+    .deleteFrom("inferenceProviders")
+    .where("id", "=", request.providerId)
+    .where("organizationId", "=", organizationId)
+    .executeTakeFirst();
 
-  if (nextProviders.length === providers.length) {
+  if (Number(result.numDeletedRows) === 0) {
     throw new InferenceError("provider_not_found", "Provider was not found");
   }
 
-  organizationProviders.set(organizationId, nextProviders);
   return getInferenceConfig(organizationId);
 }
 
-export function resolveConnectedModel(
+export async function resolveConnectedModel(
   organizationId: string,
   modelSelection?: string
-): ConnectedModel | undefined {
+): Promise<ConnectedModel | undefined> {
   if (!modelSelection) {
     return undefined;
   }
@@ -209,7 +277,7 @@ export function resolveConnectedModel(
 
   const providerId = modelSelection.slice(0, separatorIndex);
   const modelId = modelSelection.slice(separatorIndex + 1);
-  const provider = (organizationProviders.get(organizationId) ?? []).find(
+  const provider = (await loadConnectedProviders(organizationId, true)).find(
     (candidate) => candidate.id === providerId
   );
 
@@ -227,15 +295,6 @@ export function resolveConnectedModel(
   };
 }
 
-export function getConnectedProviderConfig(selection: ConnectedModel): ProviderConfig {
-  return {
-    provider: selection.provider.kind,
-    endpoint: `${selection.provider.baseUrl}/chat/completions`,
-    apiKey: selection.provider.apiKey,
-    model: selection.modelId
-  };
-}
-
 export async function* streamInferenceChat({
   organizationId,
   modelSelection,
@@ -243,222 +302,123 @@ export async function* streamInferenceChat({
   messages,
   signal
 }: StreamInferenceChatOptions) {
-  const connectedModel = resolveConnectedModel(organizationId, modelSelection);
+  const connectedModel = await resolveConnectedModel(organizationId, modelSelection);
+  const chatMessages = [
+    {
+      role: "system" as const,
+      content: systemPrompt
+    },
+    ...messages
+  ];
 
-  if (connectedModel?.provider.kind === "anthropic") {
-    yield* streamAnthropicChat(
-      connectedModel.provider,
-      systemPrompt,
-      connectedModel.modelId,
-      messages,
-      signal
+  if (!connectedModel) {
+    throw new InferenceError(
+      "model_not_configured",
+      "No enabled inference model is configured for this organization"
     );
-    return;
   }
 
-  const config = connectedModel
-    ? getConnectedProviderConfig(connectedModel)
-    : getProviderConfig(modelSelection);
-
-  yield* streamOpenAICompatibleChat(
-    config,
-    [
-      {
-        role: "system",
-        content: systemPrompt
-      },
-      ...messages
-    ],
-    signal
-  );
-}
-
-export async function* streamAnthropicChat(
-  provider: ConnectedProvider,
-  systemPrompt: string,
-  modelId: string,
-  messages: InferenceChatMessage[],
-  signal: AbortSignal
-) {
-  const response = await fetch(`${provider.baseUrl}/messages`, {
-    method: "POST",
-    headers: {
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-      "x-api-key": provider.apiKey
-    },
-    body: JSON.stringify({
-      model: modelId,
-      system: systemPrompt,
-      messages,
-      max_tokens: 4096,
-      stream: true
-    }),
+  yield* adapterForProvider(connectedModel.provider.kind).streamChat({
+    kind: connectedModel.provider.kind,
+    baseUrl: connectedModel.provider.baseUrl,
+    apiKey: connectedModel.provider.apiKey,
+    modelId: connectedModel.modelId,
+    messages: chatMessages,
     signal
   });
-
-  if (!response.ok || !response.body) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Provider request failed with ${response.status}: ${body || response.statusText}`
-    );
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const chunk = parseAnthropicStreamLine(line);
-      if (chunk) {
-        yield chunk;
-      }
-    }
-  }
 }
 
 export class InferenceError extends Error {
   constructor(
     readonly code: string,
-    message: string
+    message: string,
+    readonly status = 400
   ) {
     super(message);
   }
 }
 
-function normalizeProviderRequest(request: InferenceProviderRequest) {
-  const resolvedBaseUrl =
-    request.baseUrl && request.baseUrl.trim()
-      ? request.baseUrl.trim()
-      : providerBaseUrls[request.kind];
+async function loadConnectedProviders(
+  organizationId: string,
+  includeApiKeys = false
+): Promise<ConnectedProvider[]> {
+  const db = getDb();
+  const providerRows = await db
+    .selectFrom("inferenceProviders")
+    .selectAll()
+    .where("organizationId", "=", organizationId)
+    .orderBy("createdAt", "asc")
+    .execute();
 
-  if (
-    !request.label.trim() ||
-    !request.apiKey.trim() ||
-    !resolvedBaseUrl
-  ) {
-    return undefined;
+  if (providerRows.length === 0) {
+    return [];
   }
 
-  return {
-    kind: request.kind,
-    label: request.label.trim(),
-    apiKey: request.apiKey.trim(),
-    baseUrl: trimTrailingSlash(resolvedBaseUrl)
-  };
-}
+  const providerIds = providerRows.map((provider) => provider.id);
+  const modelRows = await db
+    .selectFrom("inferenceProviderModels")
+    .selectAll()
+    .where("providerId", "in", providerIds)
+    .orderBy("createdAt", "asc")
+    .execute();
+  const modelsByProvider = groupModelsByProvider(modelRows);
 
-async function discoverModels(provider: {
-  kind: InferenceProviderKind;
-  baseUrl: string;
-  apiKey: string;
-}) {
-  const response =
-    provider.kind === "anthropic"
-      ? await fetch(`${provider.baseUrl}/models`, {
-          headers: {
-            "anthropic-version": "2023-06-01",
-            "x-api-key": provider.apiKey
-          }
-        })
-      : await fetch(`${provider.baseUrl}/models`, {
-          headers: {
-            authorization: `Bearer ${provider.apiKey}`
-          }
-        });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new InferenceError(
-      "model_discovery_failed",
-      `Model discovery failed with ${response.status}: ${text || response.statusText}`
-    );
-  }
-
-  const body = await response.json().catch(() => undefined);
-  const data =
-    body && typeof body === "object" && Array.isArray((body as { data?: unknown }).data)
-      ? (body as { data: unknown[] }).data
-      : [];
-  const models = data
-    .map((model) => normalizeDiscoveredModel(model))
-    .filter(
-      (model): model is { id: string; label: string; enabled: boolean } =>
-        Boolean(model)
-    );
-
-  if (models.length === 0) {
-    throw new InferenceError(
-      "model_discovery_failed",
-      "No models were returned by the provider."
-    );
-  }
-
-  const likelyChatModels = models.filter((model) => isLikelyChatModel(model.id));
-  return likelyChatModels.length > 0 ? likelyChatModels : models;
-}
-
-function normalizeDiscoveredModel(model: unknown) {
-  if (!model || typeof model !== "object") {
-    return undefined;
-  }
-
-  const candidate = model as Record<string, unknown>;
-  const id = candidate.id;
-  if (typeof id !== "string" || !id) {
-    return undefined;
-  }
-
-  const label =
-    typeof candidate.display_name === "string"
-      ? candidate.display_name
-      : typeof candidate.name === "string"
-        ? candidate.name
-        : id;
-
-  return {
-    id,
-    label,
-    enabled: false
-  };
-}
-
-function isLikelyChatModel(id: string) {
-  return /chat|gpt|o\d|claude|llama|qwen|deepseek|glm|mistral|mixtral|sonnet|haiku|opus/i.test(
-    id
+  return Promise.all(
+    providerRows.map(async (provider) => ({
+      id: provider.id,
+      kind: provider.kind,
+      label: provider.label,
+      baseUrl: provider.baseUrl,
+      apiKey: includeApiKeys
+        ? await decryptSecret(provider.encryptedApiKey, {
+            organizationId,
+            kind: provider.kind
+          })
+        : "",
+      enabled: provider.enabled,
+      models: modelsByProvider.get(provider.id) ?? []
+    }))
   );
 }
 
-function sanitizeProvider(provider: ConnectedProvider) {
-  return {
-    id: provider.id,
-    kind: provider.kind,
-    label: provider.label,
-    configured: true,
-    enabled: provider.enabled,
-    baseUrl: provider.baseUrl,
-    models: provider.models
-  };
+function groupModelsByProvider(modelRows: InferenceProviderModelRow[]) {
+  const grouped = new Map<
+    string,
+    Array<{ id: string; label: string; enabled: boolean }>
+  >();
+
+  for (const model of modelRows) {
+    grouped.set(model.providerId, [
+      ...(grouped.get(model.providerId) ?? []),
+      {
+        id: model.modelId,
+        label: model.label,
+        enabled: model.enabled
+      }
+    ]);
+  }
+
+  return grouped;
 }
 
-function getOrganizationModelDefaults(organizationId: string): ModelDefaults {
-  return {
-    ...emptyModelDefaults,
-    ...(organizationModelDefaults.get(organizationId) ?? {})
-  };
+async function getOrganizationModelDefaults(
+  organizationId: string
+): Promise<ModelDefaults> {
+  const rows = await getDb()
+    .selectFrom("inferenceModelDefaults")
+    .select(["mode", "modelSelection"])
+    .where("organizationId", "=", organizationId)
+    .execute();
+  const defaults = { ...emptyModelDefaults };
+
+  for (const row of rows) {
+    defaults[row.mode] = row.modelSelection;
+  }
+
+  return defaults;
 }
 
-function reconcileModelDefaults(
+async function reconcileModelDefaults(
   organizationId: string,
   defaults: ModelDefaults,
   providers: ConnectedProvider[]
@@ -481,10 +441,88 @@ function reconcileModelDefaults(
   }
 
   if (changed) {
-    organizationModelDefaults.set(organizationId, next);
+    const now = new Date();
+    await getDb()
+      .insertInto("inferenceModelDefaults")
+      .values(
+        workspaceModes.map((mode) => ({
+          organizationId,
+          mode,
+          modelSelection: next[mode],
+          createdAt: now,
+          updatedAt: now
+        }))
+      )
+      .onConflict((oc) =>
+        oc.columns(["organizationId", "mode"]).doUpdateSet((eb) => ({
+          modelSelection: eb.ref("excluded.modelSelection"),
+          updatedAt: now
+        }))
+      )
+      .execute();
   }
 
   return next;
+}
+
+async function findProvider(organizationId: string, providerId: string) {
+  const provider = await getDb()
+    .selectFrom("inferenceProviders")
+    .selectAll()
+    .where("id", "=", providerId)
+    .where("organizationId", "=", organizationId)
+    .executeTakeFirst();
+
+  if (!provider) {
+    throw new InferenceError("provider_not_found", "Provider was not found");
+  }
+
+  return provider;
+}
+
+function normalizeProviderRequest(request: InferenceProviderRequest) {
+  const resolvedBaseUrl =
+    request.baseUrl && request.baseUrl.trim()
+      ? request.baseUrl.trim()
+      : providerBaseUrls[request.kind];
+
+  if (!request.label.trim() || !request.apiKey.trim() || !resolvedBaseUrl) {
+    return undefined;
+  }
+
+  return {
+    kind: request.kind,
+    label: request.label.trim(),
+    apiKey: request.apiKey.trim(),
+    baseUrl: trimTrailingSlash(resolvedBaseUrl)
+  };
+}
+
+async function discoverModels(provider: {
+  kind: InferenceProviderKind;
+  baseUrl: string;
+  apiKey: string;
+}) {
+  try {
+    return await adapterForProvider(provider.kind).discoverModels(provider);
+  } catch (error) {
+    throw new InferenceError(
+      "model_discovery_failed",
+      error instanceof Error ? error.message : "Model discovery failed"
+    );
+  }
+}
+
+function sanitizeProvider(provider: ConnectedProvider) {
+  return {
+    id: provider.id,
+    kind: provider.kind,
+    label: provider.label,
+    configured: true,
+    enabled: provider.enabled,
+    baseUrl: provider.baseUrl,
+    models: provider.models
+  };
 }
 
 function getAvailableModelSelections(providers: ConnectedProvider[]) {
@@ -495,18 +533,6 @@ function getAvailableModelSelections(providers: ConnectedProvider[]) {
           .map((model) => `${provider.id}:${model.id}`)
       : []
   );
-}
-
-function findProvider(organizationId: string, providerId: string) {
-  const provider = (organizationProviders.get(organizationId) ?? []).find(
-    (candidate) => candidate.id === providerId
-  );
-
-  if (!provider) {
-    throw new InferenceError("provider_not_found", "Provider was not found");
-  }
-
-  return provider;
 }
 
 function isProviderUpdateRequest(
@@ -553,18 +579,85 @@ function isModelDefaultUpdateRequest(
   );
 }
 
-function parseAnthropicStreamLine(line: string) {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("data:")) {
-    return "";
+async function encryptSecret(
+  plaintext: string,
+  context: Record<string, string>
+) {
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
+  const encoded = new TextEncoder().encode(plaintext);
+  const key = await secretKey();
+  const aad = new TextEncoder().encode(JSON.stringify(context));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: aad },
+    key,
+    encoded
+  );
+
+  return JSON.stringify({
+    v: 1,
+    alg: "AES-GCM",
+    iv: bytesToHex(iv),
+    ciphertext: bytesToHex(new Uint8Array(ciphertext))
+  });
+}
+
+async function decryptSecret(
+  encrypted: string,
+  context: Record<string, string>
+) {
+  const payload = JSON.parse(encrypted) as {
+    iv: string;
+    ciphertext: string;
+  };
+  const key = await secretKey();
+  const aad = new TextEncoder().encode(JSON.stringify(context));
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: hexToBytes(payload.iv),
+      additionalData: aad
+    },
+    key,
+    hexToBytes(payload.ciphertext)
+  );
+
+  return new TextDecoder().decode(plaintext);
+}
+
+async function secretKey() {
+  let configured: string;
+  try {
+    configured = requiredEnvValue("LUSH_SECRET_KEY");
+  } catch {
+    throw new InferenceError(
+      "secret_key_missing",
+      "LUSH_SECRET_KEY is required to encrypt inference provider credentials",
+      500
+    );
   }
 
-  try {
-    const parsed = JSON.parse(trimmed.slice("data:".length).trim());
-    return parsed.type === "content_block_delta" ? parsed.delta?.text ?? "" : "";
-  } catch {
-    return "";
+  const material = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(configured)
+  );
+
+  return crypto.subtle.importKey("raw", material, "AES-GCM", false, [
+    "encrypt",
+    "decrypt"
+  ]);
+}
+
+function bytesToHex(bytes: Uint8Array) {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToBytes(value: string) {
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
   }
+  return bytes;
 }
 
 function trimTrailingSlash(value: string) {

@@ -1,0 +1,29 @@
+---
+title: Comparisons
+description: How to think about Lush relative to adjacent systems.
+---
+
+Lush overlaps with several categories but is not exactly one of them.
+
+## Chat applications
+
+Chat apps focus on user-facing conversations. Lush includes chat as one surface,
+but the broader goal is a control plane for providers, agents, tools, state,
+and policy across multiple interfaces.
+
+## Agent frameworks
+
+Agent frameworks provide runtime primitives for planning, tools, and execution.
+Lush treats those primitives as service capabilities that need tenancy,
+configuration, observability, and durable state.
+
+## Model gateways
+
+Model gateways normalize provider APIs and routing. Lush includes provider
+routing, but also owns user auth, organization state, app sessions, agent
+boundaries, and administrative workflows.
+
+## Internal platforms
+
+Internal AI platforms often grow from one-off integrations. Lush is structured
+so those responsibilities live in explicit service boundaries from the start.

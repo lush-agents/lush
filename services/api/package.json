@@ -6,10 +6,14 @@
   "scripts": {
     "dev": "bun run src/server.ts",
     "start": "bun run src/server.ts",
-    "codegen": "bun run scripts/generate-client.ts"
+    "typecheck": "tsgo --noEmit",
+    "codegen": "bun run scripts/generate-client.ts",
+    "openapi:codegen": "bun run scripts/generate-openapi.ts"
   },
   "dependencies": {
     "@lush/agent": "workspace:*",
+    "@lush/authz": "workspace:*",
+    "@lush/config": "workspace:*",
     "@lush/inference": "workspace:*",
     "hono": "^4.12.27"
   }

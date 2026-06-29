@@ -1,121 +1,108 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  Show
+} from "solid-js";
 import type {
-  AddInferenceProviderRequest,
-  InferenceConfig,
-  InferenceProviderKind,
-  ModelDefaults,
-  WorkspaceMode
+  OrganizationInvite,
+  OrganizationMember,
+  UserRole
 } from "@lush/api-client";
-import { workspaceModes } from "../../lib/app-data";
-import type { SessionStatus } from "../../lib/types";
-import { Dropdown } from "../../ui/Dropdown";
-
-const providerQuickstarts: Array<{
-  kind: InferenceProviderKind;
-  label: string;
-  baseUrl: string;
-  description: string;
-}> = [
-  {
-    kind: "baseten",
-    label: "Baseten",
-    baseUrl: "https://inference.baseten.co/v1",
-    description: "Use a Baseten OpenAI-compatible endpoint."
-  },
-  {
-    kind: "fireworks",
-    label: "Fireworks",
-    baseUrl: "https://api.fireworks.ai/inference/v1",
-    description: "Discover Fireworks-hosted chat models."
-  },
-  {
-    kind: "anthropic",
-    label: "Anthropic",
-    baseUrl: "https://api.anthropic.com/v1",
-    description: "Discover Claude models with an Anthropic API key."
-  },
-  {
-    kind: "openai",
-    label: "OpenAI",
-    baseUrl: "https://api.openai.com/v1",
-    description: "Discover OpenAI chat-capable models."
-  },
-  {
-    kind: "openai-compatible",
-    label: "Other",
-    baseUrl: "",
-    description: "Connect any OpenAI-compatible API endpoint."
-  }
-];
 
 export function OrganizationSettingsPage(props: {
   organizationName: string;
-  apiBaseUrl: string;
-  sessionStatus: SessionStatus;
-  inferenceConfig?: InferenceConfig;
-  modelDefaults: ModelDefaults;
-  inferenceProviderError: string;
-  isAddingInferenceProvider: boolean;
-  onOrganizationNameChange: (organizationName: string) => void;
-  onApiBaseUrlChange: (apiBaseUrl: string) => void;
-  onApiBaseUrlBlur: () => Promise<unknown>;
-  onAddInferenceProvider: (
-    request: AddInferenceProviderRequest
+  currentRole?: UserRole;
+  organizationError: string;
+  members: OrganizationMember[];
+  invites: OrganizationInvite[];
+  onOrganizationNameChange: (
+    organizationName: string
+  ) => Promise<unknown> | unknown;
+  onDeleteOrganization: () => Promise<unknown>;
+  onInviteCreate: (
+    email: string,
+    role: UserRole,
+    expiresInDays?: number
   ) => Promise<unknown>;
-  onProviderEnabledChange: (
-    providerId: string,
-    enabled: boolean
-  ) => Promise<unknown>;
-  onProviderDelete: (providerId: string) => Promise<unknown>;
-  onModelEnabledChange: (
-    providerId: string,
-    modelId: string,
-    enabled: boolean
-  ) => Promise<unknown>;
-  onModelDefaultChange: (
-    mode: WorkspaceMode,
-    modelSelection: string
-  ) => Promise<unknown>;
+  onMemberRoleChange: (membershipId: string, role: UserRole) => Promise<unknown>;
+  onMemberRemove: (membershipId: string) => Promise<unknown>;
 }) {
-  const [providerFormOpen, setProviderFormOpen] = createSignal(false);
-  const [providerKind, setProviderKind] =
-    createSignal<InferenceProviderKind>("fireworks");
-  const [providerLabel, setProviderLabel] = createSignal("Fireworks");
-  const [providerBaseUrl, setProviderBaseUrl] = createSignal(
-    "https://api.fireworks.ai/inference/v1"
+  const [organizationNameDraft, setOrganizationNameDraft] = createSignal(
+    props.organizationName
   );
-  const [providerApiKey, setProviderApiKey] = createSignal("");
-  const [openModelMenu, setOpenModelMenu] = createSignal("");
-  const selectedQuickstart = createMemo(() =>
-    providerQuickstarts.find((quickstart) => quickstart.kind === providerKind())
-  );
-  const hasProviders = createMemo(
-    () => (props.inferenceConfig?.providers.length ?? 0) > 0
-  );
+  const [organizationNameError, setOrganizationNameError] = createSignal("");
+  const [inviteEmail, setInviteEmail] = createSignal("");
+  const [inviteRole, setInviteRole] = createSignal<UserRole>("user");
+  const [isInviting, setIsInviting] = createSignal(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = createSignal(false);
+  const [isDeletingOrganization, setIsDeletingOrganization] = createSignal(false);
+  const isAdmin = createMemo(() => props.currentRole === "admin");
 
-  const selectQuickstart = (kind: InferenceProviderKind) => {
-    const quickstart = providerQuickstarts.find((item) => item.kind === kind);
-    if (!quickstart) {
+  createEffect(() => {
+    setOrganizationNameDraft(props.organizationName);
+  });
+
+  createEffect(() => {
+    if (!deleteDialogOpen()) {
       return;
     }
 
-    setProviderKind(quickstart.kind);
-    setProviderLabel(quickstart.label);
-    setProviderBaseUrl(quickstart.baseUrl);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isDeletingOrganization()) {
+        setDeleteDialogOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
+
+  const commitOrganizationName = async () => {
+    const nextOrganizationName = organizationNameDraft().trim();
+    setOrganizationNameError("");
+
+    if (nextOrganizationName === props.organizationName) {
+      setOrganizationNameDraft(nextOrganizationName);
+      return;
+    }
+
+    try {
+      await props.onOrganizationNameChange(nextOrganizationName);
+    } catch (error) {
+      setOrganizationNameDraft(props.organizationName);
+      setOrganizationNameError(
+        error instanceof Error
+          ? error.message
+          : "Unable to update organization name"
+      );
+    }
   };
 
-  const submitProvider = async (event: SubmitEvent) => {
+  const submitInvite = async (event: SubmitEvent) => {
     event.preventDefault();
+    setIsInviting(true);
 
-    await props.onAddInferenceProvider({
-      kind: providerKind(),
-      label: providerLabel(),
-      apiKey: providerApiKey(),
-      baseUrl: providerBaseUrl()
-    });
+    try {
+      await props.onInviteCreate(inviteEmail(), inviteRole());
+      setInviteEmail("");
+      setInviteRole("user");
+    } finally {
+      setIsInviting(false);
+    }
+  };
 
-    setProviderApiKey("");
-    setProviderFormOpen(false);
+  const confirmDeleteOrganization = async () => {
+    setIsDeletingOrganization(true);
+
+    try {
+      await props.onDeleteOrganization();
+      setDeleteDialogOpen(false);
+    } finally {
+      setIsDeletingOrganization(false);
+    }
   };
 
   return (
@@ -127,7 +114,9 @@ export function OrganizationSettingsPage(props: {
               Organization
             </h2>
             <p class="mt-1 text-sm leading-5 text-[var(--color-muted)]">
-              Set your organization name.
+              {isAdmin()
+                ? "Set your organization name."
+                : "View your organization name."}
             </p>
           </div>
 
@@ -137,434 +126,251 @@ export function OrganizationSettingsPage(props: {
             </span>
             <input
               type="text"
-              value={props.organizationName}
+              value={organizationNameDraft()}
               onInput={(event) =>
-                props.onOrganizationNameChange(event.currentTarget.value)
+                setOrganizationNameDraft(event.currentTarget.value)
               }
+              onBlur={() => {
+                if (isAdmin()) {
+                  void commitOrganizationName();
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                }
+              }}
+              readonly={!isAdmin()}
               placeholder="Example, Inc."
-              class="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+              class={`rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm outline-none transition placeholder:text-[var(--color-muted)] ${
+                isAdmin()
+                  ? "text-[var(--color-text)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+                  : "cursor-default text-[var(--color-muted)]"
+              }`}
             />
+            <Show when={organizationNameError()}>
+              <span class="text-xs text-red-300">
+                {organizationNameError()}
+              </span>
+            </Show>
           </label>
         </div>
       </section>
 
-      <section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div class="max-w-md">
-            <h2 class="text-sm font-medium text-[var(--color-text)]">
-              Lush API
-            </h2>
-          </div>
-
-          <div class="grid min-w-64 gap-3">
-            <label class="grid gap-2">
-              <span class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                Base URL
-              </span>
-              <input
-                type="url"
-                value={props.apiBaseUrl}
-                onInput={(event) =>
-                  props.onApiBaseUrlChange(event.currentTarget.value)
-                }
-                onBlur={() => void props.onApiBaseUrlBlur()}
-                placeholder="http://127.0.0.1:7330"
-                class="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
-              />
-            </label>
-
-            <p class="text-xs text-[var(--color-muted)]">
-              {sessionStatusLabel(props.sessionStatus)}
-            </p>
-          </div>
-        </div>
-      </section>
+      <Show when={props.organizationError}>
+        <p class="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          {props.organizationError}
+        </p>
+      </Show>
 
       <section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-        <div class="flex flex-col gap-4">
+        <div class="grid gap-4">
           <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div class="max-w-md">
               <h2 class="text-sm font-medium text-[var(--color-text)]">
-                Inference
+                Members
               </h2>
+              <p class="mt-1 text-sm leading-5 text-[var(--color-muted)]">
+                {isAdmin()
+                  ? "Manage organization access."
+                  : "View organization access."}
+              </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setProviderFormOpen((open) => !open)}
-              class="self-start rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-2 text-sm font-medium text-white transition hover:border-[var(--color-brand-strong)] hover:bg-[var(--color-brand-strong)]"
-            >
-              Add provider
-            </button>
-          </div>
-
-          <Show when={providerFormOpen()}>
-            <form
-              onSubmit={submitProvider}
-              class="grid gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] p-3"
-            >
-              <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                <For each={providerQuickstarts}>
-                  {(quickstart) => (
-                    <button
-                      type="button"
-                      onClick={() => selectQuickstart(quickstart.kind)}
-                      class={`rounded-md border p-3 text-left transition ${
-                        providerKind() === quickstart.kind
-                          ? "border-[var(--color-brand)] bg-[var(--color-panel-hover)]"
-                          : "border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-panel-hover)]"
-                      }`}
-                    >
-                      <span class="block text-sm font-medium text-[var(--color-text)]">
-                        {quickstart.label}
-                      </span>
-                      <span class="mt-1 block text-xs leading-5 text-[var(--color-muted)]">
-                        {quickstart.description}
-                      </span>
-                    </button>
-                  )}
-                </For>
-              </div>
-
-              <div class="grid gap-3 lg:grid-cols-3">
-                <label class="grid gap-2">
-                  <span class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                    Provider name
-                  </span>
-                  <input
-                    type="text"
-                    value={providerLabel()}
-                    onInput={(event) =>
-                      setProviderLabel(event.currentTarget.value)
-                    }
-                    class="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
-                  />
-                </label>
-
-                <label class="grid gap-2">
-                  <span class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                    API key
-                  </span>
-                  <input
-                    type="password"
-                    value={providerApiKey()}
-                    onInput={(event) =>
-                      setProviderApiKey(event.currentTarget.value)
-                    }
-                    placeholder="Paste API key, stored securely"
-                    class="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
-                  />
-                </label>
-
-                <label class="grid gap-2">
-                  <span class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                    Base URL
-                  </span>
-                  <input
-                    type="url"
-                    value={providerBaseUrl()}
-                    onInput={(event) =>
-                      setProviderBaseUrl(event.currentTarget.value)
-                    }
-                    placeholder={
-                      selectedQuickstart()?.kind === "openai-compatible"
-                        ? "https://api.example.com/v1"
-                        : selectedQuickstart()?.baseUrl
-                    }
-                    class="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
-                  />
-                </label>
-              </div>
-
-              <Show when={props.inferenceProviderError}>
-                <p class="text-sm text-[var(--color-brand-soft)]">
-                  {props.inferenceProviderError}
-                </p>
-              </Show>
-
-              <div class="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setProviderFormOpen(false)}
-                  class="rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
+            <Show when={isAdmin()}>
+              <form
+                onSubmit={submitInvite}
+                class="grid min-w-64 gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_auto]"
+              >
+                <input
+                  type="email"
+                  value={inviteEmail()}
+                  onInput={(event) => setInviteEmail(event.currentTarget.value)}
+                  placeholder="name@example.com"
+                  required
+                  class="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+                />
+                <select
+                  value={inviteRole()}
+                  onChange={(event) =>
+                    setInviteRole(event.currentTarget.value as UserRole)
+                  }
+                  class="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
                 >
-                  Cancel
-                </button>
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
                 <button
                   type="submit"
-                  disabled={
-                    props.isAddingInferenceProvider ||
-                    !providerLabel().trim() ||
-                    !providerApiKey().trim() ||
-                    !providerBaseUrl().trim()
-                  }
+                  disabled={isInviting() || !inviteEmail().trim()}
                   class="rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-2 text-sm font-medium text-white transition hover:border-[var(--color-brand-strong)] hover:bg-[var(--color-brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {props.isAddingInferenceProvider
-                    ? "Discovering models"
-                    : "Connect provider"}
+                  Invite
                 </button>
-              </div>
-            </form>
-          </Show>
-
-          <div class="grid gap-2">
-            <Show
-              when={props.inferenceConfig}
-              fallback={<EmptyProviders onAdd={() => setProviderFormOpen(true)} />}
-            >
-              {(config) => (
-                <Show
-                  when={hasProviders()}
-                  fallback={<EmptyProviders onAdd={() => setProviderFormOpen(true)} />}
-                >
-                  <For each={config().providers}>
-                    {(provider) => (
-                      <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)]">
-                        <div
-                          class={`flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-start sm:justify-between ${
-                            provider.enabled
-                              ? "border-b border-[var(--color-border)]"
-                              : ""
-                          }`}
-                        >
-                          <div class="min-w-0">
-                            <div class="flex flex-wrap items-center gap-2">
-                              <h3 class="text-sm font-medium text-[var(--color-text)]">
-                                {provider.label}
-                              </h3>
-                              <span
-                                class={`rounded-md px-2 py-1 text-xs font-medium ${
-                                  provider.enabled
-                                    ? "bg-[var(--color-brand)] text-white"
-                                    : "bg-[var(--color-bg)] text-[var(--color-muted)]"
-                                }`}
-                              >
-                                {provider.enabled ? "Enabled" : "Disabled"}
-                              </span>
-                            </div>
-                            <p class="mt-1 truncate text-xs text-[var(--color-muted)]">
-                              {provider.baseUrl}
-                            </p>
-                          </div>
-                          <div class="flex flex-wrap items-center gap-2">
-                            <span
-                              class={`rounded-md px-2 py-1 text-xs font-medium ${
-                                provider.configured
-                                  ? "bg-[var(--color-card)] text-[var(--color-subtle)]"
-                                  : "bg-[var(--color-bg)] text-[var(--color-muted)]"
-                              }`}
-                            >
-                              {provider.configured ? "Configured" : "Missing key"}
-                            </span>
-                            <ToggleSwitch
-                              checked={provider.enabled}
-                              label={`${provider.enabled ? "Disable" : "Enable"} ${provider.label}`}
-                              onChange={() =>
-                                void props.onProviderEnabledChange(
-                                  provider.id,
-                                  !provider.enabled
-                                )
-                              }
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    `Delete ${provider.label}? This removes the provider configuration.`
-                                  )
-                                ) {
-                                  void props.onProviderDelete(provider.id);
-                                }
-                              }}
-                              class="rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-muted)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)]"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-
-                        <Show when={provider.enabled}>
-                          <div class="grid divide-y divide-[var(--color-border)]">
-                            <For each={provider.models}>
-                              {(model) => {
-                                const modelSelection = `${provider.id}:${model.id}`;
-                                const selectedModes = () =>
-                                  workspaceModes.filter(
-                                    (mode) =>
-                                      props.modelDefaults[mode.value] ===
-                                      modelSelection
-                                  );
-                                const menuOpen = () =>
-                                  openModelMenu() === modelSelection;
-
-                                return (
-                                  <div
-                                    class={`grid gap-3 px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)] lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center ${
-                                      model.enabled ? "" : "opacity-60"
-                                    }`}
-                                  >
-                                    <ToggleSwitch
-                                      checked={model.enabled}
-                                      label={`${model.enabled ? "Disable" : "Enable"} ${model.label}`}
-                                      onChange={() =>
-                                        void props.onModelEnabledChange(
-                                          provider.id,
-                                          model.id,
-                                          !model.enabled
-                                        )
-                                      }
-                                    />
-
-                                    <div class="min-w-0">
-                                      <div class="flex flex-wrap items-center gap-2">
-                                        <p class="text-sm font-medium text-[var(--color-text)]">
-                                          {model.label}
-                                        </p>
-                                        <span class="rounded-md bg-[var(--color-card)] px-2 py-1 text-xs font-medium text-[var(--color-muted)]">
-                                          {model.enabled ? "Enabled" : "Disabled"}
-                                        </span>
-                                      </div>
-                                      <p class="mt-1 truncate text-xs text-[var(--color-muted)]">
-                                        {model.id}
-                                      </p>
-                                    </div>
-
-                                    <div class="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
-                                      <For each={selectedModes()}>
-                                        {(mode) => (
-                                          <span class="rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-2 py-1 text-xs font-medium text-white">
-                                            {mode.label}
-                                          </span>
-                                        )}
-                                      </For>
-
-                                      <Dropdown
-                                        open={menuOpen()}
-                                        onOpenChange={(open) =>
-                                          setOpenModelMenu(
-                                            open ? modelSelection : ""
-                                          )
-                                        }
-                                        class="relative"
-                                        contentClass="absolute right-0 top-8 z-20 min-w-48 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] p-1 shadow-lg"
-                                        trigger={(dropdown) => (
-                                          <button
-                                            type="button"
-                                            aria-label={`Model actions for ${model.label}`}
-                                            aria-expanded={dropdown.isOpen()}
-                                            disabled={!model.enabled}
-                                            onClick={dropdown.toggle}
-                                            class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--color-border)] text-[var(--color-muted)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50"
-                                          >
-                                            <span class="grid gap-0.5">
-                                              <span class="h-1 w-1 rounded-full bg-current" />
-                                              <span class="h-1 w-1 rounded-full bg-current" />
-                                              <span class="h-1 w-1 rounded-full bg-current" />
-                                            </span>
-                                          </button>
-                                        )}
-                                      >
-                                        <div class="px-2 py-1.5 text-xs font-medium text-[var(--color-muted)]">
-                                          Set default as...
-                                        </div>
-                                        <For each={workspaceModes}>
-                                          {(mode) => (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                    props.onModelDefaultChange(
-                                                      mode.value,
-                                                      modelSelection
-                                                    );
-                                                setOpenModelMenu("");
-                                              }}
-                                              class="block w-full rounded px-2 py-1.5 text-left text-xs font-medium text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
-                                            >
-                                              {mode.label}
-                                            </button>
-                                          )}
-                                        </For>
-                                      </Dropdown>
-                                    </div>
-                                  </div>
-                                );
-                              }}
-                            </For>
-                          </div>
-                        </Show>
-                      </div>
-                    )}
-                  </For>
-                </Show>
-              )}
+              </form>
             </Show>
           </div>
+
+          <div class="grid gap-2">
+            <For each={props.members}>
+              {(member) => (
+                <div class="grid gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] p-3 sm:grid-cols-[minmax(0,1fr)_7rem_auto] sm:items-center">
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-medium text-[var(--color-text)]">
+                      {member.displayName}
+                    </p>
+                    <p class="truncate text-xs text-[var(--color-muted)]">
+                      {member.email}
+                    </p>
+                  </div>
+                  <Show
+                    when={isAdmin()}
+                    fallback={
+                      <span class="rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2 py-2 text-sm text-[var(--color-muted)]">
+                        {member.role}
+                      </span>
+                    }
+                  >
+                    <select
+                      value={member.role}
+                      onChange={(event) =>
+                        void props.onMemberRoleChange(
+                          member.membershipId,
+                          event.currentTarget.value as UserRole
+                        )
+                      }
+                      class="rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2 py-2 text-sm text-[var(--color-text)] outline-none transition hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+                    >
+                      <option value="user">User</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </Show>
+                  <Show when={isAdmin()}>
+                    <button
+                      type="button"
+                      onClick={() => void props.onMemberRemove(member.membershipId)}
+                      class="rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
+                    >
+                      Remove
+                    </button>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+
+          <Show when={isAdmin() && props.invites.length > 0}>
+            <div class="grid gap-2">
+              <h3 class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                Invites
+              </h3>
+              <For each={props.invites}>
+                {(invite) => (
+                  <div class="flex min-w-0 items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] p-3">
+                    <div class="min-w-0">
+                      <p class="truncate text-sm font-medium text-[var(--color-text)]">
+                        {invite.email}
+                      </p>
+                      <p class="truncate text-xs text-[var(--color-muted)]">
+                        {invite.role} - {invite.status}
+                      </p>
+                    </div>
+                    <span class="shrink-0 text-xs text-[var(--color-muted)]">
+                      {new Date(invite.expiresAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
         </div>
       </section>
+
+      <Show when={isAdmin()}>
+        <section class="rounded-lg border border-red-500/50 bg-[var(--color-card)] p-4">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 class="text-sm font-medium text-[var(--color-text)]">
+                Delete organization
+              </h2>
+              <p class="mt-1 text-sm leading-5 text-[var(--color-muted)]">
+                Deletes this organization and all organization-owned state.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeleteDialogOpen(true)}
+              class="self-start rounded-md border border-red-600 bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:border-red-700 hover:bg-red-700"
+            >
+              Delete
+            </button>
+          </div>
+        </section>
+      </Show>
+
+      <DeleteOrganizationDialog
+        open={deleteDialogOpen()}
+        isDeleting={isDeletingOrganization()}
+        onCancel={() => setDeleteDialogOpen(false)}
+        onConfirm={() => void confirmDeleteOrganization()}
+      />
     </div>
   );
 }
 
-function EmptyProviders(props: { onAdd: () => void }) {
-  return (
-    <div class="rounded-lg border border-dashed border-[var(--color-border-strong)] bg-[var(--color-panel)] p-6 text-center">
-      <p class="text-sm font-medium text-[var(--color-text)]">
-        No inference providers connected
-      </p>
-      <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--color-muted)]">
-        Add Baseten, Fireworks, Anthropic, OpenAI, or any OpenAI-compatible
-        endpoint. Lush will use the supplied credentials to discover available
-        chat models.
-      </p>
-      <button
-        type="button"
-        onClick={props.onAdd}
-        class="mt-4 rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
-      >
-        Add provider
-      </button>
-    </div>
-  );
-}
-
-function ToggleSwitch(props: {
-  checked: boolean;
-  label: string;
-  onChange: () => void;
+function DeleteOrganizationDialog(props: {
+  open: boolean;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={props.checked}
-      aria-label={props.label}
-      onClick={props.onChange}
-      class={`group relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border p-0.5 transition duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-panel)] ${
-        props.checked
-          ? "border-[var(--color-brand)] bg-[var(--color-brand)]"
-          : "border-[var(--color-border-strong)] bg-[var(--color-card)] hover:bg-[var(--color-panel-hover)]"
-      }`}
-    >
-      <span
-        class={`h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200 ease-out ${
-          props.checked ? "translate-x-[20px]" : "translate-x-0"
-        }`}
-      />
-    </button>
-  );
-}
+    <Show when={props.open}>
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !props.isDeleting) {
+            props.onCancel();
+          }
+        }}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-organization-title"
+          class="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-5 shadow-2xl"
+        >
+          <h2
+            id="delete-organization-title"
+            class="text-base font-semibold text-[var(--color-text)]"
+          >
+            Delete organization?
+          </h2>
+          <p class="mt-3 text-sm leading-6 text-[var(--color-muted)]">
+            This action is permanent. It will delete the organization for every
+            member and remove all organization-owned state.
+          </p>
 
-function sessionStatusLabel(status: SessionStatus) {
-  switch (status) {
-    case "ready":
-      return "Authenticated with the configured API.";
-    case "loading":
-      return "Checking the configured API.";
-    case "error":
-      return "Could not authenticate with the configured API.";
-    case "signed-out":
-      return "The app will authenticate when this URL is checked.";
-  }
+          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              disabled={props.isDeleting}
+              onClick={props.onCancel}
+              class="rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={props.isDeleting}
+              onClick={props.onConfirm}
+              class="rounded-md border border-red-600 bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:border-red-700 hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {props.isDeleting ? "Deleting..." : "Delete organization"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Show>
+  );
 }

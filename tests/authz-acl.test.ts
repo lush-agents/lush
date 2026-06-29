@@ -1,0 +1,94 @@
+import { expect, test } from "bun:test";
+import {
+  AuthError,
+  authzActions,
+  authorizePrincipal,
+  roleActionBindings,
+  type Principal
+} from "../services/authz/src/runtime";
+import { apiSpec } from "../services/api/src/spec";
+
+const basePrincipal: Principal = {
+  userId: "user-1",
+  organizationId: "org-1",
+  membershipId: "membership-1",
+  role: "user",
+  sessionId: "session-1"
+};
+
+test("role action bindings only reference known authz actions", () => {
+  const knownActions = new Set<string>(authzActions);
+  const boundActions = [
+    ...roleActionBindings.admin,
+    ...roleActionBindings.user
+  ];
+
+  expect(boundActions.every((action) => knownActions.has(action))).toBe(true);
+});
+
+test("protected api routes have matching authz actions", () => {
+  const knownActions = new Set<string>(authzActions);
+  const missingActions = apiSpec.routes
+    .filter((route) => route.auth)
+    .map((route) => route.id)
+    .filter((routeId) => !knownActions.has(routeId));
+
+  expect(missingActions).toEqual([]);
+});
+
+test("role action bindings keep users read-only for organization and inference settings", () => {
+  expect(roleActionBindings.user).toContain("listOrganizationMembers");
+  expect(roleActionBindings.user).toContain("fetchInferenceConfig");
+  expect(roleActionBindings.user).not.toContain("updateCurrentOrganization");
+  expect(roleActionBindings.user).not.toContain("createInferenceProvider");
+  expect(roleActionBindings.user).not.toContain("updateInferenceModelDefault");
+});
+
+test("authorizePrincipal allows user read actions and rejects management actions", () => {
+  expect(authorizePrincipal(basePrincipal, "fetchInferenceConfig").allowed).toBe(
+    true
+  );
+  expect(authorizePrincipal(basePrincipal, "listOrganizationMembers").allowed).toBe(
+    true
+  );
+
+  expect(() =>
+    authorizePrincipal(basePrincipal, "updateCurrentOrganization")
+  ).toThrow(AuthError);
+  expect(() =>
+    authorizePrincipal(basePrincipal, "createInferenceProvider")
+  ).toThrow(AuthError);
+});
+
+test("authorizePrincipal allows admin organization and inference management actions", () => {
+  const adminPrincipal: Principal = {
+    ...basePrincipal,
+    role: "admin"
+  };
+
+  expect(
+    authorizePrincipal(adminPrincipal, "updateCurrentOrganization").allowed
+  ).toBe(true);
+  expect(authorizePrincipal(adminPrincipal, "createInferenceProvider").allowed).toBe(
+    true
+  );
+  expect(
+    authorizePrincipal(adminPrincipal, "updateInferenceModelDefault").allowed
+  ).toBe(true);
+});
+
+test("authorizePrincipal requires an active organization for role-bound actions", () => {
+  const noOrganizationPrincipal: Principal = {
+    ...basePrincipal,
+    organizationId: null,
+    membershipId: null,
+    role: null
+  };
+
+  expect(
+    authorizePrincipal(noOrganizationPrincipal, "updateCurrentUser").allowed
+  ).toBe(true);
+  expect(() =>
+    authorizePrincipal(noOrganizationPrincipal, "fetchInferenceConfig")
+  ).toThrow(AuthError);
+});

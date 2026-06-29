@@ -12,14 +12,14 @@ desktop, iOS, and Android through Tauri native wrappers.
 - `bun run tauri:dev` - run the app inside the Tauri shell.
 - `bun run tauri:build` - build native desktop bundles with Tauri.
 
-The Tauri shell currently requires Rust 1.88 or newer.
+The Tauri shell requires Rust 1.88 or newer.
 
 ## API Base URL
 
-The app defaults to the local Lush API at `http://127.0.0.1:7330`. Override
-that with `VITE_LUSH_API_BASE_URL`, or set it in Organization settings while
-running the app. Desktop builds resolve `localhost` API URLs to `127.0.0.1` at
-runtime so the Tauri webview reaches the IPv4 Bun dev server reliably.
+The app reads its API gateway from `VITE_LUSH_API_BASE_URL`. This is runtime
+deployment config, not user-editable state. Desktop builds resolve `localhost`
+API URLs to `127.0.0.1` at runtime so the Tauri webview reaches the IPv4 Bun
+dev server reliably.
 
 For hosted builds, point `VITE_LUSH_API_BASE_URL` at the DNS/SSL-backed API
 gateway, for example `https://api.lush.dev`.

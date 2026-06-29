@@ -1,0 +1,89 @@
+{
+  "logDir": "logs",
+  "processDefaults": {
+    "timeoutSeconds": 10,
+    "restartDelaySeconds": 0.5,
+    "maxRestartDelaySeconds": 10,
+    "restartResetSeconds": 10
+  },
+  "dockerDependencies": [
+    {
+      "name": "db",
+      "color": "green",
+      "preflightCommand": ["docker", "ps"],
+      "preflightFailureMessage": "Docker is not reachable. Start Docker Desktop before running `bun run dev`.",
+      "startCommand": ["docker", "compose", "up", "-d", "lush-postgres"],
+      "stopCommand": ["docker", "compose", "stop", "lush-postgres"],
+      "readyCommand": [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "lush-postgres",
+        "pg_isready",
+        "-U",
+        "lush",
+        "-d",
+        "lush"
+      ],
+      "readyTimeoutSeconds": 15,
+      "watchIntervalSeconds": 5
+    }
+  ],
+  "tasks": [
+    {
+      "name": "codegen",
+      "color": "yellow",
+      "command": ["bun", "--bun", "run", "--cwd", "services/api", "codegen"],
+      "timeoutSeconds": 60
+    },
+    {
+      "name": "openapi",
+      "color": "yellow",
+      "command": ["bun", "--bun", "run", "--cwd", "services/api", "openapi:codegen"],
+      "timeoutSeconds": 60
+    },
+    {
+      "name": "migrate",
+      "color": "green",
+      "command": ["bun", "--bun", "run", "--cwd", "packages/db", "migrate"],
+      "timeoutSeconds": 60,
+      "env": {
+        "DATABASE_URL": "${DATABASE_URL}",
+        "LUSH_SECRET_KEY": "${LUSH_SECRET_KEY}"
+      }
+    }
+  ],
+  "processes": [
+    {
+      "name": "api",
+      "color": "cyan",
+      "command": ["bun", "--bun", "run", "--cwd", "services/api", "dev"],
+      "env": {
+        "LUSH_API_PORT": "${LUSH_API_PORT}",
+        "LUSH_API_HOST": "${LUSH_API_HOST}",
+        "DATABASE_URL": "${DATABASE_URL}",
+        "LUSH_SECRET_KEY": "${LUSH_SECRET_KEY}",
+        "LUSH_AUTH_JWT_PRIVATE_KEY": "${LUSH_AUTH_JWT_PRIVATE_KEY}",
+        "LUSH_AUTH_JWT_PUBLIC_KEY": "${LUSH_AUTH_JWT_PUBLIC_KEY}",
+        "LUSH_AUTH_JWT_ISSUER": "${LUSH_AUTH_JWT_ISSUER:-lush-authz}",
+        "LUSH_AUTH_JWT_AUDIENCE": "${LUSH_AUTH_JWT_AUDIENCE:-lush-api}",
+        "LUSH_AUTH_PASSWORD_ENABLED": "${LUSH_AUTH_PASSWORD_ENABLED:-true}",
+        "LUSH_APP_ORIGIN": "${LUSH_APP_ORIGIN}"
+      }
+    },
+    {
+      "name": "app",
+      "color": "magenta",
+      "command": ["bun", "--bun", "run", "--cwd", "apps/lush", "dev"],
+      "env": {
+        "VITE_LUSH_API_BASE_URL": "${VITE_LUSH_API_BASE_URL}"
+      }
+    },
+    {
+      "name": "docs",
+      "color": "blue",
+      "command": ["bun", "--bun", "run", "--cwd", "services/docs", "dev"]
+    }
+  ]
+}
