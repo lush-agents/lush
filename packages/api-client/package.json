@@ -1,0 +1,16 @@
+{
+  "name": "@lush/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "build": "bun run typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

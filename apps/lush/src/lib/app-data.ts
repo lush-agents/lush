@@ -1,0 +1,282 @@
+import type { ModelDefaults, WorkspaceMode } from "@lush/api-client";
+import type {
+  Appearance,
+  Concept,
+  Route
+} from "./types";
+
+export const defaultDisplayName = "First Last";
+export const defaultHandle = "first";
+export const defaultOrganizationName = "Example, Inc.";
+export const defaultApiBaseUrl =
+  import.meta.env.VITE_LUSH_API_BASE_URL ?? "http://127.0.0.1:7330";
+
+export const workspaceModes: Array<{
+  value: WorkspaceMode;
+  label: string;
+}> = [
+  { value: "chat", label: "Chat" },
+  { value: "code", label: "Code" },
+  { value: "work", label: "Work" },
+  { value: "agents", label: "Agents" }
+];
+
+export const defaultModelDefaults: ModelDefaults = {
+  chat: "",
+  code: "",
+  work: "",
+  agents: ""
+};
+
+export const routes: Route[] = [
+  {
+    href: "/chat",
+    label: "Chat",
+    eyebrow: "Workspace",
+    title: "Chat",
+    body: "Placeholder for conversations across models, agents, tools, and team contexts.",
+    sessionKind: "chat"
+  },
+  {
+    href: "/code",
+    label: "Code",
+    eyebrow: "Workspace",
+    title: "Code",
+    body: "Placeholder for coding sessions, repository context, code review, and agent-assisted changes.",
+    sessionKind: "code"
+  },
+  {
+    href: "/work",
+    label: "Work",
+    eyebrow: "Workspace",
+    title: "Work",
+    body: "Placeholder for tasks, long-running work, documents, workflows, and scheduled follow-ups.",
+    sessionKind: "work"
+  },
+  {
+    href: "/agents",
+    label: "Agents",
+    eyebrow: "Workspace",
+    title: "Agents",
+    body: "Placeholder for creating, managing, and monitoring agent runtimes and skills.",
+    sessionKind: "agent"
+  }
+];
+
+export const previousSessions: Record<string, string[]> = {
+  chat: ["Provider routing notes", "Team onboarding draft", "Model comparison"],
+  code: ["App shell scaffold", "Tauri close behavior", "Theme variables"],
+  work: ["Launch checklist", "Architecture review", "Self-hosting notes"],
+  agent: ["Research assistant", "Code reviewer", "Team chat responder"]
+};
+
+export const accountRoutes: Route[] = [
+  {
+    href: "/settings/personal",
+    label: "Personal settings",
+    eyebrow: "Settings",
+    title: "Personal settings",
+    body: ""
+  },
+  {
+    href: "/settings/organization",
+    label: "Organization settings",
+    eyebrow: "Settings",
+    title: "Organization settings",
+    body: ""
+  },
+  {
+    href: "/sign-out",
+    label: "Sign out",
+    eyebrow: "Session",
+    title: "Sign out",
+    body: "Placeholder for ending the current session and returning to authentication."
+  }
+];
+
+export const concepts: Concept[] = [
+  {
+    slug: "api",
+    title: "API",
+    summary: "Single entry point for apps and integrations.",
+    body: "The API keeps the product surface simple by authenticating requests, applying cross-cutting policy, and routing work to the right backend boundary."
+  },
+  {
+    slug: "sessions",
+    title: "Sessions",
+    summary: "Shared conversations and active work contexts.",
+    body: "Sessions own threads, messages, and active work state so the same interaction can move across desktop, web, mobile, and team chat."
+  },
+  {
+    slug: "agents",
+    title: "Agents",
+    summary: "Agent execution and sandbox orchestration.",
+    body: "The agents boundary manages execution contexts, hosted sandboxes, and local development subprocesses behind one control-plane interface."
+  },
+  {
+    slug: "inference",
+    title: "Inference",
+    summary: "Model routing across providers.",
+    body: "Inference owns provider selection, model pinning, failover behavior, and request mediation across interchangeable model backends."
+  },
+  {
+    slug: "tools",
+    title: "Tools",
+    summary: "Scoped access to MCP, OpenAPI, and tool systems.",
+    body: "Tools mediate external capabilities so models receive narrow, governed access instead of raw URLs, credentials, or provider-specific details."
+  },
+  {
+    slug: "skills",
+    title: "Skills",
+    summary: "Publish, resolve, and load agent skills.",
+    body: "Skills are the runtime layer for discovering and loading agent capabilities. The shared skill catalog package keeps the reusable metadata primitives."
+  },
+  {
+    slug: "memory",
+    title: "Memory",
+    summary: "Portable scoped memory across indexes.",
+    body: "Memory separates observed facts from derived memories and applies scoped access controls across relational, graph, and vector-backed stores."
+  },
+  {
+    slug: "scheduler",
+    title: "Scheduler",
+    summary: "Deferred actions, loops, and wakeups.",
+    body: "Scheduler owns durable timing for reminders, recurring loops, retry/backoff state, and waking agents when work becomes due."
+  },
+  {
+    slug: "artifacts",
+    title: "Artifacts",
+    summary: "Files, uploads, and generated work products.",
+    body: "Artifacts track durable outputs such as uploaded files, generated assets, code results, storage references, and lifecycle policy."
+  },
+  {
+    slug: "team-chat",
+    title: "Team Chat",
+    summary: "Slack, Teams, and Discord integration boundary.",
+    body: "Team Chat exposes Lush workflows inside collaboration platforms while keeping platform-specific adapters behind one service interface."
+  }
+];
+
+export const appearanceOptions: Array<{
+  value: Appearance;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "system",
+    label: "System",
+    description: "Match the current operating system appearance."
+  },
+  {
+    value: "dark",
+    label: "Dark",
+    description: "Use the dark Lush interface."
+  },
+  {
+    value: "light",
+    label: "Light",
+    description: "Use the light Lush interface."
+  }
+];
+
+export function normalizedPath(pathname = window.location.pathname) {
+  if (pathname === "/") {
+    return "/concepts";
+  }
+
+  return pathname.replace(/\/+$/, "") || "/concepts";
+}
+
+export function createId() {
+  return crypto.randomUUID();
+}
+
+export function getInitialAppearance(): Appearance {
+  const stored = window.localStorage.getItem("lush:appearance");
+
+  if (stored === "dark" || stored === "light" || stored === "system") {
+    return stored;
+  }
+
+  return "system";
+}
+
+export function getInitialDisplayName() {
+  return window.localStorage.getItem("lush:display-name") ?? defaultDisplayName;
+}
+
+export function getInitialHandle() {
+  return window.localStorage.getItem("lush:handle") ?? defaultHandle;
+}
+
+export function getInitialApiBaseUrl() {
+  return window.localStorage.getItem("lush:api-base-url") ?? defaultApiBaseUrl;
+}
+
+export function getInitialSessionToken() {
+  return window.localStorage.getItem("lush:session-token") ?? "";
+}
+
+export function getInitialOrganizationName() {
+  return (
+    window.localStorage.getItem("lush:organization-name") ??
+    defaultOrganizationName
+  );
+}
+
+export function resolveDisplayName(displayName: string) {
+  return displayName.trim() || defaultDisplayName;
+}
+
+export function resolveOrganizationName(organizationName: string) {
+  return organizationName.trim() || defaultOrganizationName;
+}
+
+export function resolveApiBaseUrl(apiBaseUrl: string) {
+  const resolved = (apiBaseUrl.trim() || defaultApiBaseUrl).replace(/\/+$/, "");
+  if (!isTauriRuntime()) {
+    return resolved;
+  }
+
+  try {
+    const url = new URL(resolved);
+    if (url.hostname === "localhost") {
+      url.hostname = "127.0.0.1";
+      return url.toString().replace(/\/+$/, "");
+    }
+  } catch {
+    return resolved;
+  }
+
+  return resolved;
+}
+
+function isTauriRuntime() {
+  return Boolean(
+    (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+  );
+}
+
+export function resolveHandle(handle: string) {
+  const cleaned = handle.trim().replace(/^@+/, "");
+  return cleaned || defaultHandle;
+}
+
+export function formatHandle(handle: string) {
+  return `@${resolveHandle(handle)}`;
+}
+
+export function getFirstName(displayName: string) {
+  return resolveDisplayName(displayName).split(/\s+/)[0] ?? "First";
+}
+
+export function getInitials(displayName: string) {
+  const words = resolveDisplayName(displayName).split(/\s+/).slice(0, 2);
+  return words.map((word) => word[0]?.toUpperCase()).join("") || "FL";
+}
+
+export function getSystemTheme() {
+  return window.matchMedia("(prefers-color-scheme: light)").matches
+    ? "light"
+    : "dark";
+}

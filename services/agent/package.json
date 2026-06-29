@@ -2,5 +2,17 @@
   "name": "@lush/agent",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/server.ts",
+    "start": "bun run src/server.ts"
+  },
+  "dependencies": {
+    "@lush/inference": "workspace:*"
+  },
+  "exports": {
+    "./lush": "./src/agents/lush.ts",
+    "./runtime": "./src/runtime.ts",
+    "./spec": "./src/spec.ts"
+  }
 }
