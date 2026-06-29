@@ -2,5 +2,30 @@
   "name": "@lush/app",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "typecheck": "tsgo --noEmit",
+    "bundle": "vite build",
+    "build": "bun run typecheck && bun run bundle",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build --bundles app"
+  },
+  "dependencies": {
+    "@lush/api-client": "workspace:*",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.17.0",
+    "marked": "^18.0.5",
+    "solid-js": "^1.9.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "@tauri-apps/cli": "^2.11.3",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.0",
+    "vite-plugin-solid": "^2.11.12"
+  }
 }
