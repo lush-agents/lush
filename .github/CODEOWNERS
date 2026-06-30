@@ -1,0 +1,8 @@
+# Baseline repository ownership.
+* @lush-agents/reviewers @lush-agents/approvers
+
+# Public API and generated OpenAPI ownership.
+# Keep these rules after the baseline rule so API reviewers own spec changes.
+services/*/src/spec.ts @lush-agents/api-reviewers
+services/api/scripts/generate-openapi.ts @lush-agents/api-reviewers
+services/docs/generated/openapi/** @lush-agents/api-reviewers
