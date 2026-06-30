@@ -1,66 +1,57 @@
 # Session State
 
-This document plans durable session state for conversations, threads, and
-active work contexts. It is scoped to product state, not auth refresh sessions;
-auth sessions remain owned by `services/authz`.
+This document describes the session state implementation in this repository.
+Session state means durable product state for chat/work threads and active work
+contexts. It is separate from authentication refresh sessions, which remain
+owned by `services/authz`.
 
-## Goals
+## Current Shape
 
-- Persist chat/work sessions across app reloads, desktop/web clients, and
-  future hosted deployments.
-- Keep session state tenant-scoped by organization and user-accessible through
-  the existing authz model.
-- Keep initial visibility simple: users only see sessions they own.
-- Default to PostgreSQL so local development and managed deployment use the
-  same state path.
-- Enforce explicit size limits so session state cannot be abused as blob
-  storage.
-- Store references to large files, generated assets, and binaries rather than
-  embedding them in session records.
-- Keep the service boundary clean enough that the sessions service can move to
-  a separate database URL later if scaling requires it.
+Session state is implemented as a Postgres-backed service package:
 
-## Non-Goals
+- `services/sessions/src/spec.ts` defines the public route and type surface.
+- `services/sessions/src/runtime.ts` implements the Kysely-backed operations.
+- `services/api/src/server.ts` exposes those operations through the API gateway
+  under `/v1beta`.
+- `packages/db/src/migrations/002_session_state.ts` creates the session tables.
+- `packages/db/src/migrations/003_session_agent_id.ts` ensures `agent_id` is
+  the durable session grouping key.
+- `packages/api-client/src/generated.ts` contains generated client helpers for
+  the session routes.
 
-- Do not build the artifacts API in this phase.
-- Do not store large binary payloads, screenshots, generated files, or code
-  archives directly in session state.
-- Do not introduce a separate database technology until Postgres is proven
-  insufficient.
-- Do not make the client the source of truth for session history or workspace
-  state.
-- Do not implement organization-wide session browsing or user-to-user session
-  sharing in the first pass.
+The implementation uses the same shared Postgres database as the other
+service-owned tables in this repo. The sessions service currently reads through
+`@lush/db`, so it uses `DATABASE_URL` with the rest of the local and managed
+service state.
 
-## Storage Choice
+## Ownership Model
 
-PostgreSQL should be the default session store.
+Every session thread belongs to:
 
-Reasons:
+- one organization: `organization_id`
+- one owner user: `owner_user_id`
+- one caller-supplied agent identifier: `agent_id`
 
-- The repo already uses Postgres and Kysely for durable product state.
-- Sessions need relational ownership, ACL checks, timestamps, pagination, and
-  cleanup, all of which fit Postgres well.
-- JSONB works for flexible per-agent state while normalized columns keep common
-  queries fast.
-- Managed deployment can use the same schema with a shared database first, then
-  point `services/sessions` at a separate `SESSIONS_DATABASE_URL` later if it
-  needs independent scaling.
+The current implementation exposes only owner-visible sessions. Users list,
+read, update, append to, and archive their own sessions in their active
+organization. Organization-wide browsing and user-to-user sharing are not
+exposed.
 
-The initial deployment model should match the rest of the repo: one shared
-database with service-owned tables. The sessions service owns its tables and
-uses `DATABASE_URL` by default.
+`agent_id` is the API-level discriminator for the agent or product surface that
+owns the session. The chat UI uses `lush-chat`. The sessions API does not encode
+UI modes such as chat, code, or work.
 
 ## Data Model
 
-Implemented service-owned tables:
+The sessions migrations create these service-owned tables:
 
-- `sessions_threads`
-- `sessions_messages`
-- `sessions_state_snapshots`
-- `sessions_attachments`
+- `session_threads`
+- `session_messages`
+- `session_state_snapshots`
+- `session_attachments`
+- `organization_session_settings`
 
-`sessions_threads` stores the durable session container:
+`session_threads` stores the durable session container:
 
 - `id`
 - `organization_id`
@@ -68,6 +59,7 @@ Implemented service-owned tables:
 - `title`
 - `agent_id`
 - `state_bytes`
+- `version`
 - `deleted`
 - `deleted_at`
 - `delete_after`
@@ -75,18 +67,7 @@ Implemented service-owned tables:
 - `updated_at`
 - `archived_at`
 
-`agent_id` identifies the agent that owns or interprets the session. It is the
-durable discriminator for API consumers. First-party UI surfaces map built-in
-agents, such as `lush-chat`, to navigation groups without leaking UI modes into
-the sessions API.
-
-The thread table is indexed for the common access patterns:
-
-- active owner lists by `organization_id`, `owner_user_id`, `agent_id`, and
-  descending `updated_at`
-- direct agent/session lookup by `agent_id`, `id`
-
-`sessions_messages` stores ordered conversation events:
+`session_messages` stores ordered message history:
 
 - `id`
 - `thread_id`
@@ -99,7 +80,7 @@ The thread table is indexed for the common access patterns:
 - `byte_size`
 - `created_at`
 
-`sessions_state_snapshots` stores compact active work state:
+`session_state_snapshots` stores append-only state snapshots:
 
 - `id`
 - `thread_id`
@@ -109,7 +90,7 @@ The thread table is indexed for the common access patterns:
 - `byte_size`
 - `created_at`
 
-`sessions_attachments` stores references only:
+`session_attachments` stores attachment references:
 
 - `id`
 - `thread_id`
@@ -120,48 +101,34 @@ The thread table is indexed for the common access patterns:
 - `byte_size`
 - `created_at`
 
-Until the artifacts API exists, attachment rows should be reserved for future
-references and not accept raw bytes.
+There is no public attachment API yet. Attachment rows are reserved for future
+artifact references and do not store raw binary payloads.
 
-Organization-level session settings should store:
+`organization_session_settings` stores per-organization session settings:
 
 - `organization_id`
 - `retention_seconds`
 - `created_at`
 - `updated_at`
 
-The initial default retention is `0` seconds.
+If a settings row does not exist, the runtime creates one with
+`retention_seconds = 0`.
 
-## Size Limits
+## Indexes
 
-Session state must have hard server-side limits.
+The session tables include indexes for the current read/write paths:
 
-Initial limits:
+- active owner lists by `organization_id`, `owner_user_id`, `agent_id`, and
+  descending `updated_at`
+- direct agent/session lookup by `agent_id`, `id`
+- retention purge lookup by `delete_after` for deleted threads
+- message ordering by `thread_id`, `created_at`, `id`
+- state snapshot ordering by `thread_id`, `created_at`, `id`
+- attachment ordering by `thread_id`, `created_at`, `id`
 
-- Maximum total stored bytes per thread: `10 MiB`.
-- Maximum message content bytes: `256 KiB`.
-- Maximum state snapshot bytes: `1 MiB`.
-- Maximum metadata JSON bytes per row: `64 KiB`.
+## API Surface
 
-The `10 MiB` thread limit should include message content, message metadata,
-state snapshots, and attachment reference metadata. It should not include
-artifact bytes once the artifacts API exists.
-
-Large binaries and generated files belong in the future artifacts service. A
-session may store artifact references and small descriptive metadata, but never
-the binary payload.
-
-The service should reject writes that would exceed limits before committing the
-transaction. Limit errors should be explicit, for example:
-
-- `session_message_too_large`
-- `session_state_too_large`
-- `session_thread_limit_exceeded`
-- `artifact_required`
-
-## API Shape
-
-Initial `/v1beta` routes should be narrow:
+The session routes are published through the API gateway under `/v1beta`:
 
 - `GET /v1beta/sessions`
 - `POST /v1beta/sessions`
@@ -173,91 +140,93 @@ Initial `/v1beta` routes should be narrow:
 - `GET /v1beta/settings/sessions`
 - `PATCH /v1beta/settings/sessions`
 
-The API gateway should validate the access JWT, enforce authz, then pass a
-principal with `organizationId`, `userId`, and `role` into the sessions service.
+There is intentionally no public delete route. Archive is the user-visible
+removal action, and physical deletion is controlled by the organization
+retention policy.
 
-Session writes require an active organization. Orgless sessions should be
-rejected with `organization_required`.
-
-The chat UI should create a session on the first user message, not when opening
-a blank chat view. Empty chats should remain client-only until there is content
-worth persisting.
+The API gateway validates the access JWT, checks authorization for the route
+action, and passes a `SessionPrincipal` with `userId` and `organizationId` into
+the sessions runtime.
 
 ## Authorization
 
-Initial policy can be simple:
+Session routes are part of the explicit authz action map in
+`services/authz/src/runtime.ts`.
 
-- `admin` and `user` can create, read, update, and archive session threads in
-  their active organization.
-- Users can only see and mutate sessions where `owner_user_id` matches their
-  user id.
-- Only `admin` can update organization-level session settings.
-- All session queries are scoped by both `organization_id` and `owner_user_id`.
-- Cross-organization and cross-user access is impossible even if a thread id is
-  guessed.
+Current role behavior:
 
-Future policy can add explicit sharing, project-level ACLs, organization-wide
-admin views, and read-only roles. The first implementation should still route
-every protected action through the same explicit authz action map used by the
-rest of the API.
+- `admin` and `user` can list, create, fetch, update, append to, and archive
+  their own session threads.
+- `admin` and `user` can fetch session settings.
+- only `admin` can update organization session settings.
+- every session query is scoped by active organization and owner user.
 
-## Concurrency
+Guessed cross-organization and cross-user thread ids do not load because the
+runtime includes `organization_id` and `owner_user_id` predicates in read and
+mutation queries.
 
-Threads should support optimistic concurrency.
+## Size Limits
 
-Use `updated_at` and optionally a monotonic `version` column on
-`sessions_threads`. Mutating routes can accept `expectedVersion` once the UI
-needs merge behavior. The first implementation can append messages
-transactionally and recompute `state_bytes` under a row lock.
+The runtime enforces hard byte limits before committing writes:
 
-Message ordering should use `created_at` plus an ordered id. If strict ordering
-becomes important for concurrent clients, add a per-thread sequence number.
+- maximum total stored bytes per thread: `10 MiB`
+- maximum message content bytes: `256 KiB`
+- maximum state snapshot bytes: `1 MiB`
+- maximum metadata JSON bytes per message: `64 KiB`
 
-## Deletion and Retention
+`state_bytes` tracks message content, message metadata, and state snapshots.
+Large binaries and generated files are outside the session state contract and
+belong in the future artifacts API. Sessions can reference artifacts once that
+API exists, but do not embed artifact bytes.
 
-Archiving a session should first soft-delete the thread by setting `deleted`,
-`deleted_at`, and `delete_after`. Sweeps then physically delete rows once the
-retention period has passed. Child rows should use cascading foreign keys so
-messages, state snapshots, and attachment references are removed with the
-thread during the sweep.
+Relevant runtime errors include:
 
-Retention is configured per organization. Initial retention should default to
-`0` seconds. With that setting, an archived session is eligible for physical
-deletion immediately because `delete_after` is already passed. The soft-delete
-step still gives us one consistent code path for nonzero retention settings and
-audit/event emission.
+- `session_message_too_large`
+- `session_metadata_too_large`
+- `session_state_too_large`
+- `session_thread_limit_exceeded`
 
-Archive is the only end-user session removal action. It hides the session from
-the user. Physical deletion is an internal retention-policy outcome controlled
-by organization settings, not a future user-facing affordance.
+## Thread Lifecycle
 
-The sweeper can run:
+The chat UI creates a session on the first user message, not when opening a
+blank chat route. Empty chat views remain client state until there is content
+to persist.
 
-- after a successful archive mutation,
-- on service startup,
-- later as a scheduled background task when `services/scheduler` exists.
+Thread writes happen transactionally. Mutating operations load the owned thread
+with `for update`, reject archived/deleted threads, write the new row, update
+`state_bytes`, bump `version`, and record an audit event.
 
-Read paths must exclude `deleted` sessions by default.
+`version` is present and increments on thread mutations. The API does not yet
+accept `expectedVersion`, so client-side optimistic merge behavior is deferred.
 
-## Snapshot Strategy
+Message ordering is currently `created_at` plus `id`.
 
-State snapshots should be append-only in the first implementation. Appending is
-the most auditable model and matches conversation history: the system can
-reconstruct how a work context evolved instead of only seeing the latest value.
+## Archiving and Retention
 
-The alternative would be retaining only the latest snapshot per `kind`, which
-reduces storage and read complexity for pure preference/state-cache use cases.
-That is less useful for session history, replay, debugging, and future
-collaboration. Because session state already has a hard per-thread byte limit,
-append-only snapshots are acceptable as the default.
+Archive is the only end-user removal action.
 
-If compaction becomes necessary, add it later as an explicit derived snapshot
-or retention policy rather than mutating the source history in place.
+Archiving a session:
+
+1. Loads the owned thread inside a transaction.
+2. Reads or creates the organization session settings row.
+3. Sets `archived_at`, `deleted`, `deleted_at`, and `delete_after`.
+4. Records `session.thread_archived` in `audit_events`.
+5. Runs the purge helper after the transaction.
+
+`delete_after` is computed from the organization retention setting. The default
+retention is `0` seconds, so archived sessions are immediately eligible for
+physical purge.
+
+Physical purge deletes matching `session_threads` rows. Child rows are removed
+through cascading foreign keys. The purge helper records
+`session.thread_purged` in `audit_events` for purged rows.
+
+Read paths exclude archived/deleted sessions.
 
 ## Events
 
-Session writes should emit durable audit/event rows once the event stream
-boundary exists. Useful events:
+The sessions runtime records durable rows in `audit_events` for implemented
+state changes:
 
 - `session.thread_created`
 - `session.thread_updated`
@@ -265,43 +234,61 @@ boundary exists. Useful events:
 - `session.state_snapshot_created`
 - `session.thread_archived`
 - `session.thread_purged`
+- `session.settings_updated`
 
-Client invalidation can initially be pull-based. Realtime sync can later use
-the existing SSE pattern, but auth refresh events should remain separate from
-session content events.
+There is no dedicated realtime session event stream yet. Client invalidation is
+currently request-driven.
 
-## Implementation Plan
+## UI Integration
 
-1. Add `services/sessions` runtime package with Kysely-backed operations.
-2. Add one migration file for session tables and indexes.
-3. Add DB schema types for the new tables.
-4. Add API route specs and generated client support under `/v1beta/sessions`.
-5. Add authz action names for session routes.
-6. Enforce `organization_id` scoping in every query and mutation.
-7. Enforce `owner_user_id` scoping in every query and mutation.
-8. Implement byte accounting helpers in the sessions service.
-9. Reject writes that exceed row or thread limits inside the same transaction.
-10. Add organization-level session settings with `retention_seconds`.
-11. Implement archive-triggered soft-delete plus immediate purge when retention is `0`.
-12. Wire the app to create a chat session on the first user message.
-13. Expose archive in the UI, not delete.
-14. Add focused tests for limits, org scoping, owner scoping, authz actions, and byte
-    accounting.
+The Lush app uses the generated API client to persist chat sessions.
 
-## Testing
+Implemented behavior:
 
-Required tests:
+- the chat route creates a `lush-chat` session on the first user message;
+- existing sessions have stable routes containing the session id;
+- the sidebar lists previous owner-visible sessions;
+- long session titles scroll on hover in the sidebar;
+- session titles are derived from the first user message and can be updated
+  after the first assistant response;
+- archive uses the shared confirmation dialog.
 
-- byte accounting counts message content, metadata, and state snapshots,
-- oversized messages are rejected,
-- oversized snapshots are rejected,
-- writes that would push a thread over `10 MiB` are rejected transactionally,
-- session reads only return rows for the active organization,
-- session reads only return rows owned by the current user,
-- guessed cross-org thread ids return not found or unauthorized,
-- guessed cross-user thread ids return not found or unauthorized,
-- archived sessions disappear from read paths,
-- retention `0` makes archived sessions eligible for immediate physical purge,
-- only admins can update organization session settings,
-- protected API routes have matching authz actions,
-- generated API client includes the session route group.
+## Generated Docs
+
+Session API docs are generated from the OpenAPI bundle:
+
+- source route spec: `services/sessions/src/spec.ts`
+- OpenAPI generator: `services/api/scripts/generate-openapi.ts`
+- generated docs input: `services/docs/generated/openapi/sessions.json`
+- docs page: `services/docs/content/docs/api/sessions.mdx`
+
+## Tests
+
+Current tests cover:
+
+- byte accounting for UTF-8 strings and JSON metadata;
+- session size-limit constants;
+- title derivation from first-message content;
+- the public route contract, including the absence of a delete route;
+- migration registration and migration id ordering;
+- the `agent_id`, `id` session lookup index;
+- protected API route coverage in the authz action map;
+- app route matching for session ids.
+
+## Deferred Work
+
+The implementation intentionally leaves these pieces for follow-up work:
+
+- DB-backed runtime integration tests for owner/org scoping, archive retention,
+  and purge behavior.
+- A scheduled or startup purge runner. Purge currently runs after archive.
+- Public APIs for attachment references once the artifacts API exists.
+- Organization-wide browsing, user-to-user sharing, project-level ACLs, and
+  read-only roles.
+- `expectedVersion` support for optimistic concurrency and client-side merge
+  handling.
+- A dedicated realtime session event stream for sync/invalidation.
+- State compaction or derived latest-state snapshots if append-only snapshots
+  become too expensive.
+- Optional service-specific database configuration if sessions need independent
+  scaling later.
