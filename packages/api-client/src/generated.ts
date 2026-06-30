@@ -213,6 +213,86 @@ export type UpdateInferenceModelDefaultRequest = {
 
 
 
+export type SessionMessageRole = "user" | "assistant" | "system" | "tool";
+
+export type SessionThreadSummary = {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+  title: string;
+  agentId: string;
+  stateBytes: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type SessionMessage = {
+  id: string;
+  threadId: string;
+  role: SessionMessageRole;
+  content: string;
+  metadata: unknown;
+  tokenCount: number | null;
+  byteSize: number;
+  createdAt: string;
+};
+
+export type SessionStateSnapshot = {
+  id: string;
+  threadId: string;
+  kind: string;
+  state: unknown;
+  byteSize: number;
+  createdAt: string;
+};
+
+export type SessionThread = SessionThreadSummary & {
+  messages: SessionMessage[];
+  stateSnapshots: SessionStateSnapshot[];
+};
+
+export type ListSessionThreadsResponse = {
+  sessions: SessionThreadSummary[];
+};
+
+export type CreateSessionThreadRequest = {
+  title?: string;
+  agentId: string;
+};
+
+export type UpdateSessionThreadRequest = {
+  title?: string;
+};
+
+export type AppendSessionMessageRequest = {
+  role: SessionMessageRole;
+  content: string;
+  metadata?: unknown;
+  tokenCount?: number | null;
+};
+
+export type AppendSessionStateRequest = {
+  kind: string;
+  state: unknown;
+};
+
+export type ArchiveSessionThreadRequest = Record<string, never>;
+
+export type SessionSettings = {
+  organizationId: string;
+  retentionSeconds: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UpdateSessionSettingsRequest = {
+  retentionSeconds: number;
+};
+
+
+
 export type AgentChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -435,6 +515,84 @@ export const apiRoutes = [
     "kind": "json"
   },
   {
+    "id": "listSessionThreads",
+    "method": "GET",
+    "path": "/v1beta/sessions",
+    "responseType": "ListSessionThreadsResponse",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "createSessionThread",
+    "method": "POST",
+    "path": "/v1beta/sessions",
+    "requestType": "CreateSessionThreadRequest",
+    "responseType": "SessionThreadSummary",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "fetchSessionThread",
+    "method": "GET",
+    "path": "/v1beta/sessions/:threadId",
+    "responseType": "SessionThread",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "updateSessionThread",
+    "method": "PATCH",
+    "path": "/v1beta/sessions/:threadId",
+    "requestType": "UpdateSessionThreadRequest",
+    "responseType": "SessionThreadSummary",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "appendSessionMessage",
+    "method": "POST",
+    "path": "/v1beta/sessions/:threadId/messages",
+    "requestType": "AppendSessionMessageRequest",
+    "responseType": "SessionMessage",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "appendSessionState",
+    "method": "POST",
+    "path": "/v1beta/sessions/:threadId/state",
+    "requestType": "AppendSessionStateRequest",
+    "responseType": "SessionStateSnapshot",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "archiveSessionThread",
+    "method": "POST",
+    "path": "/v1beta/sessions/:threadId/archive",
+    "requestType": "ArchiveSessionThreadRequest",
+    "responseType": "SessionThreadSummary",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "fetchSessionSettings",
+    "method": "GET",
+    "path": "/v1beta/settings/sessions",
+    "responseType": "SessionSettings",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "updateSessionSettings",
+    "method": "PATCH",
+    "path": "/v1beta/settings/sessions",
+    "requestType": "UpdateSessionSettingsRequest",
+    "responseType": "SessionSettings",
+    "auth": true,
+    "kind": "json"
+  },
+  {
     "id": "streamAgentChat",
     "method": "POST",
     "path": "/v1beta/agents/:agentSlug/chat",
@@ -469,6 +627,15 @@ const UPDATE_INFERENCE_PROVIDER_ROUTE = apiRoutes.find((route) => route.id === "
 const UPDATE_INFERENCE_MODEL_ROUTE = apiRoutes.find((route) => route.id === "updateInferenceModel")!;
 const DELETE_INFERENCE_PROVIDER_ROUTE = apiRoutes.find((route) => route.id === "deleteInferenceProvider")!;
 const UPDATE_INFERENCE_MODEL_DEFAULT_ROUTE = apiRoutes.find((route) => route.id === "updateInferenceModelDefault")!;
+const LIST_SESSION_THREADS_ROUTE = apiRoutes.find((route) => route.id === "listSessionThreads")!;
+const CREATE_SESSION_THREAD_ROUTE = apiRoutes.find((route) => route.id === "createSessionThread")!;
+const FETCH_SESSION_THREAD_ROUTE = apiRoutes.find((route) => route.id === "fetchSessionThread")!;
+const UPDATE_SESSION_THREAD_ROUTE = apiRoutes.find((route) => route.id === "updateSessionThread")!;
+const APPEND_SESSION_MESSAGE_ROUTE = apiRoutes.find((route) => route.id === "appendSessionMessage")!;
+const APPEND_SESSION_STATE_ROUTE = apiRoutes.find((route) => route.id === "appendSessionState")!;
+const ARCHIVE_SESSION_THREAD_ROUTE = apiRoutes.find((route) => route.id === "archiveSessionThread")!;
+const FETCH_SESSION_SETTINGS_ROUTE = apiRoutes.find((route) => route.id === "fetchSessionSettings")!;
+const UPDATE_SESSION_SETTINGS_ROUTE = apiRoutes.find((route) => route.id === "updateSessionSettings")!;
 const STREAM_AGENT_CHAT_ROUTE = apiRoutes.find((route) => route.id === "streamAgentChat")!;
 
 export function resolveApiBaseUrl(apiBaseUrl: string) {
@@ -647,7 +814,7 @@ export async function fetchSession(
     credentials: "include",
     headers: {
       ...authorizationHeaders(sessionToken),
-      
+
     }
   });
 
@@ -680,7 +847,7 @@ export async function listOrganizations(
     credentials: "include",
     headers: {
       ...authorizationHeaders(sessionToken),
-      
+
     }
   });
 
@@ -804,7 +971,7 @@ export async function listOrganizationMembers(
     credentials: "include",
     headers: {
       ...authorizationHeaders(sessionToken),
-      
+
     }
   });
 
@@ -886,7 +1053,7 @@ export async function listOrganizationInvites(
     credentials: "include",
     headers: {
       ...authorizationHeaders(sessionToken),
-      
+
     }
   });
 
@@ -905,7 +1072,7 @@ export async function fetchInferenceConfig(
     credentials: "include",
     headers: {
       ...authorizationHeaders(sessionToken),
-      
+
     }
   });
 
@@ -1019,6 +1186,194 @@ export async function updateInferenceModelDefault(
   }
 
   return response.json() as Promise<InferenceConfig>;
+}
+
+export async function listSessionThreads(
+  apiBaseUrl: string,
+  sessionToken: string | undefined,
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, LIST_SESSION_THREADS_ROUTE.path), {
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+
+    }
+  });
+
+  if (!response.ok) {
+    throw await apiError("listSessionThreads", response);
+  }
+
+  return response.json() as Promise<ListSessionThreadsResponse>;
+}
+
+export async function createSessionThread(
+  apiBaseUrl: string,
+  sessionToken: string | undefined, body: CreateSessionThreadRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, CREATE_SESSION_THREAD_ROUTE.path), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("createSessionThread", response);
+  }
+
+  return response.json() as Promise<SessionThreadSummary>;
+}
+
+export async function fetchSessionThread(
+  apiBaseUrl: string,
+  threadId: string,
+  sessionToken: string | undefined,
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(FETCH_SESSION_THREAD_ROUTE.path, { threadId })), {
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+
+    }
+  });
+
+  if (!response.ok) {
+    throw await apiError("fetchSessionThread", response);
+  }
+
+  return response.json() as Promise<SessionThread>;
+}
+
+export async function updateSessionThread(
+  apiBaseUrl: string,
+  threadId: string,
+  sessionToken: string | undefined, body: UpdateSessionThreadRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(UPDATE_SESSION_THREAD_ROUTE.path, { threadId })), {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("updateSessionThread", response);
+  }
+
+  return response.json() as Promise<SessionThreadSummary>;
+}
+
+export async function appendSessionMessage(
+  apiBaseUrl: string,
+  threadId: string,
+  sessionToken: string | undefined, body: AppendSessionMessageRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(APPEND_SESSION_MESSAGE_ROUTE.path, { threadId })), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("appendSessionMessage", response);
+  }
+
+  return response.json() as Promise<SessionMessage>;
+}
+
+export async function appendSessionState(
+  apiBaseUrl: string,
+  threadId: string,
+  sessionToken: string | undefined, body: AppendSessionStateRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(APPEND_SESSION_STATE_ROUTE.path, { threadId })), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("appendSessionState", response);
+  }
+
+  return response.json() as Promise<SessionStateSnapshot>;
+}
+
+export async function archiveSessionThread(
+  apiBaseUrl: string,
+  threadId: string,
+  sessionToken: string | undefined, body: ArchiveSessionThreadRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(ARCHIVE_SESSION_THREAD_ROUTE.path, { threadId })), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("archiveSessionThread", response);
+  }
+
+  return response.json() as Promise<SessionThreadSummary>;
+}
+
+export async function fetchSessionSettings(
+  apiBaseUrl: string,
+  sessionToken: string | undefined,
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, FETCH_SESSION_SETTINGS_ROUTE.path), {
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+
+    }
+  });
+
+  if (!response.ok) {
+    throw await apiError("fetchSessionSettings", response);
+  }
+
+  return response.json() as Promise<SessionSettings>;
+}
+
+export async function updateSessionSettings(
+  apiBaseUrl: string,
+  sessionToken: string | undefined, body: UpdateSessionSettingsRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, UPDATE_SESSION_SETTINGS_ROUTE.path), {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("updateSessionSettings", response);
+  }
+
+  return response.json() as Promise<SessionSettings>;
 }
 
 export function streamAgentChat(

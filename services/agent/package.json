@@ -11,7 +11,8 @@
   "dependencies": {
     "@lush/authz": "workspace:*",
     "@lush/config": "workspace:*",
-    "@lush/inference": "workspace:*"
+    "@lush/inference": "workspace:*",
+    "@lush/logging": "workspace:*"
   },
   "exports": {
     "./lush": "./src/agents/lush.ts",

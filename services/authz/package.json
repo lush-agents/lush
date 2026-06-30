@@ -10,6 +10,7 @@
   "dependencies": {
     "@lush/config": "workspace:*",
     "@lush/db": "workspace:*",
+    "@lush/logging": "workspace:*",
     "dotenv": "^17.4.2",
     "kysely": "^0.28.7"
   },

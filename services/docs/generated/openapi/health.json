@@ -146,6 +146,16 @@
         ],
         "description": "Workspace mode that owns a model default."
       },
+      "SessionMessageRole": {
+        "type": "string",
+        "enum": [
+          "user",
+          "assistant",
+          "system",
+          "tool"
+        ],
+        "description": "Role for a persisted session message."
+      },
       "InferenceProviderKind": {
         "type": "string",
         "enum": [
@@ -1018,6 +1028,366 @@
         "required": [
           "mode",
           "modelSelection"
+        ]
+      },
+      "SessionThreadSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Owned session thread summary.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Session thread identifier."
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization that owns the session."
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User that owns the session."
+          },
+          "title": {
+            "type": "string",
+            "description": "Display title for the session."
+          },
+          "agentId": {
+            "type": "string",
+            "description": "Agent identifier that owns or interprets this session."
+          },
+          "stateBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Stored session bytes counted against the thread limit."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Monotonic version incremented by writes."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Session creation timestamp."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last session update timestamp."
+          },
+          "archivedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Archive timestamp, or null when active."
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "ownerUserId",
+          "title",
+          "agentId",
+          "stateBytes",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "archivedAt"
+        ]
+      },
+      "SessionMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Persisted session message.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Message identifier."
+          },
+          "threadId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Session thread identifier."
+          },
+          "role": {
+            "$ref": "#/components/schemas/SessionMessageRole",
+            "description": "Message role."
+          },
+          "content": {
+            "type": "string",
+            "description": "Message content."
+          },
+          "metadata": {
+            "description": "Small JSON metadata associated with the message."
+          },
+          "tokenCount": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional token count."
+          },
+          "byteSize": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Bytes counted against the thread limit."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Message creation timestamp."
+          }
+        },
+        "required": [
+          "id",
+          "threadId",
+          "role",
+          "content",
+          "metadata",
+          "tokenCount",
+          "byteSize",
+          "createdAt"
+        ]
+      },
+      "SessionStateSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Append-only session state snapshot.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Snapshot identifier."
+          },
+          "threadId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Session thread identifier."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Application-defined snapshot kind."
+          },
+          "state": {
+            "description": "JSON state snapshot."
+          },
+          "byteSize": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Bytes counted against the thread limit."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Snapshot creation timestamp."
+          }
+        },
+        "required": [
+          "id",
+          "threadId",
+          "kind",
+          "state",
+          "byteSize",
+          "createdAt"
+        ]
+      },
+      "SessionThread": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SessionThreadSummary"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "messages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SessionMessage"
+                },
+                "description": "Messages in chronological order."
+              },
+              "stateSnapshots": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SessionStateSnapshot"
+                },
+                "description": "State snapshots in chronological order."
+              }
+            },
+            "required": [
+              "messages",
+              "stateSnapshots"
+            ]
+          }
+        ],
+        "description": "Owned session thread with messages and state snapshots."
+      },
+      "ListSessionThreadsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Owned session thread list.",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionThreadSummary"
+            },
+            "description": "Active, unarchived sessions owned by the current user."
+          }
+        },
+        "required": [
+          "sessions"
+        ]
+      },
+      "CreateSessionThreadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Creates a session thread.",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Optional title. Defaults to an untitled session."
+          },
+          "agentId": {
+            "type": "string",
+            "description": "Agent identifier that owns or interprets this session."
+          }
+        },
+        "required": [
+          "agentId"
+        ]
+      },
+      "UpdateSessionThreadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Updates session thread metadata.",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "New session title."
+          }
+        }
+      },
+      "AppendSessionMessageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Appends a message to a session thread.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/SessionMessageRole",
+            "description": "Message role."
+          },
+          "content": {
+            "type": "string",
+            "description": "Message content."
+          },
+          "metadata": {
+            "description": "Optional small JSON metadata."
+          },
+          "tokenCount": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional token count."
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ]
+      },
+      "AppendSessionStateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Appends a state snapshot to a session thread.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "Application-defined state kind."
+          },
+          "state": {
+            "description": "JSON state payload."
+          }
+        },
+        "required": [
+          "kind",
+          "state"
+        ]
+      },
+      "ArchiveSessionThreadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Archive-session request body. Send an empty JSON object.",
+        "properties": {}
+      },
+      "SessionSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Organization session-state settings.",
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization that owns the settings."
+          },
+          "retentionSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Retention window for physically purging soft-deleted sessions."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Settings creation timestamp."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Settings update timestamp."
+          }
+        },
+        "required": [
+          "organizationId",
+          "retentionSeconds",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "UpdateSessionSettingsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Updates organization session-state settings.",
+        "properties": {
+          "retentionSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Retention window in seconds."
+          }
+        },
+        "required": [
+          "retentionSeconds"
         ]
       },
       "AgentChatMessage": {

@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "bun run --cwd ../api openapi:codegen",
+    "source:codegen": "fumadocs-mdx",
+    "services:codegen": "bun run scripts/generate-service-catalog.ts",
+    "predev": "bun run source:codegen && bun run services:codegen && bun run --cwd ../api openapi:codegen",
     "dev": "next dev --hostname 0.0.0.0 --port 7332",
-    "prebuild": "bun run --cwd ../api openapi:codegen",
+    "prebuild": "bun run source:codegen && bun run services:codegen && bun run --cwd ../api openapi:codegen",
     "build": "next build --webpack",
     "start": "next start --hostname 0.0.0.0 --port 7332",
-    "pretypecheck": "bun run --cwd ../api openapi:codegen",
+    "pretypecheck": "bun run source:codegen && bun run services:codegen && bun run --cwd ../api openapi:codegen",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {

@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
   type AgentChatMessage,
   getLushAgentMetadata,
@@ -40,10 +41,23 @@ import {
   updateInferenceProvider
 } from "@lush/inference/runtime";
 import {
+  appendSessionMessage,
+  appendSessionState,
+  archiveSessionThread,
+  createSessionThread,
+  fetchSessionSettings,
+  fetchSessionThread,
+  listSessionThreads,
+  SessionStateError,
+  updateSessionSettings,
+  updateSessionThread
+} from "@lush/sessions/runtime";
+import {
   ConfigError,
   envSchema,
   readEnvSchema
 } from "@lush/config/env";
+import { createLogger } from "@lush/logging/logger";
 import {
   ClientEventBroker,
   type AuthRefreshReason,
@@ -51,10 +65,16 @@ import {
   type ClientEventScope
 } from "./client-events";
 import { apiSpec } from "./spec";
+import {
+  buildRequestLogMeta,
+  compileRequestLogRoutes,
+  type RequestLogRoute
+} from "./request-log";
 
 const apiConfig = readApiRuntimeConfig();
 const port = apiConfig.port;
 const hostname = apiConfig.hostname;
+const logger = createLogger("@lush/api");
 const app = new Hono();
 const sessionCookieName = "lush_session";
 const clientEvents = new ClientEventBroker();
@@ -64,9 +84,28 @@ type OrganizationPrincipal = Principal & {
   membershipId: string;
   role: NonNullable<Principal["role"]>;
 };
-const routePaths = Object.fromEntries(
-  apiSpec.routes.map((route) => [route.id, route.path])
-) as unknown as Record<ApiRouteId, `/${string}`>;
+const routePaths = new Map<ApiRouteId, `/${string}`>();
+for (const route of apiSpec.routes) {
+  routePaths.set(route.id, route.path);
+}
+
+const requestLogRoutes = compileRequestLogRoutes([
+  { id: "health", method: "GET", path: "/health" },
+  { id: "apiHealth", method: "GET", path: apiSpec.healthPath },
+  ...apiSpec.routes.map((route) => ({
+    id: route.id,
+    method: route.method,
+    path: route.path
+  }))
+] satisfies RequestLogRoute[]);
+const contentfulStatusCodes = new Set<number>([
+  200, 201, 202, 203, 206, 207, 208, 226,
+  300, 301, 302, 303, 305, 306, 307, 308,
+  400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411,
+  412, 413, 414, 415, 416, 417, 418, 421, 422, 423, 424, 425,
+  426, 428, 429, 431, 451,
+  500, 501, 502, 503, 504, 505, 506, 507, 508, 510, 511
+]);
 
 const desktopAppOrigins = [
   "tauri://localhost",
@@ -77,12 +116,41 @@ const allowedOrigins = Array.from(
   new Set([...apiConfig.appOrigins, ...desktopAppOrigins])
 );
 
+app.use("*", async (c, next) => {
+  const start = performance.now();
+  const requestId = c.req.raw.headers.get("x-request-id") ?? crypto.randomUUID();
+  let thrownError: unknown;
+
+  c.header("x-request-id", requestId);
+
+  try {
+    await next();
+  } catch (error) {
+    thrownError = error;
+    throw error;
+  } finally {
+    const meta = buildRequestLogMeta(c.req.raw, {
+      routes: requestLogRoutes,
+      statusCode: thrownError ? 500 : c.res.status,
+      durationMs: Number((performance.now() - start).toFixed(2)),
+      requestId,
+      response: thrownError ? undefined : c.res
+    });
+
+    if (thrownError) {
+      logger.error({ ...meta, err: thrownError }, "api request failed");
+    } else {
+      logger.debug(meta, "api request");
+    }
+  }
+});
+
 app.use(
   "*",
   cors({
     origin: allowedOrigins,
     allowHeaders: ["authorization", "content-type"],
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PATCH", "OPTIONS"],
     credentials: true,
     maxAge: 86400
   })
@@ -105,7 +173,16 @@ function healthResponse() {
 }
 
 function routePath(id: ApiRouteId) {
-  return routePaths[id];
+  const path = routePaths.get(id);
+  if (!path) {
+    throw new Error(`Missing API route path for ${id}`);
+  }
+
+  return path;
+}
+
+function threadIdParam(c: Context) {
+  return c.req.param("threadId") ?? "";
 }
 
 app.post(routePath("registerAccount"), async (c) => {
@@ -514,6 +591,172 @@ app.post(routePath("updateInferenceModelDefault"), async (c) => {
   }
 });
 
+app.get(routePath("listSessionThreads"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "listSessionThreads");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  try {
+    return c.json(await listSessionThreads(principal));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to list sessions");
+  }
+});
+
+app.post(routePath("createSessionThread"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "createSessionThread");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(await createSessionThread(principal, body));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to create session");
+  }
+});
+
+app.get(routePath("fetchSessionSettings"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "fetchSessionSettings");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  try {
+    return c.json(await fetchSessionSettings(principal));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to load session settings");
+  }
+});
+
+app.patch(routePath("updateSessionSettings"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "updateSessionSettings");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(await updateSessionSettings(principal, body));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to update session settings");
+  }
+});
+
+app.get(routePath("fetchSessionThread"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "fetchSessionThread");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  try {
+    return c.json(await fetchSessionThread(principal, threadIdParam(c)));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to load session");
+  }
+});
+
+app.patch(routePath("updateSessionThread"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "updateSessionThread");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(
+      await updateSessionThread(principal, threadIdParam(c), body)
+    );
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to update session");
+  }
+});
+
+app.post(routePath("appendSessionMessage"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "appendSessionMessage");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(
+      await appendSessionMessage(principal, threadIdParam(c), body)
+    );
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to append session message");
+  }
+});
+
+app.post(routePath("appendSessionState"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "appendSessionState");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(
+      await appendSessionState(principal, threadIdParam(c), body)
+    );
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to append session state");
+  }
+});
+
+app.post(routePath("archiveSessionThread"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "archiveSessionThread");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  try {
+    return c.json(
+      await archiveSessionThread(principal, threadIdParam(c))
+    );
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to archive session");
+  }
+});
+
 app.post(routePath("streamAgentChat"), async (c) => {
   const authorized = await authenticateAuthorized(c, "streamAgentChat");
   if ("response" in authorized) {
@@ -545,10 +788,17 @@ app.post(routePath("streamAgentChat"), async (c) => {
 const server = Bun.serve({
   port,
   hostname,
+  ...({ idleTimeout: 255 } as { idleTimeout: number }),
   fetch: app.fetch
 });
 
-console.log(`@lush/api listening on http://${server.hostname}:${server.port}`);
+logger.info(
+  {
+    hostname: server.hostname,
+    port: server.port
+  },
+  "api listening"
+);
 
 export type AppType = typeof app;
 
@@ -778,7 +1028,7 @@ function requestMeta(request: Request) {
   };
 }
 
-function streamChat(
+async function streamChat(
   principal: OrganizationPrincipal,
   request: Request,
   modelSelection: string | undefined,
@@ -788,27 +1038,44 @@ function streamChat(
   request.signal.addEventListener("abort", () => abortController.abort(), {
     once: true
   });
+  const generator = streamLushAgentChat({
+    organizationId: principal.organizationId,
+    modelSelection,
+    messages,
+    signal: abortController.signal
+  });
+  let firstChunk: IteratorResult<string>;
+
+  try {
+    firstChunk = await generator.next();
+  } catch (error) {
+    return agentStreamErrorResponse(error);
+  }
 
   const stream = new ReadableStream({
     async start(controllerStream) {
       const encoder = new TextEncoder();
 
       try {
-        for await (const chunk of streamLushAgentChat({
-          organizationId: principal.organizationId,
-          modelSelection,
-          messages,
-          signal: abortController.signal
-        })) {
+        if (!firstChunk.done && firstChunk.value) {
+          controllerStream.enqueue(encoder.encode(firstChunk.value));
+        }
+
+        for await (const chunk of generator) {
           controllerStream.enqueue(encoder.encode(chunk));
         }
 
         controllerStream.close();
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unknown streaming error";
-        controllerStream.enqueue(encoder.encode(`\n\n[Agent error] ${message}`));
-        controllerStream.close();
+        logger.error(
+          {
+            err: error,
+            organizationId: principal.organizationId,
+            agent: getLushAgentMetadata().id
+          },
+          "agent stream failed after response started"
+        );
+        controllerStream.error(error);
       }
     },
     cancel() {
@@ -826,16 +1093,11 @@ function streamChat(
   });
 }
 
-function unauthorized(c: { json: (object: { error: string }, status?: number) => Response }) {
+function unauthorized(c: Context) {
   return c.json({ error: "unauthorized" }, 401);
 }
 
-function organizationRequired(c: {
-  json: (
-    object: { error: string; message: string },
-    status?: number
-  ) => Response;
-}) {
+function organizationRequired(c: Context) {
   return c.json(
     {
       error: "organization_required",
@@ -846,41 +1108,154 @@ function organizationRequired(c: {
 }
 
 function handleAuthError(
-  c: {
-    json: (
-      object: { error: string; message: string },
-      status?: number
-    ) => Response;
-  },
+  c: Context,
   error: unknown,
   fallbackMessage: string
 ) {
   if (error instanceof AuthError) {
-    return c.json({ error: error.code, message: error.message }, error.status);
+    return c.json(
+      { error: error.code, message: error.message },
+      contentfulStatus(error.status)
+    );
   }
 
-  console.error(`${fallbackMessage}:`, error);
+  logger.error({ err: error }, fallbackMessage);
   return c.json({ error: "auth_failed", message: fallbackMessage }, 400);
 }
 
 function handleInferenceError(
-  c: {
-    json: (
-      object: { error: string; message: string },
-      status?: number
-    ) => Response;
-  },
+  c: Context,
   error: unknown,
   fallbackMessage: string
 ) {
   if (error instanceof InferenceError) {
-    return c.json({ error: error.code, message: error.message }, error.status);
+    return c.json(
+      { error: error.code, message: error.message },
+      contentfulStatus(error.status)
+    );
   }
 
   return c.json(
     { error: "inference_update_failed", message: fallbackMessage },
     400
   );
+}
+
+function handleSessionStateError(
+  c: Context,
+  error: unknown,
+  fallbackMessage: string
+) {
+  if (error instanceof SessionStateError) {
+    return c.json(
+      { error: error.code, message: error.message },
+      contentfulStatus(error.status)
+    );
+  }
+
+  logger.error({ err: error }, fallbackMessage);
+  return c.json(
+    { error: "session_state_failed", message: fallbackMessage },
+    400
+  );
+}
+
+function contentfulStatus(status: number): ContentfulStatusCode {
+  return contentfulStatusCodes.has(status)
+    ? (status as ContentfulStatusCode)
+    : 500;
+}
+
+function agentStreamErrorResponse(error: unknown) {
+  const details = agentStreamErrorDetails(error);
+  if (details.status !== 499) {
+    logger.error(
+      {
+        err: error,
+        code: details.code,
+        status: details.status
+      },
+      "agent stream failed before response started"
+    );
+  }
+
+  return new Response(
+    JSON.stringify({
+      error: details.code,
+      message: details.message
+    }),
+    {
+      status: details.status,
+      headers: {
+        "content-type": "application/json; charset=utf-8"
+      }
+    }
+  );
+}
+
+function agentStreamErrorDetails(error: unknown) {
+  if (error instanceof InferenceError) {
+    return {
+      code: error.code,
+      message: error.message,
+      status: error.status
+    };
+  }
+
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return {
+      code: "agent_request_cancelled",
+      message: "The inference request was cancelled.",
+      status: 499
+    };
+  }
+
+  const rawMessage = error instanceof Error ? error.message : "";
+  const providerStatus = rawMessage.match(/^Provider request failed with (\d+)/);
+  if (providerStatus) {
+    const status = Number(providerStatus[1]);
+    return {
+      code: "provider_request_failed",
+      message: providerFailureMessage(status),
+      status: status === 429 ? 429 : 502
+    };
+  }
+
+  if (/operation-specific reason/i.test(rawMessage)) {
+    return {
+      code: "provider_connection_interrupted",
+      message:
+        "The inference provider connection was interrupted before a response arrived. Please retry, or check the provider endpoint and model settings.",
+      status: 504
+    };
+  }
+
+  return {
+    code: "agent_stream_failed",
+    message:
+      "The inference provider did not return a usable response. Please retry, or check the provider configuration.",
+    status: 502
+  };
+}
+
+function providerFailureMessage(status: number) {
+  if (status === 401 || status === 403) {
+    return "The inference provider rejected the stored API key. Check the provider credentials in inference settings.";
+  }
+
+  if (status === 404) {
+    return "The inference provider endpoint or selected model was not found. Check the provider base URL and model settings.";
+  }
+
+  if (status === 429) {
+    return "The inference provider rate limited the request. Please wait and try again.";
+  }
+
+  if (status >= 500) {
+    return "The inference provider is unavailable or returned an internal error. Please retry in a moment.";
+  }
+
+  return "The inference provider rejected the request. Check the provider configuration and selected model.";
 }
 
 function normalizeMessages(messages: unknown[]): AgentChatMessage[] {

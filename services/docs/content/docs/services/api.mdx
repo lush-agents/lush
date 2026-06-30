@@ -1,0 +1,54 @@
+---
+title: "API"
+description: "Public API gateway and route aggregation service."
+---
+
+{/* Generated from services/api/README.md. Edit the service README instead. */}
+
+Single front door for first-party clients and collaboration channels. It routes
+requests to the appropriate backend service.
+
+## Development
+
+```sh
+bun run dev
+```
+
+The root dev target creates `.env.development` from `.env.template` if needed
+and generates local JWT signing keys. For API-only work after that file exists:
+
+```sh
+docker compose up -d lush-postgres
+bun run db:migrate
+bun run --cwd services/api dev
+```
+
+The service listens on `0.0.0.0:7330` by default so local clients can reach it
+through either `http://localhost:7330` or `http://127.0.0.1:7330`.
+
+The public client API is grouped under `/v1beta`, for example
+`/v1beta/auth/register`. New public routes belong in that group until the
+surface is stable enough to promote into `/v1`.
+
+The API requires PostgreSQL for auth, sessions, organization tenancy, and
+inference provider state. Set `DATABASE_URL` to the PostgreSQL database URL.
+Set `LUSH_APP_ORIGIN` to explicit app origins; wildcard CORS is rejected because
+browser auth uses credentialed session cookies.
+Set `LUSH_AUTH_JWT_PRIVATE_KEY` and `LUSH_AUTH_JWT_PUBLIC_KEY` to an RSA keypair;
+the API signs short-lived access JWTs after login and refresh, and protected
+routes require those bearer tokens. Browser clients keep the refresh token in an
+HttpOnly cookie and cache only the short-lived access JWT in tab-scoped
+`sessionStorage`.
+
+## API Client Generation
+
+The public API surface is aggregated in `src/spec.ts` from service-owned route
+contracts, such as `@lush/inference/spec` and `@lush/agent/spec`. Generate the
+shared TypeScript client package with:
+
+```sh
+bun run --cwd services/api codegen
+```
+
+Generated bindings are written to `packages/api-client/src/generated.ts` and
+are consumed by the app through `@lush/api-client`.

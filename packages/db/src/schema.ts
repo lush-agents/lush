@@ -12,6 +12,7 @@ export type UserRole = "admin" | "user";
 export type OrganizationInviteStatus = "pending" | "accepted" | "declined";
 export type AuthProviderKind = "password" | "oidc" | "oauth" | "saml";
 export type WorkspaceMode = "chat" | "code" | "work" | "agents";
+export type SessionMessageRole = "user" | "assistant" | "system" | "tool";
 export type InferenceProviderKind =
   | "baseten"
   | "fireworks"
@@ -145,6 +146,63 @@ export type InferenceModelDefaultsTable = {
   updatedAt: Timestamp;
 };
 
+export type SessionThreadsTable = {
+  id: Generated<string>;
+  organizationId: string;
+  ownerUserId: string;
+  title: string;
+  agentId: string;
+  stateBytes: number;
+  version: number;
+  deleted: boolean;
+  deletedAt: Timestamp | null;
+  deleteAfter: Timestamp | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  archivedAt: Timestamp | null;
+};
+
+export type SessionMessagesTable = {
+  id: Generated<string>;
+  threadId: string;
+  organizationId: string;
+  authorUserId: string | null;
+  role: SessionMessageRole;
+  content: string;
+  metadata: unknown;
+  tokenCount: number | null;
+  byteSize: number;
+  createdAt: Timestamp;
+};
+
+export type SessionStateSnapshotsTable = {
+  id: Generated<string>;
+  threadId: string;
+  organizationId: string;
+  kind: string;
+  state: unknown;
+  byteSize: number;
+  createdAt: Timestamp;
+};
+
+export type SessionAttachmentsTable = {
+  id: Generated<string>;
+  threadId: string;
+  organizationId: string;
+  artifactId: string;
+  label: string;
+  mimeType: string | null;
+  byteSize: number;
+  createdAt: Timestamp;
+};
+
+export type OrganizationSessionSettingsTable = {
+  organizationId: string;
+  retentionSeconds: number;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+};
+
 export type LushMigrationsTable = {
   id: string;
   appliedAt: Timestamp;
@@ -164,6 +222,11 @@ export type Database = {
   inferenceProviders: InferenceProvidersTable;
   inferenceProviderModels: InferenceProviderModelsTable;
   inferenceModelDefaults: InferenceModelDefaultsTable;
+  sessionThreads: SessionThreadsTable;
+  sessionMessages: SessionMessagesTable;
+  sessionStateSnapshots: SessionStateSnapshotsTable;
+  sessionAttachments: SessionAttachmentsTable;
+  organizationSessionSettings: OrganizationSessionSettingsTable;
 };
 
 export type User = Selectable<UsersTable>;
@@ -172,5 +235,8 @@ export type UserUpdate = Updateable<UsersTable>;
 export type Organization = Selectable<OrganizationsTable>;
 export type OrganizationMembership = Selectable<OrganizationMembershipsTable>;
 export type Session = Selectable<SessionsTable>;
+export type SessionThreadRow = Selectable<SessionThreadsTable>;
+export type SessionMessageRow = Selectable<SessionMessagesTable>;
+export type SessionStateSnapshotRow = Selectable<SessionStateSnapshotsTable>;
 export type InferenceProviderRow = Selectable<InferenceProvidersTable>;
 export type InferenceProviderModelRow = Selectable<InferenceProviderModelsTable>;

@@ -11,6 +11,8 @@ test("database migrations are registered in id order with unique ids", () => {
 
 test("database migration ids match their ordinal prefix", () => {
   expect(migrations.map((migration) => migration.id)).toEqual([
-    "001_auth_and_inference_state"
+    "001_auth_and_inference_state",
+    "002_session_state",
+    "003_session_agent_id"
   ]);
 });

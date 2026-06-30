@@ -1,0 +1,1907 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sessions API",
+    "version": "0.0.0",
+    "description": "HTTP API for authentication, organization-scoped inference configuration, and agent runtime requests."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:7330"
+    }
+  ],
+  "tags": [
+    {
+      "name": "sessions",
+      "description": "Session threads, messages, state snapshots, and session-state settings routes."
+    }
+  ],
+  "paths": {
+    "/v1beta/sessions": {
+      "get": {
+        "summary": "List sessions",
+        "description": "Lists active, unarchived session threads owned by the current user in the active organization.",
+        "operationId": "listSessionThreads",
+        "tags": [
+          "sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned session thread summaries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSessionThreadsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create session",
+        "description": "Creates an organization-scoped session thread owned by the current user.",
+        "operationId": "createSessionThread",
+        "tags": [
+          "sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Agent identifier and optional title.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionThreadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created session thread summary.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionThreadSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1beta/sessions/{threadId}": {
+      "get": {
+        "summary": "Get session",
+        "description": "Returns an owned session thread with messages and append-only state snapshots.",
+        "operationId": "fetchSessionThread",
+        "tags": [
+          "sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "description": "Session thread identifier.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session thread details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionThread"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update session",
+        "description": "Updates owned session thread metadata such as title or model selection.",
+        "operationId": "updateSessionThread",
+        "tags": [
+          "sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "description": "Session thread identifier.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Session metadata fields to update.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSessionThreadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated session thread summary.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionThreadSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1beta/sessions/{threadId}/messages": {
+      "post": {
+        "summary": "Append message",
+        "description": "Appends a message to an owned session thread and enforces server-side byte limits.",
+        "operationId": "appendSessionMessage",
+        "tags": [
+          "sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "description": "Session thread identifier.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Message role, content, and optional metadata.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendSessionMessageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created session message.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionMessage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1beta/sessions/{threadId}/state": {
+      "post": {
+        "summary": "Append state",
+        "description": "Appends a JSON state snapshot to an owned session thread and enforces server-side byte limits.",
+        "operationId": "appendSessionState",
+        "tags": [
+          "sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "description": "Session thread identifier.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Snapshot kind and JSON state payload.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendSessionStateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created state snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateSnapshot"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1beta/sessions/{threadId}/archive": {
+      "post": {
+        "summary": "Archive session",
+        "description": "Archives an owned session thread so it no longer appears in the active session list and becomes eligible for physical purge according to organization retention settings.",
+        "operationId": "archiveSessionThread",
+        "tags": [
+          "sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "description": "Session thread identifier.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Empty JSON body.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveSessionThreadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Archived session thread summary.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionThreadSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1beta/settings/sessions": {
+      "get": {
+        "summary": "Get session settings",
+        "description": "Returns organization-level session-state settings for the active organization.",
+        "operationId": "fetchSessionSettings",
+        "tags": [
+          "sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session-state settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update session settings",
+        "description": "Updates organization-level session-state settings. The caller must be an organization admin.",
+        "operationId": "updateSessionSettings",
+        "tags": [
+          "sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Session-state settings to update.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSessionSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated session-state settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "UserRole": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "user"
+        ],
+        "description": "Membership role for a user within an organization."
+      },
+      "OrganizationInviteStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "accepted",
+          "declined"
+        ],
+        "description": "Lifecycle status for an organization invite."
+      },
+      "AuthRefreshReason": {
+        "type": "string",
+        "enum": [
+          "claims_changed",
+          "membership_changed",
+          "organization_changed",
+          "session_revoked"
+        ],
+        "description": "Debug reason for an auth refresh invalidation event."
+      },
+      "ClientEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Server-sent client event payload.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "auth.refresh_required",
+            "description": "Event type. Clients should force-refresh auth state for this event."
+          },
+          "reason": {
+            "$ref": "#/components/schemas/AuthRefreshReason",
+            "description": "Reason supplied for logging and diagnostics; client behavior is the same for every reason."
+          }
+        },
+        "required": [
+          "type",
+          "reason"
+        ]
+      },
+      "WorkspaceMode": {
+        "type": "string",
+        "enum": [
+          "chat",
+          "code",
+          "work",
+          "agents"
+        ],
+        "description": "Workspace mode that owns a model default."
+      },
+      "SessionMessageRole": {
+        "type": "string",
+        "enum": [
+          "user",
+          "assistant",
+          "system",
+          "tool"
+        ],
+        "description": "Role for a persisted session message."
+      },
+      "InferenceProviderKind": {
+        "type": "string",
+        "enum": [
+          "baseten",
+          "fireworks",
+          "anthropic",
+          "openai",
+          "openai-compatible"
+        ],
+        "description": "Supported inference provider adapter kind."
+      },
+      "RegisterAccountRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Creates an email/password account and an initial organization.",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Email address used for sign-in and verification."
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "description": "Password for the account. Must be at least 8 characters."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Human-readable name shown in the app. Defaults to the email prefix."
+          },
+          "organizationName": {
+            "type": "string",
+            "description": "Initial organization name. Defaults to an organization derived from the display name."
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "EmailVerificationRequired": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Registration response indicating the email verification gate.",
+        "properties": {
+          "emailVerificationRequired": {
+            "type": "boolean",
+            "const": true,
+            "description": "Always true for password registration responses."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Email address that must be verified before login succeeds."
+          }
+        },
+        "required": [
+          "emailVerificationRequired",
+          "email"
+        ]
+      },
+      "LoginRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Email/password login payload.",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Verified account email address."
+          },
+          "password": {
+            "type": "string",
+            "description": "Account password."
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional organization to enter when the user belongs to more than one organization."
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "LogoutRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Logout request body. Send an empty JSON object.",
+        "properties": {}
+      },
+      "RefreshSessionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Refresh request body. Send an empty JSON object; the refresh cookie supplies the session.",
+        "properties": {}
+      },
+      "LogoutAllSessionsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Logout-all request body. Send an empty JSON object.",
+        "properties": {}
+      },
+      "UpdateCurrentUserRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Updates the authenticated user's profile.",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "description": "Human-readable display name to store for the authenticated user."
+          }
+        },
+        "required": [
+          "displayName"
+        ]
+      },
+      "UpdateCurrentOrganizationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Updates the active organization.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Organization display name to store for the active organization."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "OrganizationSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Organization membership visible to the current user.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization identifier."
+          },
+          "name": {
+            "type": "string",
+            "description": "Organization display name."
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Caller role in the organization."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ]
+      },
+      "ListOrganizationsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Organizations available to the current user.",
+        "properties": {
+          "activeOrganizationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Active organization for the current session, or null when one must be created."
+          },
+          "organizations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationSummary"
+            },
+            "description": "Organizations the current user belongs to."
+          }
+        },
+        "required": [
+          "activeOrganizationId",
+          "organizations"
+        ]
+      },
+      "SwitchOrganizationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Switches the active organization.",
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization to make active for the current session."
+          }
+        },
+        "required": [
+          "organizationId"
+        ]
+      },
+      "CreateOrganizationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Creates a new organization.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display name for the new organization."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "DeleteCurrentOrganizationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Delete-organization request body. Send an empty JSON object.",
+        "properties": {}
+      },
+      "DeleteCurrentOrganizationResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "requiresOrganization": {
+                "type": "boolean",
+                "const": false,
+                "description": "False when another organization is active after deletion."
+              },
+              "nextSession": {
+                "$ref": "#/components/schemas/AccessSession",
+                "description": "Rotated access session."
+              }
+            },
+            "required": [
+              "requiresOrganization",
+              "nextSession"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "requiresOrganization": {
+                "type": "boolean",
+                "const": true,
+                "description": "True when the user must create a new organization."
+              },
+              "nextSession": {
+                "$ref": "#/components/schemas/AccessSession",
+                "description": "Rotated orgless access session."
+              }
+            },
+            "required": [
+              "requiresOrganization",
+              "nextSession"
+            ]
+          }
+        ],
+        "description": "Delete-organization response with the next session state."
+      },
+      "OrganizationMember": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Organization member.",
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Membership identifier."
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User identifier."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Member email address."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Member display name."
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Member role."
+          }
+        },
+        "required": [
+          "membershipId",
+          "userId",
+          "email",
+          "displayName",
+          "role"
+        ]
+      },
+      "ListOrganizationMembersResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Active organization members.",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationMember"
+            },
+            "description": "Members in the active organization."
+          }
+        },
+        "required": [
+          "members"
+        ]
+      },
+      "UpdateOrganizationMemberRoleRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Updates an organization member role.",
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Membership to update."
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "New role for the member."
+          }
+        },
+        "required": [
+          "membershipId",
+          "role"
+        ]
+      },
+      "RemoveOrganizationMemberRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Removes a member from the active organization.",
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Membership to remove."
+          }
+        },
+        "required": [
+          "membershipId"
+        ]
+      },
+      "CreateOrganizationInviteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Creates a pending organization invite.",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Email address to invite."
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Role to grant when the invite is accepted."
+          },
+          "expiresInDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90,
+            "description": "Optional expiration window in days. Defaults to 14."
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ]
+      },
+      "OrganizationInvite": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Organization invite.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Invite identifier."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Invited email address."
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Role to grant on acceptance."
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrganizationInviteStatus",
+            "description": "Invite status."
+          },
+          "invitedByUserId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User that created the invite."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Invite creation timestamp."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Invite expiration timestamp."
+          },
+          "respondedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Accepted or declined timestamp."
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "status",
+          "invitedByUserId",
+          "createdAt",
+          "expiresAt",
+          "respondedAt"
+        ]
+      },
+      "CreateOrganizationInviteResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Created invite response.",
+        "properties": {
+          "invite": {
+            "$ref": "#/components/schemas/OrganizationInvite",
+            "description": "Created invite."
+          }
+        },
+        "required": [
+          "invite"
+        ]
+      },
+      "ListOrganizationInvitesResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Active organization invites.",
+        "properties": {
+          "invites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationInvite"
+            },
+            "description": "Invites for the active organization."
+          }
+        },
+        "required": [
+          "invites"
+        ]
+      },
+      "CurrentSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Session profile returned to authenticated clients.",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Refresh-session identifier."
+          },
+          "user": {
+            "$ref": "#/components/schemas/CurrentSessionUser",
+            "description": "Authenticated user profile."
+          },
+          "organization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CurrentSessionOrganization"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Active organization for the session."
+          },
+          "membership": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CurrentSessionMembership"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Membership connecting the user to the active organization."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Session creation timestamp."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Refresh-session expiration timestamp."
+          }
+        },
+        "required": [
+          "sessionId",
+          "user",
+          "organization",
+          "membership",
+          "createdAt",
+          "expiresAt"
+        ]
+      },
+      "CurrentSessionUser": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Authenticated user details.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User identifier."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "User email address."
+          },
+          "emailVerified": {
+            "type": "boolean",
+            "description": "Whether the email principal has been verified."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Human-readable display name."
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "emailVerified",
+          "displayName"
+        ]
+      },
+      "CurrentSessionOrganization": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Active organization details.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization identifier."
+          },
+          "name": {
+            "type": "string",
+            "description": "Organization display name."
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "CurrentSessionMembership": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Active organization membership details.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Membership identifier."
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Role granted to the user in the active organization."
+          }
+        },
+        "required": [
+          "id",
+          "role"
+        ]
+      },
+      "AccessSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Login or refresh response containing an access token and session profile.",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "description": "Short-lived bearer JWT for API and backing-service requests."
+          },
+          "accessTokenExpiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Access-token expiration timestamp."
+          },
+          "session": {
+            "$ref": "#/components/schemas/CurrentSession",
+            "description": "Current authenticated session profile."
+          }
+        },
+        "required": [
+          "accessToken",
+          "accessTokenExpiresAt",
+          "session"
+        ]
+      },
+      "RegisterAccountResponse": {
+        "$ref": "#/components/schemas/EmailVerificationRequired",
+        "description": "Response returned after account registration."
+      },
+      "ModelDefaults": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Default model selection for each workspace mode.",
+        "required": [
+          "chat",
+          "code",
+          "work",
+          "agents"
+        ],
+        "properties": {
+          "chat": {
+            "type": "string",
+            "description": "Default model selection for chat."
+          },
+          "code": {
+            "type": "string",
+            "description": "Default model selection for code workflows."
+          },
+          "work": {
+            "type": "string",
+            "description": "Default model selection for work workflows."
+          },
+          "agents": {
+            "type": "string",
+            "description": "Default model selection for agent workflows."
+          }
+        }
+      },
+      "InferenceModelStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Model availability exposed by a configured inference provider.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Provider-native model identifier."
+          },
+          "label": {
+            "type": "string",
+            "description": "Display label for the model."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether users can select this model."
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "enabled"
+        ]
+      },
+      "InferenceProviderStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Organization-scoped inference provider configuration status.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Provider configuration identifier."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/InferenceProviderKind",
+            "description": "Provider adapter kind."
+          },
+          "label": {
+            "type": "string",
+            "description": "Display label for the provider."
+          },
+          "configured": {
+            "type": "boolean",
+            "description": "Whether the provider has a stored API key."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the provider can be used for inference."
+          },
+          "baseUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Base URL used for provider requests."
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InferenceModelStatus"
+            },
+            "description": "Models currently known for this provider."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "configured",
+          "enabled",
+          "baseUrl",
+          "models"
+        ]
+      },
+      "InferenceConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Complete inference configuration for the active organization.",
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization that owns this inference configuration."
+          },
+          "modelDefaults": {
+            "$ref": "#/components/schemas/ModelDefaults",
+            "description": "Mode-specific default model selections."
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InferenceProviderStatus"
+            },
+            "description": "Configured inference providers for the organization."
+          }
+        },
+        "required": [
+          "organizationId",
+          "modelDefaults",
+          "providers"
+        ]
+      },
+      "AddInferenceProviderRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Adds an organization-scoped inference provider.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/InferenceProviderKind",
+            "description": "Provider adapter kind."
+          },
+          "label": {
+            "type": "string",
+            "description": "Display label for the provider."
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "Provider API key. Stored server-side and never returned."
+          },
+          "baseUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Optional OpenAI-compatible base URL override for providers that support it."
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "apiKey"
+        ]
+      },
+      "UpdateInferenceProviderRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Updates provider availability.",
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Provider configuration identifier."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the provider can be used for inference."
+          }
+        },
+        "required": [
+          "providerId",
+          "enabled"
+        ]
+      },
+      "UpdateInferenceModelRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Updates availability for a provider model.",
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Provider configuration identifier."
+          },
+          "modelId": {
+            "type": "string",
+            "description": "Provider-native model identifier."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether users can select this model."
+          }
+        },
+        "required": [
+          "providerId",
+          "modelId",
+          "enabled"
+        ]
+      },
+      "DeleteInferenceProviderRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Deletes an inference provider configuration.",
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Provider configuration identifier."
+          }
+        },
+        "required": [
+          "providerId"
+        ]
+      },
+      "UpdateInferenceModelDefaultRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Updates the default model selection for a workspace mode.",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/WorkspaceMode",
+            "description": "Workspace mode to update."
+          },
+          "modelSelection": {
+            "type": "string",
+            "description": "Model selection in provider/model form as returned by inference configuration."
+          }
+        },
+        "required": [
+          "mode",
+          "modelSelection"
+        ]
+      },
+      "SessionThreadSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Owned session thread summary.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Session thread identifier."
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization that owns the session."
+          },
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User that owns the session."
+          },
+          "title": {
+            "type": "string",
+            "description": "Display title for the session."
+          },
+          "agentId": {
+            "type": "string",
+            "description": "Agent identifier that owns or interprets this session."
+          },
+          "stateBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Stored session bytes counted against the thread limit."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Monotonic version incremented by writes."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Session creation timestamp."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last session update timestamp."
+          },
+          "archivedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Archive timestamp, or null when active."
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "ownerUserId",
+          "title",
+          "agentId",
+          "stateBytes",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "archivedAt"
+        ]
+      },
+      "SessionMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Persisted session message.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Message identifier."
+          },
+          "threadId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Session thread identifier."
+          },
+          "role": {
+            "$ref": "#/components/schemas/SessionMessageRole",
+            "description": "Message role."
+          },
+          "content": {
+            "type": "string",
+            "description": "Message content."
+          },
+          "metadata": {
+            "description": "Small JSON metadata associated with the message."
+          },
+          "tokenCount": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional token count."
+          },
+          "byteSize": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Bytes counted against the thread limit."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Message creation timestamp."
+          }
+        },
+        "required": [
+          "id",
+          "threadId",
+          "role",
+          "content",
+          "metadata",
+          "tokenCount",
+          "byteSize",
+          "createdAt"
+        ]
+      },
+      "SessionStateSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Append-only session state snapshot.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Snapshot identifier."
+          },
+          "threadId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Session thread identifier."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Application-defined snapshot kind."
+          },
+          "state": {
+            "description": "JSON state snapshot."
+          },
+          "byteSize": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Bytes counted against the thread limit."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Snapshot creation timestamp."
+          }
+        },
+        "required": [
+          "id",
+          "threadId",
+          "kind",
+          "state",
+          "byteSize",
+          "createdAt"
+        ]
+      },
+      "SessionThread": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SessionThreadSummary"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "messages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SessionMessage"
+                },
+                "description": "Messages in chronological order."
+              },
+              "stateSnapshots": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SessionStateSnapshot"
+                },
+                "description": "State snapshots in chronological order."
+              }
+            },
+            "required": [
+              "messages",
+              "stateSnapshots"
+            ]
+          }
+        ],
+        "description": "Owned session thread with messages and state snapshots."
+      },
+      "ListSessionThreadsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Owned session thread list.",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionThreadSummary"
+            },
+            "description": "Active, unarchived sessions owned by the current user."
+          }
+        },
+        "required": [
+          "sessions"
+        ]
+      },
+      "CreateSessionThreadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Creates a session thread.",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Optional title. Defaults to an untitled session."
+          },
+          "agentId": {
+            "type": "string",
+            "description": "Agent identifier that owns or interprets this session."
+          }
+        },
+        "required": [
+          "agentId"
+        ]
+      },
+      "UpdateSessionThreadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Updates session thread metadata.",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "New session title."
+          }
+        }
+      },
+      "AppendSessionMessageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Appends a message to a session thread.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/SessionMessageRole",
+            "description": "Message role."
+          },
+          "content": {
+            "type": "string",
+            "description": "Message content."
+          },
+          "metadata": {
+            "description": "Optional small JSON metadata."
+          },
+          "tokenCount": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional token count."
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ]
+      },
+      "AppendSessionStateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Appends a state snapshot to a session thread.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "Application-defined state kind."
+          },
+          "state": {
+            "description": "JSON state payload."
+          }
+        },
+        "required": [
+          "kind",
+          "state"
+        ]
+      },
+      "ArchiveSessionThreadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Archive-session request body. Send an empty JSON object.",
+        "properties": {}
+      },
+      "SessionSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Organization session-state settings.",
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Organization that owns the settings."
+          },
+          "retentionSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Retention window for physically purging soft-deleted sessions."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Settings creation timestamp."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Settings update timestamp."
+          }
+        },
+        "required": [
+          "organizationId",
+          "retentionSeconds",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "UpdateSessionSettingsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Updates organization session-state settings.",
+        "properties": {
+          "retentionSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Retention window in seconds."
+          }
+        },
+        "required": [
+          "retentionSeconds"
+        ]
+      },
+      "AgentChatMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Chat message sent to or produced by an agent.",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "description": "Message role."
+          },
+          "content": {
+            "type": "string",
+            "description": "Message text content."
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ]
+      },
+      "AgentChatRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Streaming chat request for an agent.",
+        "properties": {
+          "modelSelection": {
+            "type": "string",
+            "description": "Model selection in provider/model form."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentChatMessage"
+            },
+            "description": "Conversation messages to send to the agent."
+          }
+        },
+        "required": [
+          "modelSelection",
+          "messages"
+        ]
+      }
+    }
+  }
+}

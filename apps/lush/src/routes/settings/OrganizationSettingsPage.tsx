@@ -3,7 +3,6 @@ import {
   createMemo,
   createSignal,
   For,
-  onCleanup,
   Show
 } from "solid-js";
 import type {
@@ -11,6 +10,7 @@ import type {
   OrganizationMember,
   UserRole
 } from "@lush/api-client";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
 
 export function OrganizationSettingsPage(props: {
   organizationName: string;
@@ -43,21 +43,6 @@ export function OrganizationSettingsPage(props: {
 
   createEffect(() => {
     setOrganizationNameDraft(props.organizationName);
-  });
-
-  createEffect(() => {
-    if (!deleteDialogOpen()) {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isDeletingOrganization()) {
-        setDeleteDialogOpen(false);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
   });
 
   const commitOrganizationName = async () => {
@@ -308,69 +293,17 @@ export function OrganizationSettingsPage(props: {
         </section>
       </Show>
 
-      <DeleteOrganizationDialog
+      <ConfirmDialog
         open={deleteDialogOpen()}
-        isDeleting={isDeletingOrganization()}
+        title="Delete organization?"
+        body="This action is permanent. It will delete the organization for every member and remove all organization-owned state."
+        confirmLabel="Delete organization"
+        pendingConfirmLabel="Deleting..."
+        pending={isDeletingOrganization()}
+        danger
         onCancel={() => setDeleteDialogOpen(false)}
         onConfirm={() => void confirmDeleteOrganization()}
       />
     </div>
-  );
-}
-
-function DeleteOrganizationDialog(props: {
-  open: boolean;
-  isDeleting: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <Show when={props.open}>
-      <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6"
-        onMouseDown={(event) => {
-          if (event.target === event.currentTarget && !props.isDeleting) {
-            props.onCancel();
-          }
-        }}
-      >
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-organization-title"
-          class="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-5 shadow-2xl"
-        >
-          <h2
-            id="delete-organization-title"
-            class="text-base font-semibold text-[var(--color-text)]"
-          >
-            Delete organization?
-          </h2>
-          <p class="mt-3 text-sm leading-6 text-[var(--color-muted)]">
-            This action is permanent. It will delete the organization for every
-            member and remove all organization-owned state.
-          </p>
-
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              disabled={props.isDeleting}
-              onClick={props.onCancel}
-              class="rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={props.isDeleting}
-              onClick={props.onConfirm}
-              class="rounded-md border border-red-600 bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:border-red-700 hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {props.isDeleting ? "Deleting..." : "Delete organization"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Show>
   );
 }

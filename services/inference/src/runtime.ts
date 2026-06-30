@@ -606,23 +606,32 @@ async function decryptSecret(
   encrypted: string,
   context: Record<string, string>
 ) {
-  const payload = JSON.parse(encrypted) as {
-    iv: string;
-    ciphertext: string;
-  };
-  const key = await secretKey();
-  const aad = new TextEncoder().encode(JSON.stringify(context));
-  const plaintext = await crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv: hexToBytes(payload.iv),
-      additionalData: aad
-    },
-    key,
-    hexToBytes(payload.ciphertext)
-  );
+  try {
+    const payload = JSON.parse(encrypted) as {
+      iv: string;
+      ciphertext: string;
+    };
+    const key = await secretKey();
+    const aad = new TextEncoder().encode(JSON.stringify(context));
+    const plaintext = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: hexToBytes(payload.iv),
+        additionalData: aad
+      },
+      key,
+      hexToBytes(payload.ciphertext)
+    );
 
-  return new TextDecoder().decode(plaintext);
+    return new TextDecoder().decode(plaintext);
+  } catch (error) {
+    const provider = context.kind ? `${titleCase(context.kind)} ` : "";
+    throw new InferenceError(
+      "provider_credentials_unavailable",
+      `Stored ${provider}provider credentials could not be decrypted. Remove and reconnect the provider in Inference settings.`,
+      409
+    );
+  }
 }
 
 async function secretKey() {
@@ -662,4 +671,12 @@ function hexToBytes(value: string) {
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
+}
+
+function titleCase(value: string) {
+  return value
+    .split(/[-_\s]+/g)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
 }

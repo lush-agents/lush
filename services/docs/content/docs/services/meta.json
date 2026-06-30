@@ -1,0 +1,19 @@
+{
+  "title": "Service Catalog",
+  "pages": [
+    "api",
+    "authz",
+    "inference",
+    "sessions",
+    "agent",
+    "docs",
+    "artifacts",
+    "configuration",
+    "events",
+    "notifications",
+    "scheduler",
+    "skills",
+    "team-chat",
+    "tools"
+  ]
+}

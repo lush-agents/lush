@@ -220,7 +220,16 @@ export const authzActions = [
   "updateInferenceModel",
   "deleteInferenceProvider",
   "updateInferenceModelDefault",
-  "streamAgentChat"
+  "streamAgentChat",
+  "listSessionThreads",
+  "createSessionThread",
+  "fetchSessionThread",
+  "updateSessionThread",
+  "appendSessionMessage",
+  "appendSessionState",
+  "archiveSessionThread",
+  "fetchSessionSettings",
+  "updateSessionSettings"
 ] as const;
 
 export type AuthzAction = (typeof authzActions)[number];
@@ -240,6 +249,15 @@ export const roleActionBindings: Record<UserRole, readonly AuthzAction[]> = {
   admin: [
     "fetchInferenceConfig",
     "streamAgentChat",
+    "listSessionThreads",
+    "createSessionThread",
+    "fetchSessionThread",
+    "updateSessionThread",
+    "appendSessionMessage",
+    "appendSessionState",
+    "archiveSessionThread",
+    "fetchSessionSettings",
+    "updateSessionSettings",
     "listOrganizationMembers",
     "updateCurrentOrganization",
     "deleteCurrentOrganization",
@@ -256,6 +274,14 @@ export const roleActionBindings: Record<UserRole, readonly AuthzAction[]> = {
   user: [
     "fetchInferenceConfig",
     "streamAgentChat",
+    "listSessionThreads",
+    "createSessionThread",
+    "fetchSessionThread",
+    "updateSessionThread",
+    "appendSessionMessage",
+    "appendSessionState",
+    "archiveSessionThread",
+    "fetchSessionSettings",
     "listOrganizationMembers"
   ]
 };

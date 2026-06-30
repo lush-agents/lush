@@ -1,0 +1,16 @@
+{
+  "name": "@lush/logging",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
+  "exports": {
+    "./logger": "./src/logger.ts"
+  },
+  "dependencies": {
+    "@lush/config": "workspace:*",
+    "pino": "^9.7.0"
+  }
+}
