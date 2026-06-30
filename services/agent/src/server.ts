@@ -4,12 +4,14 @@ import {
   type Principal,
   resolveAccessPrincipal
 } from "@lush/authz/runtime";
+import { createLogger } from "@lush/logging/logger";
 import {
   type AgentChatMessage,
   getLushAgentMetadata,
   streamLushAgentChat
 } from "./runtime";
 
+const logger = createLogger("@lush/agent");
 const agentConfig = readEnvSchema({
   LUSH_AGENT_PORT: envSchema.number(7331),
   LUSH_APP_ORIGIN: envSchema.optionalString("*")
@@ -25,6 +27,7 @@ const corsHeaders = {
 const server = Bun.serve({
   port: agentConfig.LUSH_AGENT_PORT,
   hostname: "127.0.0.1",
+  ...({ idleTimeout: 255 } as { idleTimeout: number }),
   async fetch(request) {
     const url = new URL(request.url);
 
@@ -73,7 +76,13 @@ const server = Bun.serve({
   }
 });
 
-console.log(`@lush/agent listening on http://${server.hostname}:${server.port}`);
+logger.info(
+  {
+    hostname: server.hostname,
+    port: server.port
+  },
+  "agent listening"
+);
 
 async function authenticate(request: Request) {
   const token = bearerToken(request);
@@ -130,12 +139,15 @@ async function streamChat(request: Request, principal: Principal) {
 
         controllerStream.close();
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unknown streaming error";
-        controllerStream.enqueue(
-          encoder.encode(`\n\n[Agent error] ${message}`)
+        logger.error(
+          {
+            err: error,
+            organizationId,
+            agent: getLushAgentMetadata().id
+          },
+          "agent stream failed after response started"
         );
-        controllerStream.close();
+        controllerStream.error(error);
       }
     },
     cancel() {

@@ -19,7 +19,7 @@ export default async function Page({ params }: PageProps) {
   const { slug } = await params;
 
   if (!slug) {
-    redirect("/docs/introduction/quick-start");
+    redirect("/docs/introduction/what-is-lush");
   }
 
   const page = source.getPage(slug);
@@ -28,7 +28,6 @@ export default async function Page({ params }: PageProps) {
   }
 
   const MDX = page.data.body;
-
   return (
     <DocsPage toc={page.data.toc}>
       <DocsTitle>{page.data.title}</DocsTitle>

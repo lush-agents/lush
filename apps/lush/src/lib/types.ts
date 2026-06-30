@@ -6,7 +6,7 @@ export type Route = {
   eyebrow: string;
   title: string;
   body: string;
-  sessionKind?: string;
+  sessionAgentId?: string;
 };
 
 export type Concept = {

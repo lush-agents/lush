@@ -1,0 +1,44 @@
+---
+title: Authentication
+description: How Lush verifies users and establishes app sessions.
+---
+
+Authentication is owned by the Authn/z service and exposed through the API
+gateway.
+
+## Password Accounts
+
+The current implementation supports email/password accounts backed by
+PostgreSQL. Registration creates a user identity and password credential, then
+requires email verification before the account can sign in.
+
+Email verification is required before issuing app sessions. Local development
+uses a database-backed verification command:
+
+```sh
+bun run auth:verify-email -- user@example.com
+```
+
+## Refresh Sessions
+
+After a successful sign-in, the browser receives an opaque refresh token in an
+HttpOnly cookie. The refresh token is not readable by application JavaScript.
+
+The refresh session is backed by database state and is scoped to the user,
+organization, membership, expiry, and revocation status.
+
+## Access Tokens
+
+Login and refresh mint short-lived asymmetric JWT access tokens. The app caches
+the access token in tab-scoped `sessionStorage` and sends it as a bearer token
+on protected API requests.
+
+The access JWT carries stable claims services need for authorization, including
+user, organization, membership, and role claims. Services validate the token
+before trusting those claims.
+
+## Client Refresh
+
+The API exposes an authenticated Server-Sent Events stream for auth refresh
+invalidation hints. When the server emits `auth.refresh_required`, clients
+force-refresh auth state and continue with updated claims.

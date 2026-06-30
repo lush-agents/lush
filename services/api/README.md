@@ -26,7 +26,7 @@ The public client API is grouped under `/v1beta`, for example
 surface is stable enough to promote into `/v1`.
 
 The API requires PostgreSQL for auth, sessions, organization tenancy, and
-inference provider state. Set `DATABASE_URL` for non-default local databases.
+inference provider state. Set `DATABASE_URL` to the PostgreSQL database URL.
 Set `LUSH_APP_ORIGIN` to explicit app origins; wildcard CORS is rejected because
 browser auth uses credentialed session cookies.
 Set `LUSH_AUTH_JWT_PRIVATE_KEY` and `LUSH_AUTH_JWT_PUBLIC_KEY` to an RSA keypair;

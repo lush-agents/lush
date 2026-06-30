@@ -226,6 +226,81 @@ a {
   padding: 0.25rem 0;
 }
 
+.session-title-viewport {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.session-title-track {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+}
+
+.session-title-text {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-title-duplicate {
+  display: none;
+  flex-shrink: 0;
+  padding-left: 1.75rem;
+}
+
+.session-title-button--long:hover .session-title-track,
+.session-title-button--long:focus-visible .session-title-track {
+  max-width: none;
+  animation: session-title-chiron 8s linear infinite;
+}
+
+.session-title-button--long:hover .session-title-text,
+.session-title-button--long:focus-visible .session-title-text {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.session-title-button--long:hover .session-title-duplicate,
+.session-title-button--long:focus-visible .session-title-duplicate {
+  display: block;
+}
+
+@keyframes session-title-chiron {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(-50% - 0.875rem));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-title-button--long:hover .session-title-track,
+  .session-title-button--long:focus-visible .session-title-track {
+    animation: none;
+  }
+
+  .session-title-button--long:hover .session-title-text,
+  .session-title-button--long:focus-visible .session-title-text {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .session-title-button--long:hover .session-title-duplicate,
+  .session-title-button--long:focus-visible .session-title-duplicate {
+    display: none;
+  }
+}
+
 @keyframes lush-shimmer {
   from {
     background-position: 200% 0;

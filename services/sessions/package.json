@@ -2,5 +2,16 @@
   "name": "@lush/sessions",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@lush/db": "workspace:*",
+    "kysely": "^0.28.7"
+  },
+  "exports": {
+    "./runtime": "./src/runtime.ts",
+    "./spec": "./src/spec.ts"
+  }
 }

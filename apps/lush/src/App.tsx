@@ -1,6 +1,9 @@
 import {
   type AccessSession,
   type AddInferenceProviderRequest,
+  appendSessionMessage,
+  archiveSessionThread,
+  createSessionThread,
   createOrganization,
   createOrganizationInvite,
   createInferenceProvider,
@@ -23,13 +26,24 @@ import {
   updateCurrentOrganization,
   updateInferenceModelDefault,
   type InferenceConfig,
+  fetchSessionThread,
+  listSessionThreads,
   updateInferenceModel,
   updateInferenceProvider,
   updateOrganizationMemberRole,
   updateCurrentUser,
+  updateSessionThread,
+  type SessionThread,
+  type SessionThreadSummary,
   type UserRole,
   type WorkspaceMode
 } from "@lush/api-client";
+import {
+  useCurrentMatches,
+  useLocation,
+  useNavigate,
+  useParams
+} from "@solidjs/router";
 import {
   createEffect,
   createMemo,
@@ -45,6 +59,7 @@ import { SettingsNav } from "./components/navigation/SettingsNav";
 import { UserMenu } from "./components/navigation/UserMenu";
 import {
   accountRoutes,
+  builtInAgentIds,
   concepts,
   defaultModelDefaults,
   getInitialDisplayName,
@@ -56,7 +71,9 @@ import {
   resolveDisplayName,
   resolveOrganizationName,
   routes,
-  settingsRoutes
+  sessionRouteHref,
+  settingsRoutes,
+  type AppRouteInfo
 } from "./lib/app-data";
 import {
   type AccessTokenClaims,
@@ -83,7 +100,12 @@ import { ScrollFade } from "./ui/ScrollFade";
 export function App() {
   let sessionRequestId = 0;
   let clientEventRefresh: Promise<void> | undefined;
-  const [path, setPath] = createSignal(normalizedPath());
+  let chatThreadLoadRequestId = 0;
+  const location = useLocation();
+  const routerNavigate = useNavigate();
+  const currentMatches = useCurrentMatches();
+  const routeParams = useParams<{ sessionId?: string; slug?: string }>();
+  const path = createMemo(() => normalizedPath(location.pathname));
   const [lastAppPath, setLastAppPath] = createSignal("/concepts");
   const [userMenuOpen, setUserMenuOpen] = createSignal(false);
   const [authEmail, setAuthEmail] = createSignal("");
@@ -106,6 +128,11 @@ export function App() {
     createSignal<OrganizationMember[]>([]);
   const [organizationInvites, setOrganizationInvites] =
     createSignal<OrganizationInvite[]>([]);
+  const [sessionThreads, setSessionThreads] = createSignal<SessionThreadSummary[]>([]);
+  const [activeChatThread, setActiveChatThread] = createSignal<SessionThread>();
+  const [activeChatThreadId, setActiveChatThreadId] = createSignal<string>();
+  const [loadingChatThreadId, setLoadingChatThreadId] = createSignal<string>();
+  const [chatSessionKey, setChatSessionKey] = createSignal(0);
   const [activeOrganizationId, setActiveOrganizationId] = createSignal<string | null>(null);
   const [membershipRole, setMembershipRole] = createSignal<UserRole>();
   const [organizationError, setOrganizationError] = createSignal("");
@@ -115,28 +142,65 @@ export function App() {
   const [organizationName, setOrganizationNameSignal] =
     createSignal(getInitialOrganizationName());
 
+  const activeRouteInfo = createMemo(() => {
+    const matches = currentMatches();
+    return matches.length > 0
+      ? (matches[matches.length - 1]?.route.info as AppRouteInfo | undefined)
+      : undefined;
+  });
+  const activeSessionRoute = createMemo(() => {
+    const routeInfo = activeRouteInfo();
+    if (routeInfo?.kind !== "workspaceSession" || !routeParams.sessionId) {
+      return undefined;
+    }
+
+    const route = routes.find((candidate) => candidate.href === routeInfo.href);
+    return route ? { route, sessionId: routeParams.sessionId } : undefined;
+  });
   const activeRoute = createMemo(() => {
-    const currentPath = path();
-    return [...routes, ...settingsRoutes, ...accountRoutes].find(
-      (route) => route.href === currentPath
-    );
+    const routeInfo = activeRouteInfo();
+    if (!routeInfo) {
+      return undefined;
+    }
+
+    if (routeInfo.kind === "workspace" || routeInfo.kind === "workspaceSession") {
+      return routes.find((route) => route.href === routeInfo.href);
+    }
+
+    if (routeInfo.kind === "settings") {
+      return settingsRoutes.find((route) => route.href === routeInfo.href);
+    }
+
+    if (routeInfo.kind === "account") {
+      return accountRoutes.find((route) => route.href === routeInfo.href);
+    }
+
+    return undefined;
   });
   const activeWorkspaceRoute = createMemo(() => {
     const route = activeRoute();
-    return route?.sessionKind ? route : undefined;
+    return route?.sessionAgentId ? route : undefined;
   });
   const activeConcept = createMemo(() => {
-    const match = path().match(/^\/concepts\/([^/]+)$/);
-    return match ? concepts.find((concept) => concept.slug === match[1]) : undefined;
+    return activeRouteInfo()?.kind === "conceptDetail" && routeParams.slug
+      ? concepts.find((concept) => concept.slug === routeParams.slug)
+      : undefined;
   });
-  const authMode = createMemo<"login" | "register">(() =>
-    path() === "/register" ? "register" : "login"
+  const authMode = createMemo<"login" | "register">(() => {
+    const routeInfo = activeRouteInfo();
+    return routeInfo?.kind === "auth" && routeInfo.mode === "register"
+      ? "register"
+      : "login";
+  });
+  const isAppBaseRoute = createMemo(() => activeRouteInfo()?.kind === "appBase");
+  const isAuthRoute = createMemo(() => activeRouteInfo()?.kind === "auth");
+  const isConceptsIndex = createMemo(
+    () => activeRouteInfo()?.kind === "conceptsIndex"
   );
-  const isAppBaseRoute = createMemo(() => path() === "/");
-  const isAuthRoute = createMemo(() => isPublicAuthRoute(path()));
-  const isConceptsIndex = createMemo(() => path() === "/concepts");
-  const isCreateOrganizationRoute = createMemo(() => path() === "/organizations/new");
-  const isSettingsRoute = createMemo(() => path().startsWith("/settings/"));
+  const isCreateOrganizationRoute = createMemo(
+    () => activeRouteInfo()?.kind === "createOrganization"
+  );
+  const isSettingsRoute = createMemo(() => activeRouteInfo()?.kind === "settings");
   const hasActiveOrganization = createMemo(() => Boolean(sessionClaims()?.org));
   const resolvedTheme = createMemo(() =>
     appearance() === "system" ? systemTheme() : appearance()
@@ -235,6 +299,12 @@ export function App() {
       }))
       .filter((provider) => provider.models.length > 0)
   );
+  const activeWorkspaceSessions = createMemo(() => {
+    const agentId = activeWorkspaceRoute()?.sessionAgentId;
+    return agentId
+      ? sessionThreads().filter((session) => session.agentId === agentId)
+      : [];
+  });
 
   const setModelDefault = async (
     mode: WorkspaceMode,
@@ -334,6 +404,34 @@ export function App() {
     setOrganizationInvites(invites.invites);
   };
 
+  const refreshSessionThreads = async (
+    accessSession: AccessSession = currentAccessSession()
+  ) => {
+    const claims = parseAccessTokenClaims(accessSession.accessToken);
+    if (!claims?.org) {
+      chatThreadLoadRequestId += 1;
+      setSessionThreads([]);
+      setActiveChatThread(undefined);
+      setActiveChatThreadId(undefined);
+      setLoadingChatThreadId(undefined);
+      setChatSessionKey((current) => current + 1);
+      return;
+    }
+
+    const response = await runWithTokenRefresh(accessSession, (session) =>
+      listSessionThreads(apiBaseUrl(), session.accessToken)
+    );
+    setSessionThreads(response.sessions);
+    const activeId = activeChatThreadId();
+    if (activeId && !response.sessions.some((session) => session.id === activeId)) {
+      chatThreadLoadRequestId += 1;
+      setActiveChatThread(undefined);
+      setActiveChatThreadId(undefined);
+      setLoadingChatThreadId(undefined);
+      setChatSessionKey((current) => current + 1);
+    }
+  };
+
   const fetchSessionInferenceConfig = async (
     accessSession: AccessSession
   ) => {
@@ -406,14 +504,14 @@ export function App() {
 
   const replaceRoute = (href: string) => {
     const nextPath = normalizedPath(href);
-    if (nextPath !== path() || window.location.pathname !== nextPath) {
-      window.history.replaceState({}, "", nextPath);
+    if (nextPath !== path()) {
+      routerNavigate(nextPath, { replace: true });
     }
-    setPath(nextPath);
     setUserMenuOpen(false);
   };
 
   const clearSessionState = () => {
+    chatThreadLoadRequestId += 1;
     clearCachedAccessSession();
     setSessionToken("");
     setSessionTokenExpiresAt("");
@@ -423,6 +521,11 @@ export function App() {
     setOrganizations([]);
     setOrganizationMembers([]);
     setOrganizationInvites([]);
+    setSessionThreads([]);
+    setActiveChatThread(undefined);
+    setActiveChatThreadId(undefined);
+    setLoadingChatThreadId(undefined);
+    setChatSessionKey((current) => current + 1);
     setActiveOrganizationId(null);
     setMembershipRole(undefined);
   };
@@ -436,6 +539,7 @@ export function App() {
       if (cachedSession) {
         applySession(cachedSession);
         await refreshOrganizationState(cachedSession);
+        await refreshSessionThreads(cachedSession);
         const config = await fetchSessionInferenceConfig(cachedSession);
         if (requestId !== sessionRequestId) {
           return;
@@ -456,6 +560,7 @@ export function App() {
 
       applySession(session);
       await refreshOrganizationState(session);
+      await refreshSessionThreads(session);
       const config = await fetchSessionInferenceConfig(session);
       if (requestId === sessionRequestId) {
         setInferenceConfig(config);
@@ -526,6 +631,7 @@ export function App() {
       applySession(session);
       setAuthPassword("");
       await refreshOrganizationState(session);
+      await refreshSessionThreads(session);
       const config = await fetchSessionInferenceConfig(session);
       if (requestId === sessionRequestId) {
         setInferenceConfig(config);
@@ -556,6 +662,7 @@ export function App() {
   const loadSessionData = async (accessSession: AccessSession) => {
     applySession(accessSession);
     await refreshOrganizationState(accessSession);
+    await refreshSessionThreads(accessSession);
     const config = await fetchSessionInferenceConfig(accessSession);
     setInferenceConfig(config);
   };
@@ -812,6 +919,123 @@ export function App() {
     }
   };
 
+  const resetChatSession = () => {
+    chatThreadLoadRequestId += 1;
+    setActiveChatThread(undefined);
+    setActiveChatThreadId(undefined);
+    setLoadingChatThreadId(undefined);
+    setChatSessionKey((current) => current + 1);
+  };
+
+  const selectChatSession = async (threadId: string) => {
+    const requestId = ++chatThreadLoadRequestId;
+    setActiveChatThreadId(threadId);
+
+    try {
+      const thread = await runAuthenticated((session) =>
+        fetchSessionThread(apiBaseUrl(), threadId, session.accessToken)
+      );
+
+      if (requestId !== chatThreadLoadRequestId) {
+        return;
+      }
+
+      setActiveChatThread(thread);
+      setChatSessionKey((current) => current + 1);
+    } catch (error) {
+      if (requestId !== chatThreadLoadRequestId) {
+        return;
+      }
+
+      setActiveChatThread(undefined);
+      setActiveChatThreadId(undefined);
+      await refreshSessionThreads().catch(() => undefined);
+      throw error;
+    }
+  };
+
+  const createChatSession = async (request: { title: string }) => {
+    const summary = await runAuthenticated((session) =>
+      createSessionThread(apiBaseUrl(), session.accessToken, {
+        title: request.title,
+        agentId: builtInAgentIds.chat
+      })
+    );
+
+    setActiveChatThreadId(summary.id);
+    setSessionThreads((current) => [
+      summary,
+      ...current.filter((session) => session.id !== summary.id)
+    ]);
+    const chatRoute = routes.find((route) => route.href === "/chat");
+    if (chatRoute) {
+      replaceRoute(sessionRouteHref(chatRoute, summary.id));
+    }
+    return summary.id;
+  };
+
+  const appendChatSessionMessage = async (
+    threadId: string,
+    message: {
+      role: "user" | "assistant";
+      content: string;
+      metadata?: unknown;
+    }
+  ) => {
+    await runAuthenticated((session) =>
+      appendSessionMessage(apiBaseUrl(), threadId, session.accessToken, message)
+    );
+    await refreshSessionThreads().catch(() => undefined);
+  };
+
+  const updateChatSessionTitle = async (threadId: string, title: string) => {
+    const summary = await runAuthenticated((session) =>
+      updateSessionThread(apiBaseUrl(), threadId, session.accessToken, {
+        title
+      })
+    );
+
+    setSessionThreads((current) =>
+      current.map((session) => (session.id === summary.id ? summary : session))
+    );
+    setActiveChatThread((current) =>
+      current && current.id === summary.id ? { ...current, ...summary } : current
+    );
+  };
+
+  const archiveChatSession = async (threadId: string) => {
+    await runAuthenticated((session) =>
+      archiveSessionThread(apiBaseUrl(), threadId, session.accessToken, {})
+    );
+    setSessionThreads((current) =>
+      current.filter((session) => session.id !== threadId)
+    );
+
+    if (activeChatThreadId() === threadId || activeSessionRoute()?.sessionId === threadId) {
+      resetChatSession();
+      replaceRoute("/chat");
+    }
+  };
+
+  const syncChatSessionRoute = async (threadId: string) => {
+    if (loadingChatThreadId() === threadId) {
+      return;
+    }
+
+    setLoadingChatThreadId(threadId);
+
+    try {
+      await selectChatSession(threadId);
+    } catch {
+      resetChatSession();
+      replaceRoute("/chat");
+    } finally {
+      setLoadingChatThreadId((current) =>
+        current === threadId ? undefined : current
+      );
+    }
+  };
+
   const navigate = (href: string) => {
     const nextPath = normalizedPath(href);
     if (nextPath === "/sign-out") {
@@ -820,11 +1044,37 @@ export function App() {
     }
 
     if (nextPath !== path()) {
-      window.history.pushState({}, "", nextPath);
-      setPath(nextPath);
+      routerNavigate(nextPath);
     }
     setUserMenuOpen(false);
   };
+
+  createEffect(() => {
+    if (sessionStatus() !== "ready") {
+      return;
+    }
+
+    const sessionRoute = activeSessionRoute();
+    if (!sessionRoute) {
+      if (path() === "/chat" && activeChatThreadId()) {
+        resetChatSession();
+      }
+      return;
+    }
+
+    if (sessionRoute.route.href !== "/chat") {
+      return;
+    }
+
+    // A newly-created session is selected optimistically before its first turn is
+    // fully persisted. Fetching it here can replace the in-flight transcript
+    // with a stale server copy when the stream completes.
+    if (activeChatThreadId() === sessionRoute.sessionId) {
+      return;
+    }
+
+    void syncChatSessionRoute(sessionRoute.sessionId);
+  });
 
   createEffect(() => {
     const currentPath = path();
@@ -888,14 +1138,6 @@ export function App() {
     event.preventDefault();
     navigate(href);
   };
-
-  const handlePopState = () => {
-    setPath(normalizedPath());
-    setUserMenuOpen(false);
-  };
-
-  window.addEventListener("popstate", handlePopState);
-  onCleanup(() => window.removeEventListener("popstate", handlePopState));
 
   const mediaQuery = window.matchMedia("(prefers-color-scheme: light)");
   const handleSystemThemeChange = () => setSystemTheme(getSystemTheme());
@@ -982,7 +1224,17 @@ export function App() {
                       fallback={<PrimaryNav path={path()} onNavigate={navigate} />}
                     >
                       {(route) => (
-                        <SessionNav route={route()} onNavigate={navigate} />
+                        <SessionNav
+                          route={route()}
+                          sessions={activeWorkspaceSessions()}
+                          activeSessionId={activeChatThreadId()}
+                          onNavigate={navigate}
+                          onNewSession={resetChatSession}
+                          getSessionHref={(threadId) =>
+                            sessionRouteHref(route(), threadId)
+                          }
+                          onSessionArchive={archiveChatSession}
+                        />
                       )}
                     </Show>
                   }
@@ -1074,7 +1326,12 @@ export function App() {
                     defaultModelSelection={modelDefaults().chat}
                     providers={enabledInferenceProviders()}
                     currentRole={membershipRole()}
+                    thread={activeChatThread()}
+                    sessionKey={chatSessionKey()}
                     ensureSession={ensureSession}
+                    onCreateSession={createChatSession}
+                    onAppendSessionMessage={appendChatSessionMessage}
+                    onSessionTitleChange={updateChatSessionTitle}
                     onNavigate={navigate}
                   />
                 </Show>

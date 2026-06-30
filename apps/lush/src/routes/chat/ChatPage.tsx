@@ -10,6 +10,8 @@ import {
   streamAgentChat,
   type AgentChatMessage,
   type InferenceProviderStatus,
+  type SessionMessage,
+  type SessionThread,
   type UserRole,
 } from "@lush/api-client";
 import logoUrl from "../../assets/lush-logo.svg?url";
@@ -61,12 +63,25 @@ export function ChatPage(props: {
   defaultModelSelection: string;
   providers: InferenceProviderStatus[];
   currentRole?: UserRole;
+  thread?: SessionThread;
+  sessionKey: number;
   ensureSession: (force?: boolean) => Promise<string | undefined>;
+  onCreateSession: (request: { title: string }) => Promise<string>;
+  onAppendSessionMessage: (
+    threadId: string,
+    message: {
+      role: "user" | "assistant";
+      content: string;
+      metadata?: unknown;
+    }
+  ) => Promise<void>;
+  onSessionTitleChange: (threadId: string, title: string) => Promise<void>;
   onNavigate: (href: string) => void;
 }) {
   let transcriptRef: HTMLDivElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
   let abortController: AbortController | undefined;
+  let syncedSessionKey: number | undefined;
 
   const [now, setNow] = createSignal(new Date());
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
@@ -77,6 +92,7 @@ export function ChatPage(props: {
   const [error, setError] = createSignal("");
   const [modelMenuOpen, setModelMenuOpen] = createSignal(false);
   const [selectedModelSelection, setSelectedModelSelection] = createSignal("");
+  const [activeThreadId, setActiveThreadId] = createSignal<string>();
   const greeting = createMemo(
     () => `${getGreeting(now())}, ${getFirstName(props.displayName)}`
   );
@@ -109,6 +125,28 @@ export function ChatPage(props: {
     if (!selectedModelSelection() && props.defaultModelSelection) {
       setSelectedModelSelection(props.defaultModelSelection);
     }
+  });
+
+  createEffect(() => {
+    const thread = props.thread;
+    const sessionKey = props.sessionKey;
+    if (isStreaming() || sessionKey === syncedSessionKey) {
+      return;
+    }
+
+    syncedSessionKey = sessionKey;
+    setActiveThreadId(thread?.id);
+    setMessages(
+      (thread?.messages ?? [])
+        .filter(isRenderableChatMessage)
+        .map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          status: "complete" as const
+        }))
+    );
+    setError("");
   });
 
   const resizeInput = () => {
@@ -213,6 +251,8 @@ export function ChatPage(props: {
       return;
     }
 
+    const shouldGenerateThreadTitle = !activeThreadId() && messages().length === 0;
+    const modelSelection = activeModelSelection();
     const userMessage: ChatMessage = {
       id: createId(),
       role: "user",
@@ -241,11 +281,27 @@ export function ChatPage(props: {
     abortController = new AbortController();
 
     try {
+      let threadId = activeThreadId();
+      if (!threadId) {
+        threadId = await props.onCreateSession({
+          title: titleFromContent(content)
+        });
+        setActiveThreadId(threadId);
+      }
+
+      await props.onAppendSessionMessage(threadId, {
+        role: "user",
+        content,
+        metadata: {
+          clientMessageId: userMessage.id
+        }
+      });
+
       let token = await props.ensureSession();
       let response = await postChat(
         props.apiBaseUrl,
         token,
-        activeModelSelection(),
+        modelSelection,
         requestMessages,
         abortController.signal
       );
@@ -255,26 +311,44 @@ export function ChatPage(props: {
         response = await postChat(
           props.apiBaseUrl,
           token,
-          activeModelSelection(),
+          modelSelection,
           requestMessages,
           abortController.signal
         );
       }
 
-      if (!response.ok || !response.body) {
-        throw new Error(`Agent request failed with ${response.status}`);
+      if (!response.ok) {
+        throw new Error(await agentResponseErrorMessage(response));
+      }
+
+      if (!response.body) {
+        throw new Error("The inference provider returned an empty response.");
       }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let assistantContent = "";
 
       while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
+        let result: ReadableStreamReadResult<Uint8Array>;
+        try {
+          result = await reader.read();
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            throw error;
+          }
+
+          throw new Error(
+            "The inference provider connection stopped before the response completed."
+          );
+        }
+
+        if (result.done) {
           break;
         }
 
-        const chunk = decoder.decode(value, { stream: true });
+        const chunk = decoder.decode(result.value, { stream: true });
+        assistantContent += chunk;
         updateAssistantMessage(assistantMessage.id, (message) => ({
           ...message,
           content: message.content + chunk
@@ -285,6 +359,27 @@ export function ChatPage(props: {
         ...message,
         status: "complete"
       }));
+
+      await props.onAppendSessionMessage(threadId, {
+        role: "assistant",
+        content: assistantContent,
+        metadata: {
+          clientMessageId: assistantMessage.id
+        }
+      });
+
+      if (shouldGenerateThreadTitle && assistantContent.trim()) {
+        void generateAndPersistThreadTitle({
+          apiBaseUrl: props.apiBaseUrl,
+          sessionToken: token,
+          modelSelection,
+          userContent: content,
+          assistantContent,
+          threadId,
+          ensureSession: props.ensureSession,
+          onSessionTitleChange: props.onSessionTitleChange
+        });
+      }
     } catch (caught) {
       if (!(caught instanceof DOMException && caught.name === "AbortError")) {
         const message =
@@ -293,9 +388,7 @@ export function ChatPage(props: {
         updateAssistantMessage(assistantMessage.id, (current) => ({
           ...current,
           status: "error",
-          content:
-            current.content ||
-            "I could not reach the configured Lush API."
+          content: current.content || message
         }));
       }
     } finally {
@@ -443,6 +536,165 @@ export function ChatPage(props: {
       </form>
     </div>
   );
+}
+
+function titleFromContent(content: string) {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "Untitled session";
+  }
+
+  return normalized.length > 80
+    ? `${normalized.slice(0, 77).trimEnd()}...`
+    : normalized;
+}
+
+function isRenderableChatMessage(
+  message: SessionMessage
+): message is SessionMessage & { role: "user" | "assistant" } {
+  return message.role === "user" || message.role === "assistant";
+}
+
+async function agentResponseErrorMessage(response: Response) {
+  const fallback = `Inference request failed with ${response.status}`;
+  const details = await response.text().catch(() => "");
+  if (!details) {
+    return fallback;
+  }
+
+  try {
+    const body = JSON.parse(details) as { message?: unknown; error?: unknown };
+    if (typeof body.message === "string" && body.message.trim()) {
+      return body.message.trim();
+    }
+
+    if (typeof body.error === "string" && body.error.trim()) {
+      return body.error.trim();
+    }
+  } catch {
+    return details;
+  }
+
+  return fallback;
+}
+
+async function generateAndPersistThreadTitle(request: {
+  apiBaseUrl: string;
+  sessionToken: string | undefined;
+  modelSelection: string;
+  userContent: string;
+  assistantContent: string;
+  threadId: string;
+  ensureSession: (force?: boolean) => Promise<string | undefined>;
+  onSessionTitleChange: (threadId: string, title: string) => Promise<void>;
+}) {
+  const abortController = new AbortController();
+  const timeout = window.setTimeout(() => abortController.abort(), 15_000);
+
+  try {
+    const messages = threadTitlePromptMessages(
+      request.userContent,
+      request.assistantContent
+    );
+    let token = request.sessionToken ?? (await request.ensureSession());
+    let response = await postChat(
+      request.apiBaseUrl,
+      token,
+      request.modelSelection,
+      messages,
+      abortController.signal
+    );
+
+    if (response.status === 401) {
+      token = await request.ensureSession(true);
+      response = await postChat(
+        request.apiBaseUrl,
+        token,
+        request.modelSelection,
+        messages,
+        abortController.signal
+      );
+    }
+
+    if (!response.ok || !response.body) {
+      return;
+    }
+
+    const generatedTitle = normalizeGeneratedThreadTitle(
+      await readBoundedResponseText(response.body, 500)
+    );
+    if (!generatedTitle) {
+      return;
+    }
+
+    await request.onSessionTitleChange(request.threadId, generatedTitle);
+  } catch {
+    return;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function threadTitlePromptMessages(
+  userContent: string,
+  assistantContent: string
+): AgentChatMessage[] {
+  return [
+    {
+      role: "user",
+      content: [
+        "Write a concise title for this chat thread.",
+        "Use 3 to 6 words.",
+        "Return only the title. Do not wrap it in quotes.",
+        "",
+        `User: ${userContent.slice(0, 2_000)}`,
+        `Assistant: ${assistantContent.slice(0, 4_000)}`
+      ].join("\n")
+    }
+  ];
+}
+
+async function readBoundedResponseText(
+  body: ReadableStream<Uint8Array>,
+  maxCharacters: number
+) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let content = "";
+
+  while (content.length < maxCharacters) {
+    const result = await reader.read();
+    if (result.done) {
+      break;
+    }
+
+    content += decoder.decode(result.value, { stream: true });
+  }
+
+  if (content.length >= maxCharacters) {
+    await reader.cancel().catch(() => undefined);
+  }
+
+  return content.slice(0, maxCharacters);
+}
+
+function normalizeGeneratedThreadTitle(content: string) {
+  const firstLine =
+    content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? "";
+  const normalized = firstLine
+    .replace(/^[-*\d.)\s]+/, "")
+    .replace(/^title\s*:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .replace(/^[`"'\u201c\u201d\u2018\u2019]+/, "")
+    .replace(/[`"'\u201c\u201d\u2018\u2019.!?:;,-]+$/, "")
+    .trim();
+
+  return normalized.length > 80
+    ? `${normalized.slice(0, 77).trimEnd()}...`
+    : normalized;
 }
 
 function ModelPicker(props: {

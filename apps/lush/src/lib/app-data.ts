@@ -8,6 +8,12 @@ import type {
 export const defaultDisplayName = "First Last";
 export const defaultOrganizationName = "Example, Inc.";
 export const configuredApiBaseUrl = import.meta.env.VITE_LUSH_API_BASE_URL;
+export const builtInAgentIds = {
+  chat: "lush-chat",
+  code: "lush-code",
+  work: "lush-work",
+  agents: "lush-agents"
+} as const;
 
 export const workspaceModes: Array<{
   value: WorkspaceMode;
@@ -33,7 +39,7 @@ export const routes: Route[] = [
     eyebrow: "Workspace",
     title: "Chat",
     body: "Placeholder for conversations across models, agents, tools, and team contexts.",
-    sessionKind: "chat"
+    sessionAgentId: builtInAgentIds.chat
   },
   {
     href: "/code",
@@ -41,7 +47,7 @@ export const routes: Route[] = [
     eyebrow: "Workspace",
     title: "Code",
     body: "Placeholder for coding sessions, repository context, code review, and agent-assisted changes.",
-    sessionKind: "code"
+    sessionAgentId: builtInAgentIds.code
   },
   {
     href: "/work",
@@ -49,7 +55,7 @@ export const routes: Route[] = [
     eyebrow: "Workspace",
     title: "Work",
     body: "Placeholder for tasks, long-running work, documents, workflows, and scheduled follow-ups.",
-    sessionKind: "work"
+    sessionAgentId: builtInAgentIds.work
   },
   {
     href: "/agents",
@@ -57,16 +63,55 @@ export const routes: Route[] = [
     eyebrow: "Workspace",
     title: "Agents",
     body: "Placeholder for creating, managing, and monitoring agent runtimes and skills.",
-    sessionKind: "agent"
+    sessionAgentId: builtInAgentIds.agents
   }
 ];
 
-export const previousSessions: Record<string, string[]> = {
-  chat: ["Provider routing notes", "Team onboarding draft", "Model comparison"],
-  code: ["App shell scaffold", "Tauri close behavior", "Theme variables"],
-  work: ["Launch checklist", "Architecture review", "Self-hosting notes"],
-  agent: ["Research assistant", "Code reviewer", "Team chat responder"]
-};
+export type AppRouteInfo =
+  | { kind: "appBase" }
+  | { kind: "auth"; mode: "login" | "register" }
+  | { kind: "createOrganization" }
+  | { kind: "conceptsIndex" }
+  | { kind: "conceptDetail" }
+  | { kind: "settings"; href: string }
+  | { kind: "account"; href: string }
+  | { kind: "workspace"; href: string }
+  | { kind: "workspaceSession"; href: string };
+
+export function sessionRouteHref(route: Route, sessionId: string) {
+  return `${route.href}/sessions/${encodeURIComponent(sessionId)}`;
+}
+
+export function matchWorkspaceSessionPath(pathname: string) {
+  const currentPath = normalizedPath(pathname);
+
+  for (const route of routes) {
+    if (!route.sessionAgentId) {
+      continue;
+    }
+
+    const prefix = `${route.href}/sessions/`;
+    if (!currentPath.startsWith(prefix)) {
+      continue;
+    }
+
+    const encodedSessionId = currentPath.slice(prefix.length);
+    if (!encodedSessionId || encodedSessionId.includes("/")) {
+      return undefined;
+    }
+
+    try {
+      return {
+        route,
+        sessionId: decodeURIComponent(encodedSessionId)
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+}
 
 export const settingsRoutes: Route[] = [
   {
@@ -143,6 +188,12 @@ export const concepts: Concept[] = [
     title: "API",
     summary: "Single entry point for apps and integrations.",
     body: "The API keeps the product surface simple by authenticating requests, applying cross-cutting policy, and routing work to the right backend boundary."
+  },
+  {
+    slug: "auth",
+    title: "Authentication & Authorization",
+    summary: "Identity, sessions, organizations, roles, and access checks.",
+    body: "Authentication verifies users and issues sessions. Authorization evaluates what an authenticated principal can do in an organization before protected actions run."
   },
   {
     slug: "sessions",

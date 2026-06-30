@@ -1,4 +1,4 @@
 {
   "title": "Lush",
-  "pages": ["introduction", "setup", "api"]
+  "pages": ["introduction", "architecture", "setup", "services", "api"]
 }

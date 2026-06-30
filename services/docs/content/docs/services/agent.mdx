@@ -1,0 +1,39 @@
+---
+title: "Agent"
+description: "Agent harness and execution context service."
+---
+
+{/* Generated from services/agent/README.md. Edit the service README instead. */}
+
+Service for agent harnesses and execution contexts. The first harness is
+`lush`, a basic streaming chat agent with no tools.
+
+For now, the harness uses the inference service runtime directly. The API
+gateway remains the public entry point for first-party clients.
+
+## Development
+
+```sh
+bun run agent:dev
+```
+
+The service listens on `http://127.0.0.1:7331`.
+
+## Auth
+
+The standalone agent service verifies the same short-lived bearer access JWTs as
+the API gateway:
+
+- `GET /session` returns the active session profile.
+- `POST /agents/:agentSlug/chat` requires `Authorization: Bearer <token>`.
+
+Sign in and refresh through the API auth routes, then pass the returned
+`accessToken` to direct agent requests. Set `LUSH_AUTH_JWT_PUBLIC_KEY` so the
+agent can verify tokens.
+
+## Inference Configuration
+
+- `LUSH_APP_ORIGIN` - CORS origin for the app; defaults to `*`.
+
+Inference providers are organization-scoped database state managed through the
+API/UI.

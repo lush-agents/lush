@@ -1,23 +1,36 @@
 ---
 title: What is Lush
-description: The product and runtime model behind Lush.
+description: The open AI application layer.
 ---
 
-Lush is an open control plane for multi-model AI applications and agent
-runtimes. It gives teams one place to manage model providers, application
-sessions, agent workflows, tools, and organizational policy.
+<p>
+  <em>June 30, 2026</em>
+  <br />
+  <em>San Francisco, CA</em>
+</p>
 
-The project is split into client surfaces, service boundaries, and shared
-packages. The API gateway stays thin, authenticates requests, and routes work to
-service-owned runtimes.
+**Lush is the missing _open_ AI application layer, built to give individuals and organizations control over their inference and data.** Chat, code, workflow, background agents, skills, artifacts, and scoped memory on an fully owned control plane with a shared integration layer.
 
-## Core ideas
+Lush is built to be instantly familiar. Users of ChatGPT, Codex, Claude, and Gemini can start using it productively in minutes. You decide what inference providers and models are available within your organization (even OpenAI/Anthropic.) And this choice is simply a configuration change, not rip and replace of the entire application and integration stack. Organization memories are yours to audit, export, verify, and delete as you wish. You can self-host all of it, or consume a managed service. TL;DR: Lush has succeeded to the extent that nobody needs to sacrifice UX, features, or integration depth in order to achieve inference independence.
 
-- **Tenant-aware by default.** Users operate inside organizations and
-  memberships.
-- **Provider-neutral inference.** Model providers are configured as
-  organization-scoped state.
-- **Composable services.** Auth, inference, agents, sessions, memory, tools,
-  artifacts, and integrations are separate boundaries.
-- **Managed or self-hosted.** The repository produces the binaries and
-  containers needed for hosted deployments without forking the core code.
+This project started with two simple questions: 1) Why, in 2026, do we get our AI applications from an inference vendor? 2) Why are we single-sourcing our inference budget when the trend is model diversification and the frontier moves every six weeks?
+
+The application layer is where people meet AI. The chat window, the coding harness, the agents you tag into a team channel, the memory that builds up as your team works. It's also where the switching costs now live. Early on, the application layer was thin. Authenticated persistent chat on top of a model. That is no longer the shape of it. Now model choice is conflated with choosing a UI, a coding harness, a workflow automator, an integration control plane, a memory store, and a skill repository, all at once, from one vendor. The model is the smallest part of what you commit to. In a way, the vendor is purchasing your committed model spend! The cost is the discount on your commit.
+
+That deal is convenient on day one and very expensive to leave on day one hundred. Reasonable people understandably want the convenience without the lock-in. Choice of models. Consistent UX as those models change. Lower costs from real competition (intelligence per dollar) on the inference you actually need. Memory and integrations you own and can take with you. The ability to run the core yourself if you need to.
+
+Modern models are truly special. It takes carefully curated datasets, sheer compute, diligent MLOps, deep algorithmic expertise, thoughtful evaluation, post-training, safety validation, and a thousand other factors managed skillfully to make a state of the art model today. It takes a similar level of expertise and capital to serve inference at scale once the model is trained.
+
+The application layer above the model is **not special.** At least, not in the same way. It is software. It takes craft and attention and engineering discipline and effort, but it is exactly the kind of work that good models now make far cheaper to do well. And the form factors are no longer in question. People like chat. Engineers like a good CLI harness. Cowork and Codex for Work show the pull of last-mile work agents. Skills, memory, and a shared layer of integrations across the organization are good abstractions. People like to tag in agents where they already work, like in Slack.
+
+The usage data points the way. [OpenAI's recent study of Codex usage](https://arxiv.org/html/2606.26959v1) shows the most valuable behavior is delegation. People hand off whole tasks, and the tasks keep getting bigger. The share of users delegating work that would take an experienced human more than eight hours rose from 2.1% to 25.6% in six months. Skill use went from 5.4% to 26.6% of active users in three, and the fastest growth is in custom, organization-specific skills, the procedural context that only matters inside one company. In AI forward teams, work runs in parallel. Nearly 29% of OpenAI's own users ran five or more agents at the same time. Adoption is spreading beyond engineering and through every seniority level.
+
+Inside OpenAI, adoption friction is ~zero, so it is best understood as a glimpse where usage is quickly trending rather than where the average org is today. Regardless, the direction is clear. The application layer is where you delegate, systematize, and supervise work, and its most valuable parts are the org-specific integration layer, skill IP, and memories that accumulate through use. That is the layer you least want to rent.
+
+The open alternative today is to assemble individually-good-but-poorly-integrated parts. The cost of choice is UX, capability, and integration coverage, and you become the system integrator and accountable owner of a franken-stack. So the choice on offer is a closed bundle that hampers independence or an open kit of parts that takes your time. Lush is a bet on solving that trade-off.
+
+Trust in models and AI systems is earned through use and observation. We trust a system because we have watched it work for a few weeks. That doesn't depend on who trained a model or how it is licensed, and it is already happening in real time with open-weight models as the performance gap narrows. The conditions are in place! Capable models across the price-performance curve, proven form factors that can be adapted as open source components, and a visceral wave of demand for control by teams of all kinds, for a number of very good reasons.
+
+The consolidated AI application layer is the default. That won't change until we contributors and maintainers build an alternative that earns its place, on its own merits. There's a lot to do, but it's fun, rewarding work on something that should absolutely exist. Welcome!!!
+
+[Connor](https://github.com/ConnorDoyle)

@@ -39,9 +39,12 @@ test("protected api routes have matching authz actions", () => {
 test("role action bindings keep users read-only for organization and inference settings", () => {
   expect(roleActionBindings.user).toContain("listOrganizationMembers");
   expect(roleActionBindings.user).toContain("fetchInferenceConfig");
+  expect(roleActionBindings.user).toContain("listSessionThreads");
+  expect(roleActionBindings.user).toContain("appendSessionMessage");
   expect(roleActionBindings.user).not.toContain("updateCurrentOrganization");
   expect(roleActionBindings.user).not.toContain("createInferenceProvider");
   expect(roleActionBindings.user).not.toContain("updateInferenceModelDefault");
+  expect(roleActionBindings.user).not.toContain("updateSessionSettings");
 });
 
 test("authorizePrincipal allows user read actions and rejects management actions", () => {
@@ -51,12 +54,18 @@ test("authorizePrincipal allows user read actions and rejects management actions
   expect(authorizePrincipal(basePrincipal, "listOrganizationMembers").allowed).toBe(
     true
   );
+  expect(authorizePrincipal(basePrincipal, "listSessionThreads").allowed).toBe(
+    true
+  );
 
   expect(() =>
     authorizePrincipal(basePrincipal, "updateCurrentOrganization")
   ).toThrow(AuthError);
   expect(() =>
     authorizePrincipal(basePrincipal, "createInferenceProvider")
+  ).toThrow(AuthError);
+  expect(() =>
+    authorizePrincipal(basePrincipal, "updateSessionSettings")
   ).toThrow(AuthError);
 });
 
@@ -75,6 +84,9 @@ test("authorizePrincipal allows admin organization and inference management acti
   expect(
     authorizePrincipal(adminPrincipal, "updateInferenceModelDefault").allowed
   ).toBe(true);
+  expect(authorizePrincipal(adminPrincipal, "updateSessionSettings").allowed).toBe(
+    true
+  );
 });
 
 test("authorizePrincipal requires an active organization for role-bound actions", () => {

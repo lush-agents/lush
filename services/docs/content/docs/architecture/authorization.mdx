@@ -1,0 +1,44 @@
+---
+title: Authorization
+description: How Lush decides whether authenticated principals can perform actions.
+---
+
+Authorization is owned by the Authn/z service and enforced at protected API
+routes.
+
+## Principal
+
+Protected requests are authenticated with a bearer access JWT. The API validates
+the token, resolves the authenticated principal, and rejects requests without
+the required organization context for organization-scoped actions.
+
+The principal includes the current user, organization, membership, and role
+claims needed to answer authorization questions.
+
+## Actions
+
+Authorization is action-based. Protected API routes map to explicit action
+names, usually matching route operation IDs such as `listSessionThreads` or
+`updateCurrentOrganization`.
+
+The API checks that the authenticated principal has permission to perform the
+requested action before invoking service runtime code.
+
+## Roles
+
+The current role model has two organization roles:
+
+- `admin`: can manage organization settings, members, invites, inference
+  providers, model defaults, and other organization-owned configuration.
+- `user`: can read organization-scoped state needed to use the app and manage
+  their own owned sessions.
+
+Role-to-action bindings are explicit in the Authn/z service. Tests verify that
+protected API routes have matching authorization actions and that read-only
+roles cannot perform management actions.
+
+## Service Enforcement
+
+Authorization happens before service runtime logic runs. Domain services still
+enforce ownership and lifecycle rules for their own state, such as sessions
+only being visible to their owner and archived sessions rejecting writes.

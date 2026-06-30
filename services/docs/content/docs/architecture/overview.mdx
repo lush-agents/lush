@@ -1,0 +1,48 @@
+---
+title: Overview
+description: Service boundaries and separation of concerns in Lush.
+---
+
+Lush is organized around service-owned boundaries. The API service is the
+public entry point, while domain services own their state, contracts, and
+runtime behavior.
+
+## Boundary Model
+
+The API service authenticates requests, applies cross-cutting policy, and
+routes work to domain services. It aggregates service-owned route specs into
+the public `/v1beta` API and generates the shared TypeScript client and OpenAPI
+documents from that combined contract.
+
+Domain services keep ownership of their own runtime logic:
+
+- Authn/z owns identities, organizations, memberships, refresh sessions, access
+  tokens, and authorization checks.
+- Inference owns organization-scoped provider configuration, credential use,
+  model discovery, enabled models, and model defaults.
+- Sessions owns durable user-owned threads, messages, state snapshots,
+  retention settings, and archive/delete lifecycle.
+- Agent owns agent harness behavior and delegates model calls through the
+  inference boundary.
+- Docs owns the local and hosted documentation site.
+
+## State Ownership
+
+Services share the same local PostgreSQL database in development and in the
+initial managed deployment model. Tables are still service-owned: each service
+controls the schema and runtime access patterns for the state it owns.
+
+The shared database model keeps local development and managed deployment simple
+without coupling domain logic into one process. If a service needs independent
+scaling, it can be pointed at a separate database URL while preserving its
+service-owned table contract.
+
+## Client Contract
+
+First-party clients talk to the API gateway. The generated client package is
+derived from the service route specs, so app calls and docs stay aligned with
+the API surface.
+
+The app stores refresh tokens only in HttpOnly cookies and caches short-lived
+access JWTs in browser `sessionStorage`. Protected API calls send the access
+JWT as a bearer token.

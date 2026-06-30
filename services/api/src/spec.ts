@@ -1,6 +1,7 @@
 import { agentRoutes, agentTypes } from "@lush/agent/spec";
 import { authzRoutes, authzTypes } from "@lush/authz/spec";
 import { inferenceRoutes, inferenceTypes } from "@lush/inference/spec";
+import { sessionRoutes, sessionTypes } from "@lush/sessions/spec";
 
 export const apiGroup = "/v1beta";
 export const apiHealthPath = `${apiGroup}/health` as const;
@@ -8,6 +9,7 @@ export const apiHealthPath = `${apiGroup}/health` as const;
 type ServiceRoute =
   | (typeof authzRoutes)[number]
   | (typeof inferenceRoutes)[number]
+  | (typeof sessionRoutes)[number]
   | (typeof agentRoutes)[number];
 
 type ApiRouteWithGroup<Route extends ServiceRoute = ServiceRoute> =
@@ -20,6 +22,7 @@ type ApiRouteWithGroup<Route extends ServiceRoute = ServiceRoute> =
 const serviceRoutes: ServiceRoute[] = [
   ...authzRoutes,
   ...inferenceRoutes,
+  ...sessionRoutes,
   ...agentRoutes
 ] as ServiceRoute[];
 
@@ -32,6 +35,8 @@ export const apiSpec = {
 ${authzTypes}
 
 ${inferenceTypes}
+
+${sessionTypes}
 
 ${agentTypes}
 `,

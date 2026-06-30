@@ -16,6 +16,7 @@ import yaml from "highlight.js/lib/languages/yaml";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { marked, type Tokens } from "marked";
+import zig from "./zigHighlight";
 
 const allowedTags = new Set([
   "A",
@@ -171,6 +172,7 @@ function registerHighlightLanguages() {
   hljs.registerLanguage("xml", xml);
   hljs.registerLanguage("yaml", yaml);
   hljs.registerLanguage("yml", yaml);
+  hljs.registerLanguage("zig", zig);
 }
 
 function closeDanglingBlocks(source: string) {

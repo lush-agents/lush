@@ -1,6 +1,9 @@
 import { sql } from "kysely";
+import { createLogger } from "@lush/logging/logger";
 import { createDb } from "./client";
 import { migrations } from "./migrations";
+
+const logger = createLogger("@lush/db");
 
 export async function migrateToLatest(db = createDb()) {
   await sql`
@@ -25,7 +28,7 @@ export async function migrateToLatest(db = createDb()) {
       await migration.up(trx);
       await sql`insert into lush_migrations (id) values (${migration.id})`.execute(trx);
     });
-    console.log(`Applied migration ${migration.id}`);
+    logger.info({ migration: migration.id }, "applied migration");
   }
 }
 

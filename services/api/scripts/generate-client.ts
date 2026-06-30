@@ -20,8 +20,8 @@ function functionSource(route: (typeof routes)[number]) {
   const leadingPathArguments =
     pathArguments.length > 0 ? `${pathArguments.join(", ")},\n  ` : "";
   const authParameter = route.auth ? "sessionToken: string | undefined, " : "";
-  const authHeader = route.auth
-    ? "...authorizationHeaders(sessionToken),\n      "
+  const authHeaderLine = route.auth
+    ? "      ...authorizationHeaders(sessionToken),\n"
     : "";
   const pathExpression =
     params.length > 0
@@ -36,7 +36,7 @@ function functionSource(route: (typeof routes)[number]) {
   return fetch(apiUrl(apiBaseUrl, ${pathExpression}), {
     credentials: "include",
     headers: {
-      ${authHeader}accept: "text/event-stream"
+${authHeaderLine}      accept: "text/event-stream"
     },
     signal
   });
@@ -54,7 +54,7 @@ function functionSource(route: (typeof routes)[number]) {
     method: ${JSON.stringify(route.method)},
     credentials: "include",
     headers: {
-      ${authHeader}"content-type": "application/json"
+${authHeaderLine}      "content-type": "application/json"
     },
     body: JSON.stringify(body),
     signal
@@ -71,7 +71,7 @@ function functionSource(route: (typeof routes)[number]) {
   const response = await fetch(apiUrl(apiBaseUrl, ${pathExpression}), {
     credentials: "include",
     headers: {
-      ${authHeader}
+${authHeaderLine}
     }
   });
 
@@ -92,7 +92,7 @@ function functionSource(route: (typeof routes)[number]) {
     method: ${JSON.stringify(route.method)},
     credentials: "include",
     headers: {
-      ${authHeader}"content-type": "application/json"
+${authHeaderLine}      "content-type": "application/json"
     },
     body: JSON.stringify(body)
   });
