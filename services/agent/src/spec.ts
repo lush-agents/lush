@@ -6,6 +6,12 @@ export type AgentChatMessage = {
 
 export type AgentChatRequest = {
   modelSelection: string;
+  sessionId: string;
+  messages: AgentChatMessage[];
+};
+
+export type AgentPromptRequest = {
+  modelSelection: string;
   messages: AgentChatMessage[];
 };
 `;
@@ -16,6 +22,15 @@ export const agentRoutes = [
     method: "POST",
     path: "/agents/:agentSlug/chat",
     requestType: "AgentChatRequest",
+    responseType: "Response",
+    auth: true,
+    kind: "stream"
+  },
+  {
+    id: "streamAgentPrompt",
+    method: "POST",
+    path: "/agents/:agentSlug/prompt",
+    requestType: "AgentPromptRequest",
     responseType: "Response",
     auth: true,
     kind: "stream"

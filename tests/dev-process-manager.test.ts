@@ -28,6 +28,14 @@ test("dev config lists the expected local services", async () => {
   );
 });
 
+test("backend dev scripts restart on source edits", async () => {
+  const apiPackage = await Bun.file("services/api/package.json").json();
+  const agentPackage = await Bun.file("services/agent/package.json").json();
+
+  expect(apiPackage.scripts.dev).toContain("--watch");
+  expect(agentPackage.scripts.dev).toContain("--watch");
+});
+
 test("interpolateEnv resolves required values and defaults", () => {
   expect(
     interpolateEnv("http://${HOST}:${PORT:-7330}", {

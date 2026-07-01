@@ -215,7 +215,7 @@ export type UpdateInferenceModelDefaultRequest = {
 
 export type SessionMessageRole = "user" | "assistant" | "system" | "tool";
 
-export type SessionThreadSummary = {
+export type SessionSummary = {
   id: string;
   organizationId: string;
   ownerUserId: string;
@@ -230,7 +230,7 @@ export type SessionThreadSummary = {
 
 export type SessionMessage = {
   id: string;
-  threadId: string;
+  sessionId: string;
   role: SessionMessageRole;
   content: string;
   metadata: unknown;
@@ -241,28 +241,28 @@ export type SessionMessage = {
 
 export type SessionStateSnapshot = {
   id: string;
-  threadId: string;
+  sessionId: string;
   kind: string;
   state: unknown;
   byteSize: number;
   createdAt: string;
 };
 
-export type SessionThread = SessionThreadSummary & {
+export type Session = SessionSummary & {
   messages: SessionMessage[];
   stateSnapshots: SessionStateSnapshot[];
 };
 
-export type ListSessionThreadsResponse = {
-  sessions: SessionThreadSummary[];
+export type ListSessionsResponse = {
+  sessions: SessionSummary[];
 };
 
-export type CreateSessionThreadRequest = {
+export type CreateSessionRequest = {
   title?: string;
   agentId: string;
 };
 
-export type UpdateSessionThreadRequest = {
+export type UpdateSessionRequest = {
   title?: string;
 };
 
@@ -278,7 +278,7 @@ export type AppendSessionStateRequest = {
   state: unknown;
 };
 
-export type ArchiveSessionThreadRequest = Record<string, never>;
+export type ArchiveSessionRequest = Record<string, never>;
 
 export type SessionSettings = {
   organizationId: string;
@@ -299,6 +299,12 @@ export type AgentChatMessage = {
 };
 
 export type AgentChatRequest = {
+  modelSelection: string;
+  sessionId: string;
+  messages: AgentChatMessage[];
+};
+
+export type AgentPromptRequest = {
   modelSelection: string;
   messages: AgentChatMessage[];
 };
@@ -515,43 +521,43 @@ export const apiRoutes = [
     "kind": "json"
   },
   {
-    "id": "listSessionThreads",
+    "id": "listSessions",
     "method": "GET",
     "path": "/v1beta/sessions",
-    "responseType": "ListSessionThreadsResponse",
+    "responseType": "ListSessionsResponse",
     "auth": true,
     "kind": "json"
   },
   {
-    "id": "createSessionThread",
+    "id": "createSession",
     "method": "POST",
     "path": "/v1beta/sessions",
-    "requestType": "CreateSessionThreadRequest",
-    "responseType": "SessionThreadSummary",
+    "requestType": "CreateSessionRequest",
+    "responseType": "SessionSummary",
     "auth": true,
     "kind": "json"
   },
   {
-    "id": "fetchSessionThread",
+    "id": "fetchSessionById",
     "method": "GET",
-    "path": "/v1beta/sessions/:threadId",
-    "responseType": "SessionThread",
+    "path": "/v1beta/sessions/:sessionId",
+    "responseType": "Session",
     "auth": true,
     "kind": "json"
   },
   {
-    "id": "updateSessionThread",
+    "id": "updateSession",
     "method": "PATCH",
-    "path": "/v1beta/sessions/:threadId",
-    "requestType": "UpdateSessionThreadRequest",
-    "responseType": "SessionThreadSummary",
+    "path": "/v1beta/sessions/:sessionId",
+    "requestType": "UpdateSessionRequest",
+    "responseType": "SessionSummary",
     "auth": true,
     "kind": "json"
   },
   {
     "id": "appendSessionMessage",
     "method": "POST",
-    "path": "/v1beta/sessions/:threadId/messages",
+    "path": "/v1beta/sessions/:sessionId/messages",
     "requestType": "AppendSessionMessageRequest",
     "responseType": "SessionMessage",
     "auth": true,
@@ -560,18 +566,18 @@ export const apiRoutes = [
   {
     "id": "appendSessionState",
     "method": "POST",
-    "path": "/v1beta/sessions/:threadId/state",
+    "path": "/v1beta/sessions/:sessionId/state",
     "requestType": "AppendSessionStateRequest",
     "responseType": "SessionStateSnapshot",
     "auth": true,
     "kind": "json"
   },
   {
-    "id": "archiveSessionThread",
+    "id": "archiveSession",
     "method": "POST",
-    "path": "/v1beta/sessions/:threadId/archive",
-    "requestType": "ArchiveSessionThreadRequest",
-    "responseType": "SessionThreadSummary",
+    "path": "/v1beta/sessions/:sessionId/archive",
+    "requestType": "ArchiveSessionRequest",
+    "responseType": "SessionSummary",
     "auth": true,
     "kind": "json"
   },
@@ -597,6 +603,15 @@ export const apiRoutes = [
     "method": "POST",
     "path": "/v1beta/agents/:agentSlug/chat",
     "requestType": "AgentChatRequest",
+    "responseType": "Response",
+    "auth": true,
+    "kind": "stream"
+  },
+  {
+    "id": "streamAgentPrompt",
+    "method": "POST",
+    "path": "/v1beta/agents/:agentSlug/prompt",
+    "requestType": "AgentPromptRequest",
     "responseType": "Response",
     "auth": true,
     "kind": "stream"
@@ -627,16 +642,17 @@ const UPDATE_INFERENCE_PROVIDER_ROUTE = apiRoutes.find((route) => route.id === "
 const UPDATE_INFERENCE_MODEL_ROUTE = apiRoutes.find((route) => route.id === "updateInferenceModel")!;
 const DELETE_INFERENCE_PROVIDER_ROUTE = apiRoutes.find((route) => route.id === "deleteInferenceProvider")!;
 const UPDATE_INFERENCE_MODEL_DEFAULT_ROUTE = apiRoutes.find((route) => route.id === "updateInferenceModelDefault")!;
-const LIST_SESSION_THREADS_ROUTE = apiRoutes.find((route) => route.id === "listSessionThreads")!;
-const CREATE_SESSION_THREAD_ROUTE = apiRoutes.find((route) => route.id === "createSessionThread")!;
-const FETCH_SESSION_THREAD_ROUTE = apiRoutes.find((route) => route.id === "fetchSessionThread")!;
-const UPDATE_SESSION_THREAD_ROUTE = apiRoutes.find((route) => route.id === "updateSessionThread")!;
+const LIST_SESSIONS_ROUTE = apiRoutes.find((route) => route.id === "listSessions")!;
+const CREATE_SESSION_ROUTE = apiRoutes.find((route) => route.id === "createSession")!;
+const FETCH_SESSION_BY_ID_ROUTE = apiRoutes.find((route) => route.id === "fetchSessionById")!;
+const UPDATE_SESSION_ROUTE = apiRoutes.find((route) => route.id === "updateSession")!;
 const APPEND_SESSION_MESSAGE_ROUTE = apiRoutes.find((route) => route.id === "appendSessionMessage")!;
 const APPEND_SESSION_STATE_ROUTE = apiRoutes.find((route) => route.id === "appendSessionState")!;
-const ARCHIVE_SESSION_THREAD_ROUTE = apiRoutes.find((route) => route.id === "archiveSessionThread")!;
+const ARCHIVE_SESSION_ROUTE = apiRoutes.find((route) => route.id === "archiveSession")!;
 const FETCH_SESSION_SETTINGS_ROUTE = apiRoutes.find((route) => route.id === "fetchSessionSettings")!;
 const UPDATE_SESSION_SETTINGS_ROUTE = apiRoutes.find((route) => route.id === "updateSessionSettings")!;
 const STREAM_AGENT_CHAT_ROUTE = apiRoutes.find((route) => route.id === "streamAgentChat")!;
+const STREAM_AGENT_PROMPT_ROUTE = apiRoutes.find((route) => route.id === "streamAgentPrompt")!;
 
 export function resolveApiBaseUrl(apiBaseUrl: string) {
   return apiBaseUrl.trim().replace(/\/+$/, "");
@@ -1188,11 +1204,11 @@ export async function updateInferenceModelDefault(
   return response.json() as Promise<InferenceConfig>;
 }
 
-export async function listSessionThreads(
+export async function listSessions(
   apiBaseUrl: string,
   sessionToken: string | undefined,
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, LIST_SESSION_THREADS_ROUTE.path), {
+  const response = await fetch(apiUrl(apiBaseUrl, LIST_SESSIONS_ROUTE.path), {
     credentials: "include",
     headers: {
       ...authorizationHeaders(sessionToken),
@@ -1201,17 +1217,17 @@ export async function listSessionThreads(
   });
 
   if (!response.ok) {
-    throw await apiError("listSessionThreads", response);
+    throw await apiError("listSessions", response);
   }
 
-  return response.json() as Promise<ListSessionThreadsResponse>;
+  return response.json() as Promise<ListSessionsResponse>;
 }
 
-export async function createSessionThread(
+export async function createSession(
   apiBaseUrl: string,
-  sessionToken: string | undefined, body: CreateSessionThreadRequest
+  sessionToken: string | undefined, body: CreateSessionRequest
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, CREATE_SESSION_THREAD_ROUTE.path), {
+  const response = await fetch(apiUrl(apiBaseUrl, CREATE_SESSION_ROUTE.path), {
     method: "POST",
     credentials: "include",
     headers: {
@@ -1222,18 +1238,18 @@ export async function createSessionThread(
   });
 
   if (!response.ok) {
-    throw await apiError("createSessionThread", response);
+    throw await apiError("createSession", response);
   }
 
-  return response.json() as Promise<SessionThreadSummary>;
+  return response.json() as Promise<SessionSummary>;
 }
 
-export async function fetchSessionThread(
+export async function fetchSessionById(
   apiBaseUrl: string,
-  threadId: string,
+  sessionId: string,
   sessionToken: string | undefined,
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, routePath(FETCH_SESSION_THREAD_ROUTE.path, { threadId })), {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(FETCH_SESSION_BY_ID_ROUTE.path, { sessionId })), {
     credentials: "include",
     headers: {
       ...authorizationHeaders(sessionToken),
@@ -1242,18 +1258,18 @@ export async function fetchSessionThread(
   });
 
   if (!response.ok) {
-    throw await apiError("fetchSessionThread", response);
+    throw await apiError("fetchSessionById", response);
   }
 
-  return response.json() as Promise<SessionThread>;
+  return response.json() as Promise<Session>;
 }
 
-export async function updateSessionThread(
+export async function updateSession(
   apiBaseUrl: string,
-  threadId: string,
-  sessionToken: string | undefined, body: UpdateSessionThreadRequest
+  sessionId: string,
+  sessionToken: string | undefined, body: UpdateSessionRequest
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, routePath(UPDATE_SESSION_THREAD_ROUTE.path, { threadId })), {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(UPDATE_SESSION_ROUTE.path, { sessionId })), {
     method: "PATCH",
     credentials: "include",
     headers: {
@@ -1264,18 +1280,18 @@ export async function updateSessionThread(
   });
 
   if (!response.ok) {
-    throw await apiError("updateSessionThread", response);
+    throw await apiError("updateSession", response);
   }
 
-  return response.json() as Promise<SessionThreadSummary>;
+  return response.json() as Promise<SessionSummary>;
 }
 
 export async function appendSessionMessage(
   apiBaseUrl: string,
-  threadId: string,
+  sessionId: string,
   sessionToken: string | undefined, body: AppendSessionMessageRequest
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, routePath(APPEND_SESSION_MESSAGE_ROUTE.path, { threadId })), {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(APPEND_SESSION_MESSAGE_ROUTE.path, { sessionId })), {
     method: "POST",
     credentials: "include",
     headers: {
@@ -1294,10 +1310,10 @@ export async function appendSessionMessage(
 
 export async function appendSessionState(
   apiBaseUrl: string,
-  threadId: string,
+  sessionId: string,
   sessionToken: string | undefined, body: AppendSessionStateRequest
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, routePath(APPEND_SESSION_STATE_ROUTE.path, { threadId })), {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(APPEND_SESSION_STATE_ROUTE.path, { sessionId })), {
     method: "POST",
     credentials: "include",
     headers: {
@@ -1314,12 +1330,12 @@ export async function appendSessionState(
   return response.json() as Promise<SessionStateSnapshot>;
 }
 
-export async function archiveSessionThread(
+export async function archiveSession(
   apiBaseUrl: string,
-  threadId: string,
-  sessionToken: string | undefined, body: ArchiveSessionThreadRequest
+  sessionId: string,
+  sessionToken: string | undefined, body: ArchiveSessionRequest
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, routePath(ARCHIVE_SESSION_THREAD_ROUTE.path, { threadId })), {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(ARCHIVE_SESSION_ROUTE.path, { sessionId })), {
     method: "POST",
     credentials: "include",
     headers: {
@@ -1330,10 +1346,10 @@ export async function archiveSessionThread(
   });
 
   if (!response.ok) {
-    throw await apiError("archiveSessionThread", response);
+    throw await apiError("archiveSession", response);
   }
 
-  return response.json() as Promise<SessionThreadSummary>;
+  return response.json() as Promise<SessionSummary>;
 }
 
 export async function fetchSessionSettings(
@@ -1383,6 +1399,24 @@ export function streamAgentChat(
   signal?: AbortSignal
 ) {
   return fetch(apiUrl(apiBaseUrl, routePath(STREAM_AGENT_CHAT_ROUTE.path, { agentSlug })), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body),
+    signal
+  });
+}
+
+export function streamAgentPrompt(
+  apiBaseUrl: string,
+  agentSlug: string,
+  sessionToken: string | undefined, body: AgentPromptRequest,
+  signal?: AbortSignal
+) {
+  return fetch(apiUrl(apiBaseUrl, routePath(STREAM_AGENT_PROMPT_ROUTE.path, { agentSlug })), {
     method: "POST",
     credentials: "include",
     headers: {

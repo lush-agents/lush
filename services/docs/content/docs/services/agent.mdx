@@ -26,10 +26,28 @@ the API gateway:
 
 - `GET /session` returns the active session profile.
 - `POST /agents/:agentSlug/chat` requires `Authorization: Bearer <token>`.
+- `POST /agents/:agentSlug/prompt` requires `Authorization: Bearer <token>`.
 
 Sign in and refresh through the API auth routes, then pass the returned
 `accessToken` to direct agent requests. Set `LUSH_AUTH_JWT_PUBLIC_KEY` so the
 agent can verify tokens.
+
+## Chat Context
+
+`POST /agents/:agentSlug/chat` is session-backed. First-party clients send the
+target `sessionId` plus `messages[]` containing only the newest client-side
+message delta when possible. The agent service loads persisted session history
+from `services/sessions`, verifies that the session belongs to the `lush` agent,
+and appends only the non-overlapping client suffix before invoking inference.
+
+The merge checks for a persisted-session suffix matching the client-message
+prefix using per-message MD5 hashes over role and content, then confirms exact
+role/content equality before deduplicating. The hash is only a cheap prefilter;
+authorization and session ownership come from the sessions service and access
+JWT.
+
+`POST /agents/:agentSlug/prompt` is for explicit one-off prompt calls, such as
+chat title generation. It does not load session history.
 
 ## Inference Configuration
 

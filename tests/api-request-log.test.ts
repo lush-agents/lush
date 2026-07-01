@@ -8,12 +8,12 @@ import {
 
 const routeDefinitions: RequestLogRoute[] = [
   { id: "health", method: "GET", path: "/health" },
-  { id: "listSessionThreads", method: "GET", path: "/v1beta/sessions" },
-  { id: "createSessionThread", method: "POST", path: "/v1beta/sessions" },
+  { id: "listSessions", method: "GET", path: "/v1beta/sessions" },
+  { id: "createSession", method: "POST", path: "/v1beta/sessions" },
   {
-    id: "fetchSessionThread",
+    id: "fetchSessionById",
     method: "GET",
-    path: "/v1beta/sessions/:threadId"
+    path: "/v1beta/sessions/:sessionId"
   }
 ];
 const routes = compileRequestLogRoutes(routeDefinitions);
@@ -21,22 +21,22 @@ const routes = compileRequestLogRoutes(routeDefinitions);
 describe("api request logging", () => {
   test("matches exact routes by method and path", () => {
     expect(matchRequestRoute("GET", "/v1beta/sessions", routes)?.id)
-      .toBe("listSessionThreads");
+      .toBe("listSessions");
     expect(matchRequestRoute("POST", "/v1beta/sessions", routes)?.id)
-      .toBe("createSessionThread");
+      .toBe("createSession");
   });
 
   test("matches parameterized routes", () => {
     expect(matchRequestRoute("GET", "/v1beta/sessions/thread-1", routes))
       .toMatchObject({
-        id: "fetchSessionThread",
-        path: "/v1beta/sessions/:threadId"
+        id: "fetchSessionById",
+        path: "/v1beta/sessions/:sessionId"
       });
   });
 
   test("matches trailing slash variants", () => {
     expect(matchRequestRoute("GET", "/v1beta/sessions/", routes)?.id)
-      .toBe("listSessionThreads");
+      .toBe("listSessions");
   });
 
   test("builds basic request metadata without query strings", () => {
@@ -66,8 +66,8 @@ describe("api request logging", () => {
     ).toEqual({
       method: "GET",
       path: "/v1beta/sessions/thread-1",
-      route: "/v1beta/sessions/:threadId",
-      routeId: "fetchSessionThread",
+      route: "/v1beta/sessions/:sessionId",
+      routeId: "fetchSessionById",
       statusCode: 200,
       durationMs: 12.34,
       requestId: "req-1",

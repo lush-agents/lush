@@ -329,67 +329,67 @@ const schemas: Record<string, JsonSchema> = {
       "Model selection in provider/model form as returned by inference configuration."
     )
   }, ["mode", "modelSelection"], "Updates the default model selection for a workspace mode."),
-  SessionThreadSummary: objectSchema({
-    id: describeSchema(stringSchema("uuid"), "Session thread identifier."),
+  SessionSummary: objectSchema({
+    id: describeSchema(stringSchema("uuid"), "Session identifier."),
     organizationId: describeSchema(stringSchema("uuid"), "Organization that owns the session."),
     ownerUserId: describeSchema(stringSchema("uuid"), "User that owns the session."),
     title: describeSchema(stringSchema(), "Display title for the session."),
     agentId: describeSchema(stringSchema(), "Agent identifier that owns or interprets this session."),
-    stateBytes: describeSchema({ type: "integer", minimum: 0 }, "Stored session bytes counted against the thread limit."),
+    stateBytes: describeSchema({ type: "integer", minimum: 0 }, "Stored session bytes counted against the session limit."),
     version: describeSchema({ type: "integer", minimum: 1 }, "Monotonic version incremented by writes."),
     createdAt: describeSchema(stringSchema("date-time"), "Session creation timestamp."),
     updatedAt: describeSchema(stringSchema("date-time"), "Last session update timestamp."),
     archivedAt: describeSchema(nullableSchema(stringSchema("date-time")), "Archive timestamp, or null when active.")
-  }, ["id", "organizationId", "ownerUserId", "title", "agentId", "stateBytes", "version", "createdAt", "updatedAt", "archivedAt"], "Owned session thread summary."),
+  }, ["id", "organizationId", "ownerUserId", "title", "agentId", "stateBytes", "version", "createdAt", "updatedAt", "archivedAt"], "Owned session summary."),
   SessionMessage: objectSchema({
     id: describeSchema(stringSchema("uuid"), "Message identifier."),
-    threadId: describeSchema(stringSchema("uuid"), "Session thread identifier."),
+    sessionId: describeSchema(stringSchema("uuid"), "Session identifier."),
     role: describeSchema(ref("SessionMessageRole"), "Message role."),
     content: describeSchema(stringSchema(), "Message content."),
     metadata: describeSchema({}, "Small JSON metadata associated with the message."),
     tokenCount: describeSchema(nullableSchema({ type: "integer", minimum: 0 }), "Optional token count."),
-    byteSize: describeSchema({ type: "integer", minimum: 0 }, "Bytes counted against the thread limit."),
+    byteSize: describeSchema({ type: "integer", minimum: 0 }, "Bytes counted against the session limit."),
     createdAt: describeSchema(stringSchema("date-time"), "Message creation timestamp.")
-  }, ["id", "threadId", "role", "content", "metadata", "tokenCount", "byteSize", "createdAt"], "Persisted session message."),
+  }, ["id", "sessionId", "role", "content", "metadata", "tokenCount", "byteSize", "createdAt"], "Persisted session message."),
   SessionStateSnapshot: objectSchema({
     id: describeSchema(stringSchema("uuid"), "Snapshot identifier."),
-    threadId: describeSchema(stringSchema("uuid"), "Session thread identifier."),
+    sessionId: describeSchema(stringSchema("uuid"), "Session identifier."),
     kind: describeSchema(stringSchema(), "Application-defined snapshot kind."),
     state: describeSchema({}, "JSON state snapshot."),
-    byteSize: describeSchema({ type: "integer", minimum: 0 }, "Bytes counted against the thread limit."),
+    byteSize: describeSchema({ type: "integer", minimum: 0 }, "Bytes counted against the session limit."),
     createdAt: describeSchema(stringSchema("date-time"), "Snapshot creation timestamp.")
-  }, ["id", "threadId", "kind", "state", "byteSize", "createdAt"], "Append-only session state snapshot."),
-  SessionThread: {
+  }, ["id", "sessionId", "kind", "state", "byteSize", "createdAt"], "Append-only session state snapshot."),
+  Session: {
     allOf: [
-      ref("SessionThreadSummary"),
+      ref("SessionSummary"),
       objectSchema({
         messages: describeSchema(arraySchema(ref("SessionMessage")), "Messages in chronological order."),
         stateSnapshots: describeSchema(arraySchema(ref("SessionStateSnapshot")), "State snapshots in chronological order.")
       }, ["messages", "stateSnapshots"])
     ],
-    description: "Owned session thread with messages and state snapshots."
+    description: "Owned session with messages and state snapshots."
   },
-  ListSessionThreadsResponse: objectSchema({
-    sessions: describeSchema(arraySchema(ref("SessionThreadSummary")), "Active, unarchived sessions owned by the current user.")
-  }, ["sessions"], "Owned session thread list."),
-  CreateSessionThreadRequest: objectSchema({
+  ListSessionsResponse: objectSchema({
+    sessions: describeSchema(arraySchema(ref("SessionSummary")), "Active, unarchived sessions owned by the current user.")
+  }, ["sessions"], "Owned session list."),
+  CreateSessionRequest: objectSchema({
     title: describeSchema(stringSchema(), "Optional title. Defaults to an untitled session."),
     agentId: describeSchema(stringSchema(), "Agent identifier that owns or interprets this session.")
-  }, ["agentId"], "Creates a session thread."),
-  UpdateSessionThreadRequest: objectSchema({
+  }, ["agentId"], "Creates a session."),
+  UpdateSessionRequest: objectSchema({
     title: describeSchema(stringSchema(), "New session title.")
-  }, [], "Updates session thread metadata."),
+  }, [], "Updates session metadata."),
   AppendSessionMessageRequest: objectSchema({
     role: describeSchema(ref("SessionMessageRole"), "Message role."),
     content: describeSchema(stringSchema(), "Message content."),
     metadata: describeSchema({}, "Optional small JSON metadata."),
     tokenCount: describeSchema(nullableSchema({ type: "integer", minimum: 0 }), "Optional token count.")
-  }, ["role", "content"], "Appends a message to a session thread."),
+  }, ["role", "content"], "Appends a message to a session."),
   AppendSessionStateRequest: objectSchema({
     kind: describeSchema(stringSchema(), "Application-defined state kind."),
     state: describeSchema({}, "JSON state payload.")
-  }, ["kind", "state"], "Appends a state snapshot to a session thread."),
-  ArchiveSessionThreadRequest: emptyObjectSchema("Archive-session request body. Send an empty JSON object."),
+  }, ["kind", "state"], "Appends a state snapshot to a session."),
+  ArchiveSessionRequest: emptyObjectSchema("Archive-session request body. Send an empty JSON object."),
   SessionSettings: objectSchema({
     organizationId: describeSchema(stringSchema("uuid"), "Organization that owns the settings."),
     retentionSeconds: describeSchema({ type: "integer", minimum: 0 }, "Retention window for physically purging soft-deleted sessions."),
@@ -408,11 +408,25 @@ const schemas: Record<string, JsonSchema> = {
       stringSchema(),
       "Model selection in provider/model form."
     ),
+    sessionId: describeSchema(
+      stringSchema("uuid"),
+      "Session identifier whose persisted messages are used as agent context."
+    ),
+    messages: describeSchema(
+      arraySchema(ref("AgentChatMessage")),
+      "Client-side conversation snapshot or delta. The API reconciles this with persisted session messages before invoking the agent."
+    )
+  }, ["modelSelection", "sessionId", "messages"], "Streaming chat request for a session-backed chat."),
+  AgentPromptRequest: objectSchema({
+    modelSelection: describeSchema(
+      stringSchema(),
+      "Model selection in provider/model form."
+    ),
     messages: describeSchema(
       arraySchema(ref("AgentChatMessage")),
       "Conversation messages to send to the agent."
     )
-  }, ["modelSelection", "messages"], "Streaming chat request for an agent.")
+  }, ["modelSelection", "messages"], "Streaming prompt request for one-off agent operations.")
 };
 
 const operationDocs: Record<
@@ -586,52 +600,52 @@ const operationDocs: Record<
     requestDescription: "Workspace mode and model selection.",
     successDescription: "Updated inference configuration."
   },
-  listSessionThreads: {
+  listSessions: {
     summary: "List sessions",
     description:
-      "Lists active, unarchived session threads owned by the current user in the active organization.",
-    successDescription: "Owned session thread summaries."
+      "Lists active, unarchived sessions owned by the current user in the active organization.",
+    successDescription: "Owned session summaries."
   },
-  createSessionThread: {
+  createSession: {
     summary: "Create session",
     description:
-      "Creates an organization-scoped session thread owned by the current user.",
+      "Creates an organization-scoped session owned by the current user.",
     requestDescription: "Agent identifier and optional title.",
-    successDescription: "Created session thread summary."
+    successDescription: "Created session summary."
   },
-  fetchSessionThread: {
+  fetchSessionById: {
     summary: "Get session",
     description:
-      "Returns an owned session thread with messages and append-only state snapshots.",
-    successDescription: "Session thread details."
+      "Returns an owned session with messages and append-only state snapshots.",
+    successDescription: "Session details."
   },
-  updateSessionThread: {
+  updateSession: {
     summary: "Update session",
     description:
-      "Updates owned session thread metadata such as title or model selection.",
+      "Updates owned session metadata such as title or model selection.",
     requestDescription: "Session metadata fields to update.",
-    successDescription: "Updated session thread summary."
+    successDescription: "Updated session summary."
   },
   appendSessionMessage: {
     summary: "Append message",
     description:
-      "Appends a message to an owned session thread and enforces server-side byte limits.",
+      "Appends a message to an owned session and enforces server-side byte limits.",
     requestDescription: "Message role, content, and optional metadata.",
     successDescription: "Created session message."
   },
   appendSessionState: {
     summary: "Append state",
     description:
-      "Appends a JSON state snapshot to an owned session thread and enforces server-side byte limits.",
+      "Appends a JSON state snapshot to an owned session and enforces server-side byte limits.",
     requestDescription: "Snapshot kind and JSON state payload.",
     successDescription: "Created state snapshot."
   },
-  archiveSessionThread: {
+  archiveSession: {
     summary: "Archive session",
     description:
-      "Archives an owned session thread so it no longer appears in the active session list and becomes eligible for physical purge according to organization retention settings.",
+      "Archives an owned session so it no longer appears in the active session list and becomes eligible for physical purge according to organization retention settings.",
     requestDescription: "Empty JSON body.",
-    successDescription: "Archived session thread summary."
+    successDescription: "Archived session summary."
   },
   fetchSessionSettings: {
     summary: "Get session settings",
@@ -649,15 +663,22 @@ const operationDocs: Record<
   streamAgentChat: {
     summary: "Stream agent chat",
     description:
-      "Streams a text response from the agent identified by `agentSlug`.",
-    requestDescription: "Model selection and conversation messages.",
+      "Streams a text response from the agent identified by `agentSlug`, using persisted session messages plus a deduplicated client message snapshot as context.",
+    requestDescription: "Model selection, session id, and client message snapshot.",
+    successDescription: "Plain-text streaming response."
+  },
+  streamAgentPrompt: {
+    summary: "Stream agent prompt",
+    description:
+      "Streams a text response from the agent identified by `agentSlug` for an explicit prompt.",
+    requestDescription: "Model selection and prompt messages.",
     successDescription: "Plain-text streaming response."
   }
 };
 
 const pathParameterDescriptions: Record<string, string> = {
   agentSlug: "Unique agent slug, such as `lush` for the built-in agent.",
-  threadId: "Session thread identifier."
+  sessionId: "Session identifier."
 };
 
 const fullDocument = createOpenApiDocument("Lush API", apiSpec.routes);
@@ -984,7 +1005,7 @@ function tagDescription(tag: string) {
     auth: "Account registration, login, refresh, session inspection, and logout routes.",
     session: "Current-session inspection routes.",
     settings: "Organization-level settings routes.",
-    sessions: "Session threads, messages, state snapshots, and session-state settings routes.",
+    sessions: "Sessions, messages, state snapshots, and session-state settings routes.",
     inference: "Organization-scoped inference provider and model-default configuration routes.",
     agents: "Agent runtime invocation routes.",
     health: "Service health and route discovery routes."

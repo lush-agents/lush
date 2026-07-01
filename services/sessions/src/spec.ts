@@ -1,7 +1,7 @@
 export const sessionTypes = `
 export type SessionMessageRole = "user" | "assistant" | "system" | "tool";
 
-export type SessionThreadSummary = {
+export type SessionSummary = {
   id: string;
   organizationId: string;
   ownerUserId: string;
@@ -16,7 +16,7 @@ export type SessionThreadSummary = {
 
 export type SessionMessage = {
   id: string;
-  threadId: string;
+  sessionId: string;
   role: SessionMessageRole;
   content: string;
   metadata: unknown;
@@ -27,28 +27,28 @@ export type SessionMessage = {
 
 export type SessionStateSnapshot = {
   id: string;
-  threadId: string;
+  sessionId: string;
   kind: string;
   state: unknown;
   byteSize: number;
   createdAt: string;
 };
 
-export type SessionThread = SessionThreadSummary & {
+export type Session = SessionSummary & {
   messages: SessionMessage[];
   stateSnapshots: SessionStateSnapshot[];
 };
 
-export type ListSessionThreadsResponse = {
-  sessions: SessionThreadSummary[];
+export type ListSessionsResponse = {
+  sessions: SessionSummary[];
 };
 
-export type CreateSessionThreadRequest = {
+export type CreateSessionRequest = {
   title?: string;
   agentId: string;
 };
 
-export type UpdateSessionThreadRequest = {
+export type UpdateSessionRequest = {
   title?: string;
 };
 
@@ -64,7 +64,7 @@ export type AppendSessionStateRequest = {
   state: unknown;
 };
 
-export type ArchiveSessionThreadRequest = Record<string, never>;
+export type ArchiveSessionRequest = Record<string, never>;
 
 export type SessionSettings = {
   organizationId: string;
@@ -80,43 +80,43 @@ export type UpdateSessionSettingsRequest = {
 
 export const sessionRoutes = [
   {
-    id: "listSessionThreads",
+    id: "listSessions",
     method: "GET",
     path: "/sessions",
-    responseType: "ListSessionThreadsResponse",
+    responseType: "ListSessionsResponse",
     auth: true,
     kind: "json"
   },
   {
-    id: "createSessionThread",
+    id: "createSession",
     method: "POST",
     path: "/sessions",
-    requestType: "CreateSessionThreadRequest",
-    responseType: "SessionThreadSummary",
+    requestType: "CreateSessionRequest",
+    responseType: "SessionSummary",
     auth: true,
     kind: "json"
   },
   {
-    id: "fetchSessionThread",
+    id: "fetchSessionById",
     method: "GET",
-    path: "/sessions/:threadId",
-    responseType: "SessionThread",
+    path: "/sessions/:sessionId",
+    responseType: "Session",
     auth: true,
     kind: "json"
   },
   {
-    id: "updateSessionThread",
+    id: "updateSession",
     method: "PATCH",
-    path: "/sessions/:threadId",
-    requestType: "UpdateSessionThreadRequest",
-    responseType: "SessionThreadSummary",
+    path: "/sessions/:sessionId",
+    requestType: "UpdateSessionRequest",
+    responseType: "SessionSummary",
     auth: true,
     kind: "json"
   },
   {
     id: "appendSessionMessage",
     method: "POST",
-    path: "/sessions/:threadId/messages",
+    path: "/sessions/:sessionId/messages",
     requestType: "AppendSessionMessageRequest",
     responseType: "SessionMessage",
     auth: true,
@@ -125,18 +125,18 @@ export const sessionRoutes = [
   {
     id: "appendSessionState",
     method: "POST",
-    path: "/sessions/:threadId/state",
+    path: "/sessions/:sessionId/state",
     requestType: "AppendSessionStateRequest",
     responseType: "SessionStateSnapshot",
     auth: true,
     kind: "json"
   },
   {
-    id: "archiveSessionThread",
+    id: "archiveSession",
     method: "POST",
-    path: "/sessions/:threadId/archive",
-    requestType: "ArchiveSessionThreadRequest",
-    responseType: "SessionThreadSummary",
+    path: "/sessions/:sessionId/archive",
+    requestType: "ArchiveSessionRequest",
+    responseType: "SessionSummary",
     auth: true,
     kind: "json"
   },

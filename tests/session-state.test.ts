@@ -38,14 +38,14 @@ test("session routes use sessions resources and settings namespace", () => {
   const routes = new Set(apiSpec.routes.map((route) => route.path));
 
   expect(routes.has("/v1beta/sessions")).toBe(true);
-  expect(routes.has("/v1beta/sessions/:threadId/messages")).toBe(true);
-  expect(routes.has("/v1beta/sessions/:threadId/archive")).toBe(true);
-  expect(routes.has("/v1beta/sessions/:threadId/delete")).toBe(false);
+  expect(routes.has("/v1beta/sessions/:sessionId/messages")).toBe(true);
+  expect(routes.has("/v1beta/sessions/:sessionId/archive")).toBe(true);
+  expect(routes.has("/v1beta/sessions/:sessionId/delete")).toBe(false);
   expect(routes.has("/v1beta/settings/sessions")).toBe(true);
   expect(routes.has("/v1beta/sessions/settings")).toBe(false);
 });
 
-test("session thread migration indexes agent and session id lookup", async () => {
+test("session migration indexes agent and session id lookup", async () => {
   const migration = await Bun.file(
     "packages/db/src/migrations/003_session_agent_id.ts"
   ).text();

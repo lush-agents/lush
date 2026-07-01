@@ -13,7 +13,7 @@ export type SessionPrincipal = {
   organizationId: string;
 };
 
-export type SessionThreadSummary = {
+export type SessionSummary = {
   id: string;
   organizationId: string;
   ownerUserId: string;
@@ -28,7 +28,7 @@ export type SessionThreadSummary = {
 
 export type SessionMessage = {
   id: string;
-  threadId: string;
+  sessionId: string;
   role: SessionMessageRole;
   content: string;
   metadata: unknown;
@@ -39,24 +39,24 @@ export type SessionMessage = {
 
 export type SessionStateSnapshot = {
   id: string;
-  threadId: string;
+  sessionId: string;
   kind: string;
   state: unknown;
   byteSize: number;
   createdAt: string;
 };
 
-export type SessionThread = SessionThreadSummary & {
+export type Session = SessionSummary & {
   messages: SessionMessage[];
   stateSnapshots: SessionStateSnapshot[];
 };
 
-export type CreateSessionThreadRequest = {
+export type CreateSessionRequest = {
   title?: string;
   agentId: string;
 };
 
-export type UpdateSessionThreadRequest = {
+export type UpdateSessionRequest = {
   title?: string;
 };
 
@@ -109,7 +109,7 @@ export class SessionStateError extends Error {
   }
 }
 
-export async function listSessionThreads(principal: SessionPrincipal) {
+export async function listSessions(principal: SessionPrincipal) {
   const db = getDb();
   const rows = await db
     .selectFrom("sessionThreads")
@@ -126,7 +126,7 @@ export async function listSessionThreads(principal: SessionPrincipal) {
   };
 }
 
-export async function createSessionThread(
+export async function createSession(
   principal: SessionPrincipal,
   request: unknown
 ) {
@@ -163,16 +163,16 @@ export async function createSessionThread(
   return toThreadSummary(thread);
 }
 
-export async function fetchSessionThread(
+export async function fetchSession(
   principal: SessionPrincipal,
-  threadId: string
+  sessionId: string
 ) {
   const db = getDb();
-  const thread = await loadOwnedThread(db, principal, threadId);
+  const thread = await loadOwnedThread(db, principal, sessionId);
   if (!thread) {
     throw new SessionStateError(
-      "session_thread_not_found",
-      "Session thread was not found",
+      "session_not_found",
+      "Session was not found",
       404
     );
   }
@@ -198,23 +198,23 @@ export async function fetchSessionThread(
     ...toThreadSummary(thread),
     messages: messages.map(toMessage),
     stateSnapshots: snapshots.map(toStateSnapshot)
-  } satisfies SessionThread;
+  } satisfies Session;
 }
 
-export async function updateSessionThread(
+export async function updateSession(
   principal: SessionPrincipal,
-  threadId: string,
+  sessionId: string,
   request: unknown
 ) {
   const body = normalizeUpdateThreadRequest(request);
   const db = getDb();
   const now = new Date();
   const thread = await db.transaction().execute(async (trx) => {
-    const current = await loadOwnedThreadForUpdate(trx, principal, threadId);
+    const current = await loadOwnedThreadForUpdate(trx, principal, sessionId);
     if (!current) {
       throw new SessionStateError(
-        "session_thread_not_found",
-        "Session thread was not found",
+        "session_not_found",
+        "Session was not found",
         404
       );
     }
@@ -247,18 +247,18 @@ export async function updateSessionThread(
 
 export async function appendSessionMessage(
   principal: SessionPrincipal,
-  threadId: string,
+  sessionId: string,
   request: unknown
 ) {
   const body = normalizeAppendMessageRequest(request);
   const db = getDb();
 
   return db.transaction().execute(async (trx) => {
-    const thread = await loadOwnedThreadForUpdate(trx, principal, threadId);
+    const thread = await loadOwnedThreadForUpdate(trx, principal, sessionId);
     if (!thread) {
       throw new SessionStateError(
-        "session_thread_not_found",
-        "Session thread was not found",
+        "session_not_found",
+        "Session was not found",
         404
       );
     }
@@ -308,18 +308,18 @@ export async function appendSessionMessage(
 
 export async function appendSessionState(
   principal: SessionPrincipal,
-  threadId: string,
+  sessionId: string,
   request: unknown
 ) {
   const body = normalizeAppendStateRequest(request);
   const db = getDb();
 
   return db.transaction().execute(async (trx) => {
-    const thread = await loadOwnedThreadForUpdate(trx, principal, threadId);
+    const thread = await loadOwnedThreadForUpdate(trx, principal, sessionId);
     if (!thread) {
       throw new SessionStateError(
-        "session_thread_not_found",
-        "Session thread was not found",
+        "session_not_found",
+        "Session was not found",
         404
       );
     }
@@ -364,18 +364,18 @@ export async function appendSessionState(
   });
 }
 
-export async function archiveSessionThread(
+export async function archiveSession(
   principal: SessionPrincipal,
-  threadId: string
+  sessionId: string
 ) {
   const db = getDb();
   const now = new Date();
   const thread = await db.transaction().execute(async (trx) => {
-    const current = await loadOwnedThreadForUpdate(trx, principal, threadId);
+    const current = await loadOwnedThreadForUpdate(trx, principal, sessionId);
     if (!current) {
       throw new SessionStateError(
-        "session_thread_not_found",
-        "Session thread was not found",
+        "session_not_found",
+        "Session was not found",
         404
       );
     }
@@ -413,7 +413,7 @@ export async function archiveSessionThread(
     return updated;
   });
 
-  await purgeDeletedSessionThreads();
+  await purgeDeletedSessions();
   return toThreadSummary(thread);
 }
 
@@ -457,7 +457,7 @@ export async function updateSessionSettings(
   return toSessionSettings(settings);
 }
 
-export async function purgeDeletedSessionThreads(now = new Date()) {
+export async function purgeDeletedSessions(now = new Date()) {
   const db = getDb();
   const rows = await db
     .selectFrom("sessionThreads")
@@ -542,9 +542,9 @@ function normalizeCreateThreadRequest(
 
 function normalizeUpdateThreadRequest(
   request: unknown
-): UpdateSessionThreadRequest {
+): UpdateSessionRequest {
   const candidate = objectRequest(request);
-  const update: UpdateSessionThreadRequest = {};
+  const update: UpdateSessionRequest = {};
 
   if ("title" in candidate) {
     update.title = normalizeTitle(candidate.title);
@@ -823,7 +823,7 @@ async function recordSessionEvent(
     .execute();
 }
 
-function toThreadSummary(thread: SessionThreadRow): SessionThreadSummary {
+function toThreadSummary(thread: SessionThreadRow): SessionSummary {
   return {
     id: thread.id,
     organizationId: thread.organizationId,
@@ -841,7 +841,7 @@ function toThreadSummary(thread: SessionThreadRow): SessionThreadSummary {
 function toMessage(message: SessionMessageRow): SessionMessage {
   return {
     id: message.id,
-    threadId: message.threadId,
+    sessionId: message.threadId,
     role: message.role,
     content: message.content,
     metadata: message.metadata,
@@ -854,7 +854,7 @@ function toMessage(message: SessionMessageRow): SessionMessage {
 function toStateSnapshot(snapshot: SessionStateSnapshotRow): SessionStateSnapshot {
   return {
     id: snapshot.id,
-    threadId: snapshot.threadId,
+    sessionId: snapshot.threadId,
     kind: snapshot.kind,
     state: snapshot.state,
     byteSize: snapshot.byteSize,

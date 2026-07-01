@@ -1,24 +1,24 @@
 import { createSignal, For } from "solid-js";
-import type { SessionThreadSummary } from "@lush/api-client";
+import type { SessionSummary } from "@lush/api-client";
 import type { Route } from "../../lib/types";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 
 export function SessionNav(props: {
   route: Route;
-  sessions: SessionThreadSummary[];
+  sessions: SessionSummary[];
   activeSessionId?: string;
   onNavigate: (href: string) => void;
   onNewSession: () => void;
-  getSessionHref: (threadId: string) => string;
-  onSessionArchive: (threadId: string) => Promise<unknown> | unknown;
+  getSessionHref: (sessionId: string) => string;
+  onSessionArchive: (sessionId: string) => Promise<unknown> | unknown;
 }) {
   const sessionLabel = props.route.label.toLowerCase();
   const [sessionPendingArchive, setSessionPendingArchive] =
-    createSignal<SessionThreadSummary>();
+    createSignal<SessionSummary>();
   const [isArchivingSession, setIsArchivingSession] = createSignal(false);
   const [archiveError, setArchiveError] = createSignal("");
 
-  const requestSessionArchive = (session: SessionThreadSummary) => {
+  const requestSessionArchive = (session: SessionSummary) => {
     setArchiveError("");
     setSessionPendingArchive(session);
   };

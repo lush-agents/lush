@@ -1,7 +1,7 @@
 # Session State
 
 This document describes the session state implementation in this repository.
-Session state means durable product state for chat/work threads and active work
+Session state means durable product state for agent chats and active work
 contexts. It is separate from authentication refresh sessions, which remain
 owned by `services/authz`.
 
@@ -26,7 +26,7 @@ service state.
 
 ## Ownership Model
 
-Every session thread belongs to:
+Every session belongs to:
 
 - one organization: `organization_id`
 - one owner user: `owner_user_id`
@@ -121,7 +121,7 @@ The session tables include indexes for the current read/write paths:
 - active owner lists by `organization_id`, `owner_user_id`, `agent_id`, and
   descending `updated_at`
 - direct agent/session lookup by `agent_id`, `id`
-- retention purge lookup by `delete_after` for deleted threads
+- retention purge lookup by `delete_after` for deleted sessions
 - message ordering by `thread_id`, `created_at`, `id`
 - state snapshot ordering by `thread_id`, `created_at`, `id`
 - attachment ordering by `thread_id`, `created_at`, `id`
@@ -132,11 +132,11 @@ The session routes are published through the API gateway under `/v1beta`:
 
 - `GET /v1beta/sessions`
 - `POST /v1beta/sessions`
-- `GET /v1beta/sessions/:threadId`
-- `PATCH /v1beta/sessions/:threadId`
-- `POST /v1beta/sessions/:threadId/messages`
-- `POST /v1beta/sessions/:threadId/state`
-- `POST /v1beta/sessions/:threadId/archive`
+- `GET /v1beta/sessions/:sessionId`
+- `PATCH /v1beta/sessions/:sessionId`
+- `POST /v1beta/sessions/:sessionId/messages`
+- `POST /v1beta/sessions/:sessionId/state`
+- `POST /v1beta/sessions/:sessionId/archive`
 - `GET /v1beta/settings/sessions`
 - `PATCH /v1beta/settings/sessions`
 
@@ -156,12 +156,12 @@ Session routes are part of the explicit authz action map in
 Current role behavior:
 
 - `admin` and `user` can list, create, fetch, update, append to, and archive
-  their own session threads.
+  their own sessions.
 - `admin` and `user` can fetch session settings.
 - only `admin` can update organization session settings.
 - every session query is scoped by active organization and owner user.
 
-Guessed cross-organization and cross-user thread ids do not load because the
+Guessed cross-organization and cross-user session ids do not load because the
 runtime includes `organization_id` and `owner_user_id` predicates in read and
 mutation queries.
 
@@ -169,7 +169,7 @@ mutation queries.
 
 The runtime enforces hard byte limits before committing writes:
 
-- maximum total stored bytes per thread: `10 MiB`
+- maximum total stored bytes per session: `10 MiB`
 - maximum message content bytes: `256 KiB`
 - maximum state snapshot bytes: `1 MiB`
 - maximum metadata JSON bytes per message: `64 KiB`
@@ -186,17 +186,17 @@ Relevant runtime errors include:
 - `session_state_too_large`
 - `session_thread_limit_exceeded`
 
-## Thread Lifecycle
+## Session Lifecycle
 
 The chat UI creates a session on the first user message, not when opening a
 blank chat route. Empty chat views remain client state until there is content
 to persist.
 
-Thread writes happen transactionally. Mutating operations load the owned thread
-with `for update`, reject archived/deleted threads, write the new row, update
+Session writes happen transactionally. Mutating operations load the owned session
+with `for update`, reject archived/deleted sessions, write the new row, update
 `state_bytes`, bump `version`, and record an audit event.
 
-`version` is present and increments on thread mutations. The API does not yet
+`version` is present and increments on session mutations. The API does not yet
 accept `expectedVersion`, so client-side optimistic merge behavior is deferred.
 
 Message ordering is currently `created_at` plus `id`.
@@ -207,7 +207,7 @@ Archive is the only end-user removal action.
 
 Archiving a session:
 
-1. Loads the owned thread inside a transaction.
+1. Loads the owned session inside a transaction.
 2. Reads or creates the organization session settings row.
 3. Sets `archived_at`, `deleted`, `deleted_at`, and `delete_after`.
 4. Records `session.thread_archived` in `audit_events`.
@@ -252,6 +252,24 @@ Implemented behavior:
 - session titles are derived from the first user message and can be updated
   after the first assistant response;
 - archive uses the shared confirmation dialog.
+
+The chat streaming request is session-backed. The UI calls the agent API with
+the target `sessionId`, selected model, and `messages[]` containing the newest
+client-side message delta. The API loads persisted session history from
+`services/sessions`, verifies the session's `agent_id` matches the `lush` chat
+agent, and merges persisted history with the client messages before invoking
+inference.
+
+The merge treats persisted history as canonical and appends only the
+non-overlapping client suffix. It finds overlap by comparing the persisted
+session suffix with the client message prefix using per-message MD5 hashes over
+role and content, then confirms exact role/content equality before
+deduplicating. The hash is only a prefilter; it is not used for authorization,
+integrity, or trust.
+
+One-off prompt calls, such as title generation, use the separate agent prompt
+route and send their complete prompt explicitly. Prompt calls do not load
+session history.
 
 ## Generated Docs
 

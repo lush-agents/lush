@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/server.ts",
+    "dev": "bun --watch src/server.ts",
     "start": "bun run src/server.ts",
     "typecheck": "tsgo --noEmit"
   },
@@ -12,11 +12,15 @@
     "@lush/authz": "workspace:*",
     "@lush/config": "workspace:*",
     "@lush/inference": "workspace:*",
-    "@lush/logging": "workspace:*"
+    "@lush/logging": "workspace:*",
+    "@lush/sessions": "workspace:*"
   },
   "exports": {
+    "./chat-request": "./src/chat-request.ts",
     "./lush": "./src/agents/lush.ts",
+    "./message-merge": "./src/message-merge.ts",
     "./runtime": "./src/runtime.ts",
+    "./session-context": "./src/session-context.ts",
     "./spec": "./src/spec.ts"
   }
 }

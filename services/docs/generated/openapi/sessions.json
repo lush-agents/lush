@@ -13,15 +13,15 @@
   "tags": [
     {
       "name": "sessions",
-      "description": "Session threads, messages, state snapshots, and session-state settings routes."
+      "description": "Sessions, messages, state snapshots, and session-state settings routes."
     }
   ],
   "paths": {
     "/v1beta/sessions": {
       "get": {
         "summary": "List sessions",
-        "description": "Lists active, unarchived session threads owned by the current user in the active organization.",
-        "operationId": "listSessionThreads",
+        "description": "Lists active, unarchived sessions owned by the current user in the active organization.",
+        "operationId": "listSessions",
         "tags": [
           "sessions"
         ],
@@ -32,11 +32,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Owned session thread summaries.",
+            "description": "Owned session summaries.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListSessionThreadsResponse"
+                  "$ref": "#/components/schemas/ListSessionsResponse"
                 }
               }
             }
@@ -64,8 +64,8 @@
       },
       "post": {
         "summary": "Create session",
-        "description": "Creates an organization-scoped session thread owned by the current user.",
-        "operationId": "createSessionThread",
+        "description": "Creates an organization-scoped session owned by the current user.",
+        "operationId": "createSession",
         "tags": [
           "sessions"
         ],
@@ -80,18 +80,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateSessionThreadRequest"
+                "$ref": "#/components/schemas/CreateSessionRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Created session thread summary.",
+            "description": "Created session summary.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionThreadSummary"
+                  "$ref": "#/components/schemas/SessionSummary"
                 }
               }
             }
@@ -118,11 +118,11 @@
         }
       }
     },
-    "/v1beta/sessions/{threadId}": {
+    "/v1beta/sessions/{sessionId}": {
       "get": {
         "summary": "Get session",
-        "description": "Returns an owned session thread with messages and append-only state snapshots.",
-        "operationId": "fetchSessionThread",
+        "description": "Returns an owned session with messages and append-only state snapshots.",
+        "operationId": "fetchSessionById",
         "tags": [
           "sessions"
         ],
@@ -133,10 +133,10 @@
         ],
         "parameters": [
           {
-            "name": "threadId",
+            "name": "sessionId",
             "in": "path",
             "required": true,
-            "description": "Session thread identifier.",
+            "description": "Session identifier.",
             "schema": {
               "type": "string"
             }
@@ -144,11 +144,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Session thread details.",
+            "description": "Session details.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionThread"
+                  "$ref": "#/components/schemas/Session"
                 }
               }
             }
@@ -176,8 +176,8 @@
       },
       "patch": {
         "summary": "Update session",
-        "description": "Updates owned session thread metadata such as title or model selection.",
-        "operationId": "updateSessionThread",
+        "description": "Updates owned session metadata such as title or model selection.",
+        "operationId": "updateSession",
         "tags": [
           "sessions"
         ],
@@ -188,10 +188,10 @@
         ],
         "parameters": [
           {
-            "name": "threadId",
+            "name": "sessionId",
             "in": "path",
             "required": true,
-            "description": "Session thread identifier.",
+            "description": "Session identifier.",
             "schema": {
               "type": "string"
             }
@@ -203,18 +203,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateSessionThreadRequest"
+                "$ref": "#/components/schemas/UpdateSessionRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Updated session thread summary.",
+            "description": "Updated session summary.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionThreadSummary"
+                  "$ref": "#/components/schemas/SessionSummary"
                 }
               }
             }
@@ -241,10 +241,10 @@
         }
       }
     },
-    "/v1beta/sessions/{threadId}/messages": {
+    "/v1beta/sessions/{sessionId}/messages": {
       "post": {
         "summary": "Append message",
-        "description": "Appends a message to an owned session thread and enforces server-side byte limits.",
+        "description": "Appends a message to an owned session and enforces server-side byte limits.",
         "operationId": "appendSessionMessage",
         "tags": [
           "sessions"
@@ -256,10 +256,10 @@
         ],
         "parameters": [
           {
-            "name": "threadId",
+            "name": "sessionId",
             "in": "path",
             "required": true,
-            "description": "Session thread identifier.",
+            "description": "Session identifier.",
             "schema": {
               "type": "string"
             }
@@ -309,10 +309,10 @@
         }
       }
     },
-    "/v1beta/sessions/{threadId}/state": {
+    "/v1beta/sessions/{sessionId}/state": {
       "post": {
         "summary": "Append state",
-        "description": "Appends a JSON state snapshot to an owned session thread and enforces server-side byte limits.",
+        "description": "Appends a JSON state snapshot to an owned session and enforces server-side byte limits.",
         "operationId": "appendSessionState",
         "tags": [
           "sessions"
@@ -324,10 +324,10 @@
         ],
         "parameters": [
           {
-            "name": "threadId",
+            "name": "sessionId",
             "in": "path",
             "required": true,
-            "description": "Session thread identifier.",
+            "description": "Session identifier.",
             "schema": {
               "type": "string"
             }
@@ -377,11 +377,11 @@
         }
       }
     },
-    "/v1beta/sessions/{threadId}/archive": {
+    "/v1beta/sessions/{sessionId}/archive": {
       "post": {
         "summary": "Archive session",
-        "description": "Archives an owned session thread so it no longer appears in the active session list and becomes eligible for physical purge according to organization retention settings.",
-        "operationId": "archiveSessionThread",
+        "description": "Archives an owned session so it no longer appears in the active session list and becomes eligible for physical purge according to organization retention settings.",
+        "operationId": "archiveSession",
         "tags": [
           "sessions"
         ],
@@ -392,10 +392,10 @@
         ],
         "parameters": [
           {
-            "name": "threadId",
+            "name": "sessionId",
             "in": "path",
             "required": true,
-            "description": "Session thread identifier.",
+            "description": "Session identifier.",
             "schema": {
               "type": "string"
             }
@@ -407,18 +407,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ArchiveSessionThreadRequest"
+                "$ref": "#/components/schemas/ArchiveSessionRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Archived session thread summary.",
+            "description": "Archived session summary.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionThreadSummary"
+                  "$ref": "#/components/schemas/SessionSummary"
                 }
               }
             }
@@ -1497,15 +1497,15 @@
           "modelSelection"
         ]
       },
-      "SessionThreadSummary": {
+      "SessionSummary": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Owned session thread summary.",
+        "description": "Owned session summary.",
         "properties": {
           "id": {
             "type": "string",
             "format": "uuid",
-            "description": "Session thread identifier."
+            "description": "Session identifier."
           },
           "organizationId": {
             "type": "string",
@@ -1528,7 +1528,7 @@
           "stateBytes": {
             "type": "integer",
             "minimum": 0,
-            "description": "Stored session bytes counted against the thread limit."
+            "description": "Stored session bytes counted against the session limit."
           },
           "version": {
             "type": "integer",
@@ -1581,10 +1581,10 @@
             "format": "uuid",
             "description": "Message identifier."
           },
-          "threadId": {
+          "sessionId": {
             "type": "string",
             "format": "uuid",
-            "description": "Session thread identifier."
+            "description": "Session identifier."
           },
           "role": {
             "$ref": "#/components/schemas/SessionMessageRole",
@@ -1612,7 +1612,7 @@
           "byteSize": {
             "type": "integer",
             "minimum": 0,
-            "description": "Bytes counted against the thread limit."
+            "description": "Bytes counted against the session limit."
           },
           "createdAt": {
             "type": "string",
@@ -1622,7 +1622,7 @@
         },
         "required": [
           "id",
-          "threadId",
+          "sessionId",
           "role",
           "content",
           "metadata",
@@ -1641,10 +1641,10 @@
             "format": "uuid",
             "description": "Snapshot identifier."
           },
-          "threadId": {
+          "sessionId": {
             "type": "string",
             "format": "uuid",
-            "description": "Session thread identifier."
+            "description": "Session identifier."
           },
           "kind": {
             "type": "string",
@@ -1656,7 +1656,7 @@
           "byteSize": {
             "type": "integer",
             "minimum": 0,
-            "description": "Bytes counted against the thread limit."
+            "description": "Bytes counted against the session limit."
           },
           "createdAt": {
             "type": "string",
@@ -1666,17 +1666,17 @@
         },
         "required": [
           "id",
-          "threadId",
+          "sessionId",
           "kind",
           "state",
           "byteSize",
           "createdAt"
         ]
       },
-      "SessionThread": {
+      "Session": {
         "allOf": [
           {
-            "$ref": "#/components/schemas/SessionThreadSummary"
+            "$ref": "#/components/schemas/SessionSummary"
           },
           {
             "type": "object",
@@ -1703,17 +1703,17 @@
             ]
           }
         ],
-        "description": "Owned session thread with messages and state snapshots."
+        "description": "Owned session with messages and state snapshots."
       },
-      "ListSessionThreadsResponse": {
+      "ListSessionsResponse": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Owned session thread list.",
+        "description": "Owned session list.",
         "properties": {
           "sessions": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/SessionThreadSummary"
+              "$ref": "#/components/schemas/SessionSummary"
             },
             "description": "Active, unarchived sessions owned by the current user."
           }
@@ -1722,10 +1722,10 @@
           "sessions"
         ]
       },
-      "CreateSessionThreadRequest": {
+      "CreateSessionRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Creates a session thread.",
+        "description": "Creates a session.",
         "properties": {
           "title": {
             "type": "string",
@@ -1740,10 +1740,10 @@
           "agentId"
         ]
       },
-      "UpdateSessionThreadRequest": {
+      "UpdateSessionRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Updates session thread metadata.",
+        "description": "Updates session metadata.",
         "properties": {
           "title": {
             "type": "string",
@@ -1754,7 +1754,7 @@
       "AppendSessionMessageRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Appends a message to a session thread.",
+        "description": "Appends a message to a session.",
         "properties": {
           "role": {
             "$ref": "#/components/schemas/SessionMessageRole",
@@ -1788,7 +1788,7 @@
       "AppendSessionStateRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Appends a state snapshot to a session thread.",
+        "description": "Appends a state snapshot to a session.",
         "properties": {
           "kind": {
             "type": "string",
@@ -1803,7 +1803,7 @@
           "state"
         ]
       },
-      "ArchiveSessionThreadRequest": {
+      "ArchiveSessionRequest": {
         "type": "object",
         "additionalProperties": false,
         "description": "Archive-session request body. Send an empty JSON object.",
@@ -1883,7 +1883,35 @@
       "AgentChatRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Streaming chat request for an agent.",
+        "description": "Streaming chat request for a session-backed chat.",
+        "properties": {
+          "modelSelection": {
+            "type": "string",
+            "description": "Model selection in provider/model form."
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Session identifier whose persisted messages are used as agent context."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentChatMessage"
+            },
+            "description": "Client-side conversation snapshot or delta. The API reconciles this with persisted session messages before invoking the agent."
+          }
+        },
+        "required": [
+          "modelSelection",
+          "sessionId",
+          "messages"
+        ]
+      },
+      "AgentPromptRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Streaming prompt request for one-off agent operations.",
         "properties": {
           "modelSelection": {
             "type": "string",
