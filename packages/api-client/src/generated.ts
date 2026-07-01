@@ -215,7 +215,7 @@ export type UpdateInferenceModelDefaultRequest = {
 
 export type SessionMessageRole = "user" | "assistant" | "system" | "tool";
 
-export type AgentSessionSummary = {
+export type SessionSummary = {
   id: string;
   organizationId: string;
   ownerUserId: string;
@@ -248,21 +248,21 @@ export type SessionStateSnapshot = {
   createdAt: string;
 };
 
-export type AgentSession = AgentSessionSummary & {
+export type Session = SessionSummary & {
   messages: SessionMessage[];
   stateSnapshots: SessionStateSnapshot[];
 };
 
-export type ListAgentSessionsResponse = {
-  sessions: AgentSessionSummary[];
+export type ListSessionsResponse = {
+  sessions: SessionSummary[];
 };
 
-export type CreateAgentSessionRequest = {
+export type CreateSessionRequest = {
   title?: string;
   agentId: string;
 };
 
-export type UpdateAgentSessionRequest = {
+export type UpdateSessionRequest = {
   title?: string;
 };
 
@@ -278,7 +278,7 @@ export type AppendSessionStateRequest = {
   state: unknown;
 };
 
-export type ArchiveAgentSessionRequest = Record<string, never>;
+export type ArchiveSessionRequest = Record<string, never>;
 
 export type SessionSettings = {
   organizationId: string;
@@ -521,36 +521,36 @@ export const apiRoutes = [
     "kind": "json"
   },
   {
-    "id": "listAgentSessions",
+    "id": "listSessions",
     "method": "GET",
     "path": "/v1beta/sessions",
-    "responseType": "ListAgentSessionsResponse",
+    "responseType": "ListSessionsResponse",
     "auth": true,
     "kind": "json"
   },
   {
-    "id": "createAgentSession",
+    "id": "createSession",
     "method": "POST",
     "path": "/v1beta/sessions",
-    "requestType": "CreateAgentSessionRequest",
-    "responseType": "AgentSessionSummary",
+    "requestType": "CreateSessionRequest",
+    "responseType": "SessionSummary",
     "auth": true,
     "kind": "json"
   },
   {
-    "id": "fetchAgentSession",
+    "id": "fetchSessionById",
     "method": "GET",
     "path": "/v1beta/sessions/:sessionId",
-    "responseType": "AgentSession",
+    "responseType": "Session",
     "auth": true,
     "kind": "json"
   },
   {
-    "id": "updateAgentSession",
+    "id": "updateSession",
     "method": "PATCH",
     "path": "/v1beta/sessions/:sessionId",
-    "requestType": "UpdateAgentSessionRequest",
-    "responseType": "AgentSessionSummary",
+    "requestType": "UpdateSessionRequest",
+    "responseType": "SessionSummary",
     "auth": true,
     "kind": "json"
   },
@@ -573,11 +573,11 @@ export const apiRoutes = [
     "kind": "json"
   },
   {
-    "id": "archiveAgentSession",
+    "id": "archiveSession",
     "method": "POST",
     "path": "/v1beta/sessions/:sessionId/archive",
-    "requestType": "ArchiveAgentSessionRequest",
-    "responseType": "AgentSessionSummary",
+    "requestType": "ArchiveSessionRequest",
+    "responseType": "SessionSummary",
     "auth": true,
     "kind": "json"
   },
@@ -642,13 +642,13 @@ const UPDATE_INFERENCE_PROVIDER_ROUTE = apiRoutes.find((route) => route.id === "
 const UPDATE_INFERENCE_MODEL_ROUTE = apiRoutes.find((route) => route.id === "updateInferenceModel")!;
 const DELETE_INFERENCE_PROVIDER_ROUTE = apiRoutes.find((route) => route.id === "deleteInferenceProvider")!;
 const UPDATE_INFERENCE_MODEL_DEFAULT_ROUTE = apiRoutes.find((route) => route.id === "updateInferenceModelDefault")!;
-const LIST_AGENT_SESSIONS_ROUTE = apiRoutes.find((route) => route.id === "listAgentSessions")!;
-const CREATE_AGENT_SESSION_ROUTE = apiRoutes.find((route) => route.id === "createAgentSession")!;
-const FETCH_AGENT_SESSION_ROUTE = apiRoutes.find((route) => route.id === "fetchAgentSession")!;
-const UPDATE_AGENT_SESSION_ROUTE = apiRoutes.find((route) => route.id === "updateAgentSession")!;
+const LIST_SESSIONS_ROUTE = apiRoutes.find((route) => route.id === "listSessions")!;
+const CREATE_SESSION_ROUTE = apiRoutes.find((route) => route.id === "createSession")!;
+const FETCH_SESSION_BY_ID_ROUTE = apiRoutes.find((route) => route.id === "fetchSessionById")!;
+const UPDATE_SESSION_ROUTE = apiRoutes.find((route) => route.id === "updateSession")!;
 const APPEND_SESSION_MESSAGE_ROUTE = apiRoutes.find((route) => route.id === "appendSessionMessage")!;
 const APPEND_SESSION_STATE_ROUTE = apiRoutes.find((route) => route.id === "appendSessionState")!;
-const ARCHIVE_AGENT_SESSION_ROUTE = apiRoutes.find((route) => route.id === "archiveAgentSession")!;
+const ARCHIVE_SESSION_ROUTE = apiRoutes.find((route) => route.id === "archiveSession")!;
 const FETCH_SESSION_SETTINGS_ROUTE = apiRoutes.find((route) => route.id === "fetchSessionSettings")!;
 const UPDATE_SESSION_SETTINGS_ROUTE = apiRoutes.find((route) => route.id === "updateSessionSettings")!;
 const STREAM_AGENT_CHAT_ROUTE = apiRoutes.find((route) => route.id === "streamAgentChat")!;
@@ -1204,11 +1204,11 @@ export async function updateInferenceModelDefault(
   return response.json() as Promise<InferenceConfig>;
 }
 
-export async function listAgentSessions(
+export async function listSessions(
   apiBaseUrl: string,
   sessionToken: string | undefined,
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, LIST_AGENT_SESSIONS_ROUTE.path), {
+  const response = await fetch(apiUrl(apiBaseUrl, LIST_SESSIONS_ROUTE.path), {
     credentials: "include",
     headers: {
       ...authorizationHeaders(sessionToken),
@@ -1217,17 +1217,17 @@ export async function listAgentSessions(
   });
 
   if (!response.ok) {
-    throw await apiError("listAgentSessions", response);
+    throw await apiError("listSessions", response);
   }
 
-  return response.json() as Promise<ListAgentSessionsResponse>;
+  return response.json() as Promise<ListSessionsResponse>;
 }
 
-export async function createAgentSession(
+export async function createSession(
   apiBaseUrl: string,
-  sessionToken: string | undefined, body: CreateAgentSessionRequest
+  sessionToken: string | undefined, body: CreateSessionRequest
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, CREATE_AGENT_SESSION_ROUTE.path), {
+  const response = await fetch(apiUrl(apiBaseUrl, CREATE_SESSION_ROUTE.path), {
     method: "POST",
     credentials: "include",
     headers: {
@@ -1238,18 +1238,18 @@ export async function createAgentSession(
   });
 
   if (!response.ok) {
-    throw await apiError("createAgentSession", response);
+    throw await apiError("createSession", response);
   }
 
-  return response.json() as Promise<AgentSessionSummary>;
+  return response.json() as Promise<SessionSummary>;
 }
 
-export async function fetchAgentSession(
+export async function fetchSessionById(
   apiBaseUrl: string,
   sessionId: string,
   sessionToken: string | undefined,
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, routePath(FETCH_AGENT_SESSION_ROUTE.path, { sessionId })), {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(FETCH_SESSION_BY_ID_ROUTE.path, { sessionId })), {
     credentials: "include",
     headers: {
       ...authorizationHeaders(sessionToken),
@@ -1258,18 +1258,18 @@ export async function fetchAgentSession(
   });
 
   if (!response.ok) {
-    throw await apiError("fetchAgentSession", response);
+    throw await apiError("fetchSessionById", response);
   }
 
-  return response.json() as Promise<AgentSession>;
+  return response.json() as Promise<Session>;
 }
 
-export async function updateAgentSession(
+export async function updateSession(
   apiBaseUrl: string,
   sessionId: string,
-  sessionToken: string | undefined, body: UpdateAgentSessionRequest
+  sessionToken: string | undefined, body: UpdateSessionRequest
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, routePath(UPDATE_AGENT_SESSION_ROUTE.path, { sessionId })), {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(UPDATE_SESSION_ROUTE.path, { sessionId })), {
     method: "PATCH",
     credentials: "include",
     headers: {
@@ -1280,10 +1280,10 @@ export async function updateAgentSession(
   });
 
   if (!response.ok) {
-    throw await apiError("updateAgentSession", response);
+    throw await apiError("updateSession", response);
   }
 
-  return response.json() as Promise<AgentSessionSummary>;
+  return response.json() as Promise<SessionSummary>;
 }
 
 export async function appendSessionMessage(
@@ -1330,12 +1330,12 @@ export async function appendSessionState(
   return response.json() as Promise<SessionStateSnapshot>;
 }
 
-export async function archiveAgentSession(
+export async function archiveSession(
   apiBaseUrl: string,
   sessionId: string,
-  sessionToken: string | undefined, body: ArchiveAgentSessionRequest
+  sessionToken: string | undefined, body: ArchiveSessionRequest
 ) {
-  const response = await fetch(apiUrl(apiBaseUrl, routePath(ARCHIVE_AGENT_SESSION_ROUTE.path, { sessionId })), {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(ARCHIVE_SESSION_ROUTE.path, { sessionId })), {
     method: "POST",
     credentials: "include",
     headers: {
@@ -1346,10 +1346,10 @@ export async function archiveAgentSession(
   });
 
   if (!response.ok) {
-    throw await apiError("archiveAgentSession", response);
+    throw await apiError("archiveSession", response);
   }
 
-  return response.json() as Promise<AgentSessionSummary>;
+  return response.json() as Promise<SessionSummary>;
 }
 
 export async function fetchSessionSettings(

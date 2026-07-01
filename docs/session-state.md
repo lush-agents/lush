@@ -26,7 +26,7 @@ service state.
 
 ## Ownership Model
 
-Every agent session belongs to:
+Every session belongs to:
 
 - one organization: `organization_id`
 - one owner user: `owner_user_id`
@@ -156,7 +156,7 @@ Session routes are part of the explicit authz action map in
 Current role behavior:
 
 - `admin` and `user` can list, create, fetch, update, append to, and archive
-  their own agent sessions.
+  their own sessions.
 - `admin` and `user` can fetch session settings.
 - only `admin` can update organization session settings.
 - every session query is scoped by active organization and owner user.

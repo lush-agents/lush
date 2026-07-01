@@ -7,9 +7,9 @@ import {
   streamLushAgentChat
 } from "@lush/agent/runtime";
 import {
-  AgentSessionContextError,
-  loadLushAgentSessionMessages,
-  mergeAgentSessionMessages
+  SessionContextError,
+  loadLushSessionMessages,
+  mergeSessionMessages
 } from "@lush/agent/session-context";
 import { normalizeAgentChatMessages } from "@lush/agent/chat-request";
 import {
@@ -49,14 +49,14 @@ import {
 import {
   appendSessionMessage,
   appendSessionState,
-  archiveAgentSession,
-  createAgentSession,
+  archiveSession,
+  createSession,
   fetchSessionSettings,
-  fetchAgentSession,
-  listAgentSessions,
+  fetchSession,
+  listSessions,
   SessionStateError,
   updateSessionSettings,
-  updateAgentSession
+  updateSession
 } from "@lush/sessions/runtime";
 import {
   ConfigError,
@@ -597,8 +597,8 @@ app.post(routePath("updateInferenceModelDefault"), async (c) => {
   }
 });
 
-app.get(routePath("listAgentSessions"), async (c) => {
-  const authorized = await authenticateAuthorized(c, "listAgentSessions");
+app.get(routePath("listSessions"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "listSessions");
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -608,14 +608,14 @@ app.get(routePath("listAgentSessions"), async (c) => {
   }
 
   try {
-    return c.json(await listAgentSessions(principal));
+    return c.json(await listSessions(principal));
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to list sessions");
   }
 });
 
-app.post(routePath("createAgentSession"), async (c) => {
-  const authorized = await authenticateAuthorized(c, "createAgentSession");
+app.post(routePath("createSession"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "createSession");
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -626,7 +626,7 @@ app.post(routePath("createAgentSession"), async (c) => {
 
   try {
     const body = await c.req.json().catch(() => undefined);
-    return c.json(await createAgentSession(principal, body));
+    return c.json(await createSession(principal, body));
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to create session");
   }
@@ -667,8 +667,8 @@ app.patch(routePath("updateSessionSettings"), async (c) => {
   }
 });
 
-app.get(routePath("fetchAgentSession"), async (c) => {
-  const authorized = await authenticateAuthorized(c, "fetchAgentSession");
+app.get(routePath("fetchSessionById"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "fetchSessionById");
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -678,14 +678,14 @@ app.get(routePath("fetchAgentSession"), async (c) => {
   }
 
   try {
-    return c.json(await fetchAgentSession(principal, sessionIdParam(c)));
+    return c.json(await fetchSession(principal, sessionIdParam(c)));
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to load session");
   }
 });
 
-app.patch(routePath("updateAgentSession"), async (c) => {
-  const authorized = await authenticateAuthorized(c, "updateAgentSession");
+app.patch(routePath("updateSession"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "updateSession");
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -697,7 +697,7 @@ app.patch(routePath("updateAgentSession"), async (c) => {
   try {
     const body = await c.req.json().catch(() => undefined);
     return c.json(
-      await updateAgentSession(principal, sessionIdParam(c), body)
+      await updateSession(principal, sessionIdParam(c), body)
     );
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to update session");
@@ -744,8 +744,8 @@ app.post(routePath("appendSessionState"), async (c) => {
   }
 });
 
-app.post(routePath("archiveAgentSession"), async (c) => {
-  const authorized = await authenticateAuthorized(c, "archiveAgentSession");
+app.post(routePath("archiveSession"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "archiveSession");
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -756,7 +756,7 @@ app.post(routePath("archiveAgentSession"), async (c) => {
 
   try {
     return c.json(
-      await archiveAgentSession(principal, sessionIdParam(c))
+      await archiveSession(principal, sessionIdParam(c))
     );
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to archive session");
@@ -787,16 +787,16 @@ app.post(routePath("streamAgentChat"), async (c) => {
   let messages: AgentChatMessage[];
 
   try {
-    const persistedMessages = await loadLushAgentSessionMessages(
+    const persistedMessages = await loadLushSessionMessages(
       {
         userId: principal.userId,
         organizationId: principal.organizationId
       },
       sessionId
     );
-    messages = mergeAgentSessionMessages(persistedMessages, clientMessages);
+    messages = mergeSessionMessages(persistedMessages, clientMessages);
   } catch (error) {
-    if (error instanceof AgentSessionContextError) {
+    if (error instanceof SessionContextError) {
       return c.json(
         { error: error.code, message: error.message },
         error.status as ContentfulStatusCode

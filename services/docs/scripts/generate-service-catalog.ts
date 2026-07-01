@@ -27,7 +27,7 @@ const services = [
   {
     slug: "sessions",
     title: "Sessions",
-    description: "Durable agent session and active work state service.",
+    description: "Durable session and active work state service.",
     readme: "../../sessions/README.md",
     status: "implemented"
   },

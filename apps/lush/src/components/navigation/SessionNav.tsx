@@ -1,11 +1,11 @@
 import { createSignal, For } from "solid-js";
-import type { AgentSessionSummary } from "@lush/api-client";
+import type { SessionSummary } from "@lush/api-client";
 import type { Route } from "../../lib/types";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 
 export function SessionNav(props: {
   route: Route;
-  sessions: AgentSessionSummary[];
+  sessions: SessionSummary[];
   activeSessionId?: string;
   onNavigate: (href: string) => void;
   onNewSession: () => void;
@@ -14,11 +14,11 @@ export function SessionNav(props: {
 }) {
   const sessionLabel = props.route.label.toLowerCase();
   const [sessionPendingArchive, setSessionPendingArchive] =
-    createSignal<AgentSessionSummary>();
+    createSignal<SessionSummary>();
   const [isArchivingSession, setIsArchivingSession] = createSignal(false);
   const [archiveError, setArchiveError] = createSignal("");
 
-  const requestSessionArchive = (session: AgentSessionSummary) => {
+  const requestSessionArchive = (session: SessionSummary) => {
     setArchiveError("");
     setSessionPendingArchive(session);
   };

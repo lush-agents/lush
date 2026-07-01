@@ -8,10 +8,10 @@ import {
 
 const routeDefinitions: RequestLogRoute[] = [
   { id: "health", method: "GET", path: "/health" },
-  { id: "listAgentSessions", method: "GET", path: "/v1beta/sessions" },
-  { id: "createAgentSession", method: "POST", path: "/v1beta/sessions" },
+  { id: "listSessions", method: "GET", path: "/v1beta/sessions" },
+  { id: "createSession", method: "POST", path: "/v1beta/sessions" },
   {
-    id: "fetchAgentSession",
+    id: "fetchSessionById",
     method: "GET",
     path: "/v1beta/sessions/:sessionId"
   }
@@ -21,22 +21,22 @@ const routes = compileRequestLogRoutes(routeDefinitions);
 describe("api request logging", () => {
   test("matches exact routes by method and path", () => {
     expect(matchRequestRoute("GET", "/v1beta/sessions", routes)?.id)
-      .toBe("listAgentSessions");
+      .toBe("listSessions");
     expect(matchRequestRoute("POST", "/v1beta/sessions", routes)?.id)
-      .toBe("createAgentSession");
+      .toBe("createSession");
   });
 
   test("matches parameterized routes", () => {
     expect(matchRequestRoute("GET", "/v1beta/sessions/thread-1", routes))
       .toMatchObject({
-        id: "fetchAgentSession",
+        id: "fetchSessionById",
         path: "/v1beta/sessions/:sessionId"
       });
   });
 
   test("matches trailing slash variants", () => {
     expect(matchRequestRoute("GET", "/v1beta/sessions/", routes)?.id)
-      .toBe("listAgentSessions");
+      .toBe("listSessions");
   });
 
   test("builds basic request metadata without query strings", () => {
@@ -67,7 +67,7 @@ describe("api request logging", () => {
       method: "GET",
       path: "/v1beta/sessions/thread-1",
       route: "/v1beta/sessions/:sessionId",
-      routeId: "fetchAgentSession",
+      routeId: "fetchSessionById",
       statusCode: 200,
       durationMs: 12.34,
       requestId: "req-1",

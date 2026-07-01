@@ -1,19 +1,19 @@
 import {
-  fetchAgentSession,
+  fetchSession,
   SessionStateError
 } from "@lush/sessions/runtime";
 import {
   getLushAgentMetadata,
   type AgentChatMessage
 } from "./runtime";
-export { mergeAgentSessionMessages } from "./message-merge";
+export { mergeSessionMessages } from "./message-merge";
 
-export type AgentSessionPrincipal = {
+export type SessionPrincipal = {
   userId: string;
   organizationId: string;
 };
 
-export class AgentSessionContextError extends Error {
+export class SessionContextError extends Error {
   constructor(
     readonly code: string,
     message: string,
@@ -23,24 +23,24 @@ export class AgentSessionContextError extends Error {
   }
 }
 
-export async function loadLushAgentSessionMessages(
-  principal: AgentSessionPrincipal,
+export async function loadLushSessionMessages(
+  principal: SessionPrincipal,
   sessionId: string
 ) {
   const normalizedSessionId = sessionId.trim();
   if (!normalizedSessionId) {
-    throw new AgentSessionContextError(
+    throw new SessionContextError(
       "session_required",
       "A session id is required"
     );
   }
 
-  let session: Awaited<ReturnType<typeof fetchAgentSession>>;
+  let session: Awaited<ReturnType<typeof fetchSession>>;
   try {
-    session = await fetchAgentSession(principal, normalizedSessionId);
+    session = await fetchSession(principal, normalizedSessionId);
   } catch (error) {
     if (error instanceof SessionStateError) {
-      throw new AgentSessionContextError(error.code, error.message, error.status);
+      throw new SessionContextError(error.code, error.message, error.status);
     }
 
     throw error;
@@ -48,7 +48,7 @@ export async function loadLushAgentSessionMessages(
 
   const agent = getLushAgentMetadata();
   if (session.agentId !== agent.sessionAgentId) {
-    throw new AgentSessionContextError(
+    throw new SessionContextError(
       "agent_session_mismatch",
       "Session is not owned by this agent",
       404

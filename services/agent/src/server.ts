@@ -11,9 +11,9 @@ import {
   streamLushAgentChat
 } from "./runtime";
 import {
-  AgentSessionContextError,
-  loadLushAgentSessionMessages,
-  mergeAgentSessionMessages
+  SessionContextError,
+  loadLushSessionMessages,
+  mergeSessionMessages
 } from "./session-context";
 import { normalizeAgentChatMessages } from "./chat-request";
 
@@ -124,16 +124,16 @@ async function streamSessionChat(request: Request, principal: Principal) {
   let messages: AgentChatMessage[];
 
   try {
-    const persistedMessages = await loadLushAgentSessionMessages(
+    const persistedMessages = await loadLushSessionMessages(
       {
         userId: principal.userId,
         organizationId
       },
       sessionId
     );
-    messages = mergeAgentSessionMessages(persistedMessages, clientMessages);
+    messages = mergeSessionMessages(persistedMessages, clientMessages);
   } catch (error) {
-    if (error instanceof AgentSessionContextError) {
+    if (error instanceof SessionContextError) {
       return Response.json(
         { error: error.code, message: error.message },
         { status: error.status, headers: corsHeaders }

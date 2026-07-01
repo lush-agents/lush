@@ -1,7 +1,7 @@
 export const sessionTypes = `
 export type SessionMessageRole = "user" | "assistant" | "system" | "tool";
 
-export type AgentSessionSummary = {
+export type SessionSummary = {
   id: string;
   organizationId: string;
   ownerUserId: string;
@@ -34,21 +34,21 @@ export type SessionStateSnapshot = {
   createdAt: string;
 };
 
-export type AgentSession = AgentSessionSummary & {
+export type Session = SessionSummary & {
   messages: SessionMessage[];
   stateSnapshots: SessionStateSnapshot[];
 };
 
-export type ListAgentSessionsResponse = {
-  sessions: AgentSessionSummary[];
+export type ListSessionsResponse = {
+  sessions: SessionSummary[];
 };
 
-export type CreateAgentSessionRequest = {
+export type CreateSessionRequest = {
   title?: string;
   agentId: string;
 };
 
-export type UpdateAgentSessionRequest = {
+export type UpdateSessionRequest = {
   title?: string;
 };
 
@@ -64,7 +64,7 @@ export type AppendSessionStateRequest = {
   state: unknown;
 };
 
-export type ArchiveAgentSessionRequest = Record<string, never>;
+export type ArchiveSessionRequest = Record<string, never>;
 
 export type SessionSettings = {
   organizationId: string;
@@ -80,36 +80,36 @@ export type UpdateSessionSettingsRequest = {
 
 export const sessionRoutes = [
   {
-    id: "listAgentSessions",
+    id: "listSessions",
     method: "GET",
     path: "/sessions",
-    responseType: "ListAgentSessionsResponse",
+    responseType: "ListSessionsResponse",
     auth: true,
     kind: "json"
   },
   {
-    id: "createAgentSession",
+    id: "createSession",
     method: "POST",
     path: "/sessions",
-    requestType: "CreateAgentSessionRequest",
-    responseType: "AgentSessionSummary",
+    requestType: "CreateSessionRequest",
+    responseType: "SessionSummary",
     auth: true,
     kind: "json"
   },
   {
-    id: "fetchAgentSession",
+    id: "fetchSessionById",
     method: "GET",
     path: "/sessions/:sessionId",
-    responseType: "AgentSession",
+    responseType: "Session",
     auth: true,
     kind: "json"
   },
   {
-    id: "updateAgentSession",
+    id: "updateSession",
     method: "PATCH",
     path: "/sessions/:sessionId",
-    requestType: "UpdateAgentSessionRequest",
-    responseType: "AgentSessionSummary",
+    requestType: "UpdateSessionRequest",
+    responseType: "SessionSummary",
     auth: true,
     kind: "json"
   },
@@ -132,11 +132,11 @@ export const sessionRoutes = [
     kind: "json"
   },
   {
-    id: "archiveAgentSession",
+    id: "archiveSession",
     method: "POST",
     path: "/sessions/:sessionId/archive",
-    requestType: "ArchiveAgentSessionRequest",
-    responseType: "AgentSessionSummary",
+    requestType: "ArchiveSessionRequest",
+    responseType: "SessionSummary",
     auth: true,
     kind: "json"
   },

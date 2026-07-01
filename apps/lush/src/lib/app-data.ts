@@ -199,7 +199,7 @@ export const concepts: Concept[] = [
     slug: "sessions",
     title: "Sessions",
     summary: "Shared conversations and active work contexts.",
-    body: "Sessions own agent sessions, messages, and active work state so the same interaction can move across desktop, web, mobile, and team chat."
+    body: "Sessions own messages and active work state so the same interaction can move across desktop, web, mobile, and team chat."
   },
   {
     slug: "agents",

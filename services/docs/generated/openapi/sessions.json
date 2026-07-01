@@ -21,7 +21,7 @@
       "get": {
         "summary": "List sessions",
         "description": "Lists active, unarchived sessions owned by the current user in the active organization.",
-        "operationId": "listAgentSessions",
+        "operationId": "listSessions",
         "tags": [
           "sessions"
         ],
@@ -36,7 +36,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListAgentSessionsResponse"
+                  "$ref": "#/components/schemas/ListSessionsResponse"
                 }
               }
             }
@@ -65,7 +65,7 @@
       "post": {
         "summary": "Create session",
         "description": "Creates an organization-scoped session owned by the current user.",
-        "operationId": "createAgentSession",
+        "operationId": "createSession",
         "tags": [
           "sessions"
         ],
@@ -80,7 +80,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateAgentSessionRequest"
+                "$ref": "#/components/schemas/CreateSessionRequest"
               }
             }
           }
@@ -91,7 +91,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentSessionSummary"
+                  "$ref": "#/components/schemas/SessionSummary"
                 }
               }
             }
@@ -122,7 +122,7 @@
       "get": {
         "summary": "Get session",
         "description": "Returns an owned session with messages and append-only state snapshots.",
-        "operationId": "fetchAgentSession",
+        "operationId": "fetchSessionById",
         "tags": [
           "sessions"
         ],
@@ -148,7 +148,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentSession"
+                  "$ref": "#/components/schemas/Session"
                 }
               }
             }
@@ -177,7 +177,7 @@
       "patch": {
         "summary": "Update session",
         "description": "Updates owned session metadata such as title or model selection.",
-        "operationId": "updateAgentSession",
+        "operationId": "updateSession",
         "tags": [
           "sessions"
         ],
@@ -203,7 +203,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateAgentSessionRequest"
+                "$ref": "#/components/schemas/UpdateSessionRequest"
               }
             }
           }
@@ -214,7 +214,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentSessionSummary"
+                  "$ref": "#/components/schemas/SessionSummary"
                 }
               }
             }
@@ -381,7 +381,7 @@
       "post": {
         "summary": "Archive session",
         "description": "Archives an owned session so it no longer appears in the active session list and becomes eligible for physical purge according to organization retention settings.",
-        "operationId": "archiveAgentSession",
+        "operationId": "archiveSession",
         "tags": [
           "sessions"
         ],
@@ -407,7 +407,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ArchiveAgentSessionRequest"
+                "$ref": "#/components/schemas/ArchiveSessionRequest"
               }
             }
           }
@@ -418,7 +418,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentSessionSummary"
+                  "$ref": "#/components/schemas/SessionSummary"
                 }
               }
             }
@@ -1497,7 +1497,7 @@
           "modelSelection"
         ]
       },
-      "AgentSessionSummary": {
+      "SessionSummary": {
         "type": "object",
         "additionalProperties": false,
         "description": "Owned session summary.",
@@ -1673,10 +1673,10 @@
           "createdAt"
         ]
       },
-      "AgentSession": {
+      "Session": {
         "allOf": [
           {
-            "$ref": "#/components/schemas/AgentSessionSummary"
+            "$ref": "#/components/schemas/SessionSummary"
           },
           {
             "type": "object",
@@ -1705,7 +1705,7 @@
         ],
         "description": "Owned session with messages and state snapshots."
       },
-      "ListAgentSessionsResponse": {
+      "ListSessionsResponse": {
         "type": "object",
         "additionalProperties": false,
         "description": "Owned session list.",
@@ -1713,7 +1713,7 @@
           "sessions": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/AgentSessionSummary"
+              "$ref": "#/components/schemas/SessionSummary"
             },
             "description": "Active, unarchived sessions owned by the current user."
           }
@@ -1722,7 +1722,7 @@
           "sessions"
         ]
       },
-      "CreateAgentSessionRequest": {
+      "CreateSessionRequest": {
         "type": "object",
         "additionalProperties": false,
         "description": "Creates a session.",
@@ -1740,7 +1740,7 @@
           "agentId"
         ]
       },
-      "UpdateAgentSessionRequest": {
+      "UpdateSessionRequest": {
         "type": "object",
         "additionalProperties": false,
         "description": "Updates session metadata.",
@@ -1803,7 +1803,7 @@
           "state"
         ]
       },
-      "ArchiveAgentSessionRequest": {
+      "ArchiveSessionRequest": {
         "type": "object",
         "additionalProperties": false,
         "description": "Archive-session request body. Send an empty JSON object.",
@@ -1883,7 +1883,7 @@
       "AgentChatRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Streaming chat request for an agent session.",
+        "description": "Streaming chat request for a session-backed chat.",
         "properties": {
           "modelSelection": {
             "type": "string",

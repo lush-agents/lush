@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AgentChatMessage } from "./runtime";
 
-export function mergeAgentSessionMessages(
+export function mergeSessionMessages(
   persistedMessages: AgentChatMessage[],
   clientMessages: AgentChatMessage[]
 ) {

@@ -329,7 +329,7 @@ const schemas: Record<string, JsonSchema> = {
       "Model selection in provider/model form as returned by inference configuration."
     )
   }, ["mode", "modelSelection"], "Updates the default model selection for a workspace mode."),
-  AgentSessionSummary: objectSchema({
+  SessionSummary: objectSchema({
     id: describeSchema(stringSchema("uuid"), "Session identifier."),
     organizationId: describeSchema(stringSchema("uuid"), "Organization that owns the session."),
     ownerUserId: describeSchema(stringSchema("uuid"), "User that owns the session."),
@@ -359,9 +359,9 @@ const schemas: Record<string, JsonSchema> = {
     byteSize: describeSchema({ type: "integer", minimum: 0 }, "Bytes counted against the session limit."),
     createdAt: describeSchema(stringSchema("date-time"), "Snapshot creation timestamp.")
   }, ["id", "sessionId", "kind", "state", "byteSize", "createdAt"], "Append-only session state snapshot."),
-  AgentSession: {
+  Session: {
     allOf: [
-      ref("AgentSessionSummary"),
+      ref("SessionSummary"),
       objectSchema({
         messages: describeSchema(arraySchema(ref("SessionMessage")), "Messages in chronological order."),
         stateSnapshots: describeSchema(arraySchema(ref("SessionStateSnapshot")), "State snapshots in chronological order.")
@@ -369,14 +369,14 @@ const schemas: Record<string, JsonSchema> = {
     ],
     description: "Owned session with messages and state snapshots."
   },
-  ListAgentSessionsResponse: objectSchema({
-    sessions: describeSchema(arraySchema(ref("AgentSessionSummary")), "Active, unarchived sessions owned by the current user.")
+  ListSessionsResponse: objectSchema({
+    sessions: describeSchema(arraySchema(ref("SessionSummary")), "Active, unarchived sessions owned by the current user.")
   }, ["sessions"], "Owned session list."),
-  CreateAgentSessionRequest: objectSchema({
+  CreateSessionRequest: objectSchema({
     title: describeSchema(stringSchema(), "Optional title. Defaults to an untitled session."),
     agentId: describeSchema(stringSchema(), "Agent identifier that owns or interprets this session.")
   }, ["agentId"], "Creates a session."),
-  UpdateAgentSessionRequest: objectSchema({
+  UpdateSessionRequest: objectSchema({
     title: describeSchema(stringSchema(), "New session title.")
   }, [], "Updates session metadata."),
   AppendSessionMessageRequest: objectSchema({
@@ -389,7 +389,7 @@ const schemas: Record<string, JsonSchema> = {
     kind: describeSchema(stringSchema(), "Application-defined state kind."),
     state: describeSchema({}, "JSON state payload.")
   }, ["kind", "state"], "Appends a state snapshot to a session."),
-  ArchiveAgentSessionRequest: emptyObjectSchema("Archive-session request body. Send an empty JSON object."),
+  ArchiveSessionRequest: emptyObjectSchema("Archive-session request body. Send an empty JSON object."),
   SessionSettings: objectSchema({
     organizationId: describeSchema(stringSchema("uuid"), "Organization that owns the settings."),
     retentionSeconds: describeSchema({ type: "integer", minimum: 0 }, "Retention window for physically purging soft-deleted sessions."),
@@ -416,7 +416,7 @@ const schemas: Record<string, JsonSchema> = {
       arraySchema(ref("AgentChatMessage")),
       "Client-side conversation snapshot or delta. The API reconciles this with persisted session messages before invoking the agent."
     )
-  }, ["modelSelection", "sessionId", "messages"], "Streaming chat request for an agent session."),
+  }, ["modelSelection", "sessionId", "messages"], "Streaming chat request for a session-backed chat."),
   AgentPromptRequest: objectSchema({
     modelSelection: describeSchema(
       stringSchema(),
@@ -600,26 +600,26 @@ const operationDocs: Record<
     requestDescription: "Workspace mode and model selection.",
     successDescription: "Updated inference configuration."
   },
-  listAgentSessions: {
+  listSessions: {
     summary: "List sessions",
     description:
       "Lists active, unarchived sessions owned by the current user in the active organization.",
     successDescription: "Owned session summaries."
   },
-  createAgentSession: {
+  createSession: {
     summary: "Create session",
     description:
       "Creates an organization-scoped session owned by the current user.",
     requestDescription: "Agent identifier and optional title.",
     successDescription: "Created session summary."
   },
-  fetchAgentSession: {
+  fetchSessionById: {
     summary: "Get session",
     description:
       "Returns an owned session with messages and append-only state snapshots.",
     successDescription: "Session details."
   },
-  updateAgentSession: {
+  updateSession: {
     summary: "Update session",
     description:
       "Updates owned session metadata such as title or model selection.",
@@ -640,7 +640,7 @@ const operationDocs: Record<
     requestDescription: "Snapshot kind and JSON state payload.",
     successDescription: "Created state snapshot."
   },
-  archiveAgentSession: {
+  archiveSession: {
     summary: "Archive session",
     description:
       "Archives an owned session so it no longer appears in the active session list and becomes eligible for physical purge according to organization retention settings.",

@@ -1030,7 +1030,7 @@
           "modelSelection"
         ]
       },
-      "AgentSessionSummary": {
+      "SessionSummary": {
         "type": "object",
         "additionalProperties": false,
         "description": "Owned session summary.",
@@ -1206,10 +1206,10 @@
           "createdAt"
         ]
       },
-      "AgentSession": {
+      "Session": {
         "allOf": [
           {
-            "$ref": "#/components/schemas/AgentSessionSummary"
+            "$ref": "#/components/schemas/SessionSummary"
           },
           {
             "type": "object",
@@ -1238,7 +1238,7 @@
         ],
         "description": "Owned session with messages and state snapshots."
       },
-      "ListAgentSessionsResponse": {
+      "ListSessionsResponse": {
         "type": "object",
         "additionalProperties": false,
         "description": "Owned session list.",
@@ -1246,7 +1246,7 @@
           "sessions": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/AgentSessionSummary"
+              "$ref": "#/components/schemas/SessionSummary"
             },
             "description": "Active, unarchived sessions owned by the current user."
           }
@@ -1255,7 +1255,7 @@
           "sessions"
         ]
       },
-      "CreateAgentSessionRequest": {
+      "CreateSessionRequest": {
         "type": "object",
         "additionalProperties": false,
         "description": "Creates a session.",
@@ -1273,7 +1273,7 @@
           "agentId"
         ]
       },
-      "UpdateAgentSessionRequest": {
+      "UpdateSessionRequest": {
         "type": "object",
         "additionalProperties": false,
         "description": "Updates session metadata.",
@@ -1336,7 +1336,7 @@
           "state"
         ]
       },
-      "ArchiveAgentSessionRequest": {
+      "ArchiveSessionRequest": {
         "type": "object",
         "additionalProperties": false,
         "description": "Archive-session request body. Send an empty JSON object.",
@@ -1416,7 +1416,7 @@
       "AgentChatRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Streaming chat request for an agent session.",
+        "description": "Streaming chat request for a session-backed chat.",
         "properties": {
           "modelSelection": {
             "type": "string",

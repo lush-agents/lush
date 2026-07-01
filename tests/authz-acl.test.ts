@@ -39,7 +39,7 @@ test("protected api routes have matching authz actions", () => {
 test("role action bindings keep users read-only for organization and inference settings", () => {
   expect(roleActionBindings.user).toContain("listOrganizationMembers");
   expect(roleActionBindings.user).toContain("fetchInferenceConfig");
-  expect(roleActionBindings.user).toContain("listAgentSessions");
+  expect(roleActionBindings.user).toContain("listSessions");
   expect(roleActionBindings.user).toContain("appendSessionMessage");
   expect(roleActionBindings.user).not.toContain("updateCurrentOrganization");
   expect(roleActionBindings.user).not.toContain("createInferenceProvider");
@@ -54,7 +54,7 @@ test("authorizePrincipal allows user read actions and rejects management actions
   expect(authorizePrincipal(basePrincipal, "listOrganizationMembers").allowed).toBe(
     true
   );
-  expect(authorizePrincipal(basePrincipal, "listAgentSessions").allowed).toBe(
+  expect(authorizePrincipal(basePrincipal, "listSessions").allowed).toBe(
     true
   );
 

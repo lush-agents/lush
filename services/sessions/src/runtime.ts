@@ -13,7 +13,7 @@ export type SessionPrincipal = {
   organizationId: string;
 };
 
-export type AgentSessionSummary = {
+export type SessionSummary = {
   id: string;
   organizationId: string;
   ownerUserId: string;
@@ -46,17 +46,17 @@ export type SessionStateSnapshot = {
   createdAt: string;
 };
 
-export type AgentSession = AgentSessionSummary & {
+export type Session = SessionSummary & {
   messages: SessionMessage[];
   stateSnapshots: SessionStateSnapshot[];
 };
 
-export type CreateAgentSessionRequest = {
+export type CreateSessionRequest = {
   title?: string;
   agentId: string;
 };
 
-export type UpdateAgentSessionRequest = {
+export type UpdateSessionRequest = {
   title?: string;
 };
 
@@ -109,7 +109,7 @@ export class SessionStateError extends Error {
   }
 }
 
-export async function listAgentSessions(principal: SessionPrincipal) {
+export async function listSessions(principal: SessionPrincipal) {
   const db = getDb();
   const rows = await db
     .selectFrom("sessionThreads")
@@ -126,7 +126,7 @@ export async function listAgentSessions(principal: SessionPrincipal) {
   };
 }
 
-export async function createAgentSession(
+export async function createSession(
   principal: SessionPrincipal,
   request: unknown
 ) {
@@ -163,7 +163,7 @@ export async function createAgentSession(
   return toThreadSummary(thread);
 }
 
-export async function fetchAgentSession(
+export async function fetchSession(
   principal: SessionPrincipal,
   sessionId: string
 ) {
@@ -198,10 +198,10 @@ export async function fetchAgentSession(
     ...toThreadSummary(thread),
     messages: messages.map(toMessage),
     stateSnapshots: snapshots.map(toStateSnapshot)
-  } satisfies AgentSession;
+  } satisfies Session;
 }
 
-export async function updateAgentSession(
+export async function updateSession(
   principal: SessionPrincipal,
   sessionId: string,
   request: unknown
@@ -364,7 +364,7 @@ export async function appendSessionState(
   });
 }
 
-export async function archiveAgentSession(
+export async function archiveSession(
   principal: SessionPrincipal,
   sessionId: string
 ) {
@@ -413,7 +413,7 @@ export async function archiveAgentSession(
     return updated;
   });
 
-  await purgeDeletedAgentSessions();
+  await purgeDeletedSessions();
   return toThreadSummary(thread);
 }
 
@@ -457,7 +457,7 @@ export async function updateSessionSettings(
   return toSessionSettings(settings);
 }
 
-export async function purgeDeletedAgentSessions(now = new Date()) {
+export async function purgeDeletedSessions(now = new Date()) {
   const db = getDb();
   const rows = await db
     .selectFrom("sessionThreads")
@@ -542,9 +542,9 @@ function normalizeCreateThreadRequest(
 
 function normalizeUpdateThreadRequest(
   request: unknown
-): UpdateAgentSessionRequest {
+): UpdateSessionRequest {
   const candidate = objectRequest(request);
-  const update: UpdateAgentSessionRequest = {};
+  const update: UpdateSessionRequest = {};
 
   if ("title" in candidate) {
     update.title = normalizeTitle(candidate.title);
@@ -823,7 +823,7 @@ async function recordSessionEvent(
     .execute();
 }
 
-function toThreadSummary(thread: SessionThreadRow): AgentSessionSummary {
+function toThreadSummary(thread: SessionThreadRow): SessionSummary {
   return {
     id: thread.id,
     organizationId: thread.organizationId,

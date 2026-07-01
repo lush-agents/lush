@@ -2,14 +2,15 @@ import {
   type AccessSession,
   type AddInferenceProviderRequest,
   appendSessionMessage,
-  archiveAgentSession,
-  createAgentSession,
+  archiveSession,
+  createSession,
   createOrganization,
   createOrganizationInvite,
   createInferenceProvider,
   deleteCurrentOrganization,
   deleteInferenceProvider,
   fetchInferenceConfig,
+  fetchSessionById,
   listOrganizationInvites,
   listOrganizationMembers,
   listOrganizations,
@@ -26,15 +27,14 @@ import {
   updateCurrentOrganization,
   updateInferenceModelDefault,
   type InferenceConfig,
-  fetchAgentSession,
-  listAgentSessions,
+  listSessions,
   updateInferenceModel,
   updateInferenceProvider,
   updateOrganizationMemberRole,
   updateCurrentUser,
-  updateAgentSession,
-  type AgentSession,
-  type AgentSessionSummary,
+  updateSession,
+  type Session,
+  type SessionSummary,
   type UserRole,
   type WorkspaceMode
 } from "@lush/api-client";
@@ -87,9 +87,9 @@ import {
   writeCachedAccessSession
 } from "./lib/api-session";
 import {
-  appendAgentSessionMessageSnapshot,
-  preferNewestAgentSessionSnapshot
-} from "./lib/agent-session-state";
+  appendSessionMessageSnapshot,
+  preferNewestSessionSnapshot
+} from "./lib/chat-session-state";
 import type { Appearance, SessionStatus } from "./lib/types";
 import { ChatPage } from "./routes/chat/ChatPage";
 import { ConceptDetailPage } from "./routes/concepts/ConceptDetailPage";
@@ -132,8 +132,8 @@ export function App() {
     createSignal<OrganizationMember[]>([]);
   const [organizationInvites, setOrganizationInvites] =
     createSignal<OrganizationInvite[]>([]);
-  const [chatSessions, setChatSessions] = createSignal<AgentSessionSummary[]>([]);
-  const [activeChatSession, setActiveChatSession] = createSignal<AgentSession>();
+  const [chatSessions, setChatSessions] = createSignal<SessionSummary[]>([]);
+  const [activeChatSession, setActiveChatSession] = createSignal<Session>();
   const [activeChatSessionId, setActiveChatSessionId] = createSignal<string>();
   const [loadingChatSessionId, setLoadingChatSessionId] = createSignal<string>();
   const [chatSessionKey, setChatSessionKey] = createSignal(0);
@@ -408,7 +408,7 @@ export function App() {
     setOrganizationInvites(invites.invites);
   };
 
-  const refreshAgentSessions = async (
+  const refreshSessions = async (
     accessSession: AccessSession = currentAccessSession()
   ) => {
     const claims = parseAccessTokenClaims(accessSession.accessToken);
@@ -423,7 +423,7 @@ export function App() {
     }
 
     const response = await runWithTokenRefresh(accessSession, (session) =>
-      listAgentSessions(apiBaseUrl(), session.accessToken)
+      listSessions(apiBaseUrl(), session.accessToken)
     );
     setChatSessions(response.sessions);
     const activeId = activeChatSessionId();
@@ -543,7 +543,7 @@ export function App() {
       if (cachedSession) {
         applySession(cachedSession);
         await refreshOrganizationState(cachedSession);
-        await refreshAgentSessions(cachedSession);
+        await refreshSessions(cachedSession);
         const config = await fetchSessionInferenceConfig(cachedSession);
         if (requestId !== sessionRequestId) {
           return;
@@ -564,7 +564,7 @@ export function App() {
 
       applySession(session);
       await refreshOrganizationState(session);
-      await refreshAgentSessions(session);
+      await refreshSessions(session);
       const config = await fetchSessionInferenceConfig(session);
       if (requestId === sessionRequestId) {
         setInferenceConfig(config);
@@ -635,7 +635,7 @@ export function App() {
       applySession(session);
       setAuthPassword("");
       await refreshOrganizationState(session);
-      await refreshAgentSessions(session);
+      await refreshSessions(session);
       const config = await fetchSessionInferenceConfig(session);
       if (requestId === sessionRequestId) {
         setInferenceConfig(config);
@@ -666,7 +666,7 @@ export function App() {
   const loadSessionData = async (accessSession: AccessSession) => {
     applySession(accessSession);
     await refreshOrganizationState(accessSession);
-    await refreshAgentSessions(accessSession);
+    await refreshSessions(accessSession);
     const config = await fetchSessionInferenceConfig(accessSession);
     setInferenceConfig(config);
   };
@@ -937,7 +937,7 @@ export function App() {
 
     try {
       const session = await runAuthenticated((session) =>
-        fetchAgentSession(apiBaseUrl(), sessionId, session.accessToken)
+        fetchSessionById(apiBaseUrl(), sessionId, session.accessToken)
       );
 
       if (requestId !== chatSessionLoadRequestId) {
@@ -945,7 +945,7 @@ export function App() {
       }
 
       setActiveChatSession((current) =>
-        preferNewestAgentSessionSnapshot(current, session)
+        preferNewestSessionSnapshot(current, session)
       );
       setChatSessionKey((current) => current + 1);
     } catch (error) {
@@ -955,14 +955,14 @@ export function App() {
 
       setActiveChatSession(undefined);
       setActiveChatSessionId(undefined);
-      await refreshAgentSessions().catch(() => undefined);
+      await refreshSessions().catch(() => undefined);
       throw error;
     }
   };
 
   const createChatSession = async (request: { title: string }) => {
     const summary = await runAuthenticated((session) =>
-      createAgentSession(apiBaseUrl(), session.accessToken, {
+      createSession(apiBaseUrl(), session.accessToken, {
         title: request.title,
         agentId: builtInAgentIds.chat
       })
@@ -997,15 +997,15 @@ export function App() {
       appendSessionMessage(apiBaseUrl(), sessionId, session.accessToken, message)
     );
     setActiveChatSession((current) =>
-      appendAgentSessionMessageSnapshot(current, sessionId, appendedMessage)
+      appendSessionMessageSnapshot(current, sessionId, appendedMessage)
     );
     setChatSessionKey((current) => current + 1);
-    await refreshAgentSessions().catch(() => undefined);
+    await refreshSessions().catch(() => undefined);
   };
 
   const updateChatSessionTitle = async (sessionId: string, title: string) => {
     const summary = await runAuthenticated((session) =>
-      updateAgentSession(apiBaseUrl(), sessionId, session.accessToken, {
+      updateSession(apiBaseUrl(), sessionId, session.accessToken, {
         title
       })
     );
@@ -1020,7 +1020,7 @@ export function App() {
 
   const archiveChatSession = async (sessionId: string) => {
     await runAuthenticated((session) =>
-      archiveAgentSession(apiBaseUrl(), sessionId, session.accessToken, {})
+      archiveSession(apiBaseUrl(), sessionId, session.accessToken, {})
     );
     setChatSessions((current) =>
       current.filter((session) => session.id !== sessionId)

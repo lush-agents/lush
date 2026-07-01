@@ -12,7 +12,7 @@ import {
   type AgentChatMessage,
   type InferenceProviderStatus,
   type SessionMessage,
-  type AgentSession,
+  type Session,
   type UserRole,
 } from "@lush/api-client";
 import logoUrl from "../../assets/lush-logo.svg?url";
@@ -65,7 +65,7 @@ export function ChatPage(props: {
   defaultModelSelection: string;
   providers: InferenceProviderStatus[];
   currentRole?: UserRole;
-  session?: AgentSession;
+  session?: Session;
   sessionKey: number;
   ensureSession: (force?: boolean) => Promise<string | undefined>;
   onCreateSession: (request: { title: string }) => Promise<string>;

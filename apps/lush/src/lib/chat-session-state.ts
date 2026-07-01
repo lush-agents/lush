@@ -1,11 +1,11 @@
 import type {
-  AgentSession,
+  Session,
   SessionMessage
 } from "@lush/api-client";
 
-export function preferNewestAgentSessionSnapshot(
-  current: AgentSession | undefined,
-  incoming: AgentSession
+export function preferNewestSessionSnapshot(
+  current: Session | undefined,
+  incoming: Session
 ) {
   return current &&
     current.id === incoming.id &&
@@ -14,8 +14,8 @@ export function preferNewestAgentSessionSnapshot(
     : incoming;
 }
 
-export function appendAgentSessionMessageSnapshot(
-  current: AgentSession | undefined,
+export function appendSessionMessageSnapshot(
+  current: Session | undefined,
   sessionId: string,
   message: SessionMessage
 ) {

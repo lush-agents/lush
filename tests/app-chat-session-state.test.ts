@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
-  appendAgentSessionMessageSnapshot,
-  preferNewestAgentSessionSnapshot
-} from "../apps/lush/src/lib/agent-session-state";
+  appendSessionMessageSnapshot,
+  preferNewestSessionSnapshot
+} from "../apps/lush/src/lib/chat-session-state";
 import type {
-  AgentSession,
+  Session,
   SessionMessage
 } from "../packages/api-client/src/generated";
 
-function session(id: string, messages: SessionMessage[]): AgentSession {
+function session(id: string, messages: SessionMessage[]): Session {
   return {
     id,
     organizationId: "org-1",
@@ -42,14 +42,14 @@ function message(
   };
 }
 
-describe("app agent session state", () => {
+describe("app chat session state", () => {
   test("keeps optimistic first-turn messages over a stale fetched session snapshot", () => {
     const userMessage = message("message-1", "user", "How many years?");
     const assistantMessage = message("message-2", "assistant", "About five.");
     const optimistic = session("session-1", [userMessage, assistantMessage]);
     const staleFetch = session("session-1", []);
 
-    expect(preferNewestAgentSessionSnapshot(optimistic, staleFetch)).toBe(
+    expect(preferNewestSessionSnapshot(optimistic, staleFetch)).toBe(
       optimistic
     );
   });
@@ -59,19 +59,19 @@ describe("app agent session state", () => {
     const current = session("session-1", []);
     const fetched = session("session-1", [userMessage]);
 
-    expect(preferNewestAgentSessionSnapshot(current, fetched)).toBe(fetched);
+    expect(preferNewestSessionSnapshot(current, fetched)).toBe(fetched);
   });
 
   test("appends persisted first-turn messages to the active session once", () => {
     const active = session("session-1", []);
     const userMessage = message("message-1", "user", "How many years?");
 
-    const withMessage = appendAgentSessionMessageSnapshot(
+    const withMessage = appendSessionMessageSnapshot(
       active,
       "session-1",
       userMessage
     );
-    const duplicate = appendAgentSessionMessageSnapshot(
+    const duplicate = appendSessionMessageSnapshot(
       withMessage,
       "session-1",
       userMessage
