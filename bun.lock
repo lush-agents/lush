@@ -83,6 +83,7 @@
         "@lush/config": "workspace:*",
         "@lush/inference": "workspace:*",
         "@lush/logging": "workspace:*",
+        "@lush/sessions": "workspace:*",
       },
     },
     "services/api": {

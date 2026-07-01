@@ -2,8 +2,8 @@ import {
   type AccessSession,
   type AddInferenceProviderRequest,
   appendSessionMessage,
-  archiveSessionThread,
-  createSessionThread,
+  archiveAgentSession,
+  createAgentSession,
   createOrganization,
   createOrganizationInvite,
   createInferenceProvider,
@@ -26,15 +26,15 @@ import {
   updateCurrentOrganization,
   updateInferenceModelDefault,
   type InferenceConfig,
-  fetchSessionThread,
-  listSessionThreads,
+  fetchAgentSession,
+  listAgentSessions,
   updateInferenceModel,
   updateInferenceProvider,
   updateOrganizationMemberRole,
   updateCurrentUser,
-  updateSessionThread,
-  type SessionThread,
-  type SessionThreadSummary,
+  updateAgentSession,
+  type AgentSession,
+  type AgentSessionSummary,
   type UserRole,
   type WorkspaceMode
 } from "@lush/api-client";
@@ -86,6 +86,10 @@ import {
   withTokenRefresh,
   writeCachedAccessSession
 } from "./lib/api-session";
+import {
+  appendAgentSessionMessageSnapshot,
+  preferNewestAgentSessionSnapshot
+} from "./lib/agent-session-state";
 import type { Appearance, SessionStatus } from "./lib/types";
 import { ChatPage } from "./routes/chat/ChatPage";
 import { ConceptDetailPage } from "./routes/concepts/ConceptDetailPage";
@@ -100,7 +104,7 @@ import { ScrollFade } from "./ui/ScrollFade";
 export function App() {
   let sessionRequestId = 0;
   let clientEventRefresh: Promise<void> | undefined;
-  let chatThreadLoadRequestId = 0;
+  let chatSessionLoadRequestId = 0;
   const location = useLocation();
   const routerNavigate = useNavigate();
   const currentMatches = useCurrentMatches();
@@ -128,10 +132,10 @@ export function App() {
     createSignal<OrganizationMember[]>([]);
   const [organizationInvites, setOrganizationInvites] =
     createSignal<OrganizationInvite[]>([]);
-  const [sessionThreads, setSessionThreads] = createSignal<SessionThreadSummary[]>([]);
-  const [activeChatThread, setActiveChatThread] = createSignal<SessionThread>();
-  const [activeChatThreadId, setActiveChatThreadId] = createSignal<string>();
-  const [loadingChatThreadId, setLoadingChatThreadId] = createSignal<string>();
+  const [chatSessions, setChatSessions] = createSignal<AgentSessionSummary[]>([]);
+  const [activeChatSession, setActiveChatSession] = createSignal<AgentSession>();
+  const [activeChatSessionId, setActiveChatSessionId] = createSignal<string>();
+  const [loadingChatSessionId, setLoadingChatSessionId] = createSignal<string>();
   const [chatSessionKey, setChatSessionKey] = createSignal(0);
   const [activeOrganizationId, setActiveOrganizationId] = createSignal<string | null>(null);
   const [membershipRole, setMembershipRole] = createSignal<UserRole>();
@@ -302,7 +306,7 @@ export function App() {
   const activeWorkspaceSessions = createMemo(() => {
     const agentId = activeWorkspaceRoute()?.sessionAgentId;
     return agentId
-      ? sessionThreads().filter((session) => session.agentId === agentId)
+      ? chatSessions().filter((session) => session.agentId === agentId)
       : [];
   });
 
@@ -404,30 +408,30 @@ export function App() {
     setOrganizationInvites(invites.invites);
   };
 
-  const refreshSessionThreads = async (
+  const refreshAgentSessions = async (
     accessSession: AccessSession = currentAccessSession()
   ) => {
     const claims = parseAccessTokenClaims(accessSession.accessToken);
     if (!claims?.org) {
-      chatThreadLoadRequestId += 1;
-      setSessionThreads([]);
-      setActiveChatThread(undefined);
-      setActiveChatThreadId(undefined);
-      setLoadingChatThreadId(undefined);
+      chatSessionLoadRequestId += 1;
+      setChatSessions([]);
+      setActiveChatSession(undefined);
+      setActiveChatSessionId(undefined);
+      setLoadingChatSessionId(undefined);
       setChatSessionKey((current) => current + 1);
       return;
     }
 
     const response = await runWithTokenRefresh(accessSession, (session) =>
-      listSessionThreads(apiBaseUrl(), session.accessToken)
+      listAgentSessions(apiBaseUrl(), session.accessToken)
     );
-    setSessionThreads(response.sessions);
-    const activeId = activeChatThreadId();
+    setChatSessions(response.sessions);
+    const activeId = activeChatSessionId();
     if (activeId && !response.sessions.some((session) => session.id === activeId)) {
-      chatThreadLoadRequestId += 1;
-      setActiveChatThread(undefined);
-      setActiveChatThreadId(undefined);
-      setLoadingChatThreadId(undefined);
+      chatSessionLoadRequestId += 1;
+      setActiveChatSession(undefined);
+      setActiveChatSessionId(undefined);
+      setLoadingChatSessionId(undefined);
       setChatSessionKey((current) => current + 1);
     }
   };
@@ -511,7 +515,7 @@ export function App() {
   };
 
   const clearSessionState = () => {
-    chatThreadLoadRequestId += 1;
+    chatSessionLoadRequestId += 1;
     clearCachedAccessSession();
     setSessionToken("");
     setSessionTokenExpiresAt("");
@@ -521,10 +525,10 @@ export function App() {
     setOrganizations([]);
     setOrganizationMembers([]);
     setOrganizationInvites([]);
-    setSessionThreads([]);
-    setActiveChatThread(undefined);
-    setActiveChatThreadId(undefined);
-    setLoadingChatThreadId(undefined);
+    setChatSessions([]);
+    setActiveChatSession(undefined);
+    setActiveChatSessionId(undefined);
+    setLoadingChatSessionId(undefined);
     setChatSessionKey((current) => current + 1);
     setActiveOrganizationId(null);
     setMembershipRole(undefined);
@@ -539,7 +543,7 @@ export function App() {
       if (cachedSession) {
         applySession(cachedSession);
         await refreshOrganizationState(cachedSession);
-        await refreshSessionThreads(cachedSession);
+        await refreshAgentSessions(cachedSession);
         const config = await fetchSessionInferenceConfig(cachedSession);
         if (requestId !== sessionRequestId) {
           return;
@@ -560,7 +564,7 @@ export function App() {
 
       applySession(session);
       await refreshOrganizationState(session);
-      await refreshSessionThreads(session);
+      await refreshAgentSessions(session);
       const config = await fetchSessionInferenceConfig(session);
       if (requestId === sessionRequestId) {
         setInferenceConfig(config);
@@ -631,7 +635,7 @@ export function App() {
       applySession(session);
       setAuthPassword("");
       await refreshOrganizationState(session);
-      await refreshSessionThreads(session);
+      await refreshAgentSessions(session);
       const config = await fetchSessionInferenceConfig(session);
       if (requestId === sessionRequestId) {
         setInferenceConfig(config);
@@ -662,7 +666,7 @@ export function App() {
   const loadSessionData = async (accessSession: AccessSession) => {
     applySession(accessSession);
     await refreshOrganizationState(accessSession);
-    await refreshSessionThreads(accessSession);
+    await refreshAgentSessions(accessSession);
     const config = await fetchSessionInferenceConfig(accessSession);
     setInferenceConfig(config);
   };
@@ -920,50 +924,57 @@ export function App() {
   };
 
   const resetChatSession = () => {
-    chatThreadLoadRequestId += 1;
-    setActiveChatThread(undefined);
-    setActiveChatThreadId(undefined);
-    setLoadingChatThreadId(undefined);
+    chatSessionLoadRequestId += 1;
+    setActiveChatSession(undefined);
+    setActiveChatSessionId(undefined);
+    setLoadingChatSessionId(undefined);
     setChatSessionKey((current) => current + 1);
   };
 
-  const selectChatSession = async (threadId: string) => {
-    const requestId = ++chatThreadLoadRequestId;
-    setActiveChatThreadId(threadId);
+  const selectChatSession = async (sessionId: string) => {
+    const requestId = ++chatSessionLoadRequestId;
+    setActiveChatSessionId(sessionId);
 
     try {
-      const thread = await runAuthenticated((session) =>
-        fetchSessionThread(apiBaseUrl(), threadId, session.accessToken)
+      const session = await runAuthenticated((session) =>
+        fetchAgentSession(apiBaseUrl(), sessionId, session.accessToken)
       );
 
-      if (requestId !== chatThreadLoadRequestId) {
+      if (requestId !== chatSessionLoadRequestId) {
         return;
       }
 
-      setActiveChatThread(thread);
+      setActiveChatSession((current) =>
+        preferNewestAgentSessionSnapshot(current, session)
+      );
       setChatSessionKey((current) => current + 1);
     } catch (error) {
-      if (requestId !== chatThreadLoadRequestId) {
+      if (requestId !== chatSessionLoadRequestId) {
         return;
       }
 
-      setActiveChatThread(undefined);
-      setActiveChatThreadId(undefined);
-      await refreshSessionThreads().catch(() => undefined);
+      setActiveChatSession(undefined);
+      setActiveChatSessionId(undefined);
+      await refreshAgentSessions().catch(() => undefined);
       throw error;
     }
   };
 
   const createChatSession = async (request: { title: string }) => {
     const summary = await runAuthenticated((session) =>
-      createSessionThread(apiBaseUrl(), session.accessToken, {
+      createAgentSession(apiBaseUrl(), session.accessToken, {
         title: request.title,
         agentId: builtInAgentIds.chat
       })
     );
 
-    setActiveChatThreadId(summary.id);
-    setSessionThreads((current) => [
+    setActiveChatSessionId(summary.id);
+    setActiveChatSession({
+      ...summary,
+      messages: [],
+      stateSnapshots: []
+    });
+    setChatSessions((current) => [
       summary,
       ...current.filter((session) => session.id !== summary.id)
     ]);
@@ -975,63 +986,67 @@ export function App() {
   };
 
   const appendChatSessionMessage = async (
-    threadId: string,
+    sessionId: string,
     message: {
       role: "user" | "assistant";
       content: string;
       metadata?: unknown;
     }
   ) => {
-    await runAuthenticated((session) =>
-      appendSessionMessage(apiBaseUrl(), threadId, session.accessToken, message)
+    const appendedMessage = await runAuthenticated((session) =>
+      appendSessionMessage(apiBaseUrl(), sessionId, session.accessToken, message)
     );
-    await refreshSessionThreads().catch(() => undefined);
+    setActiveChatSession((current) =>
+      appendAgentSessionMessageSnapshot(current, sessionId, appendedMessage)
+    );
+    setChatSessionKey((current) => current + 1);
+    await refreshAgentSessions().catch(() => undefined);
   };
 
-  const updateChatSessionTitle = async (threadId: string, title: string) => {
+  const updateChatSessionTitle = async (sessionId: string, title: string) => {
     const summary = await runAuthenticated((session) =>
-      updateSessionThread(apiBaseUrl(), threadId, session.accessToken, {
+      updateAgentSession(apiBaseUrl(), sessionId, session.accessToken, {
         title
       })
     );
 
-    setSessionThreads((current) =>
+    setChatSessions((current) =>
       current.map((session) => (session.id === summary.id ? summary : session))
     );
-    setActiveChatThread((current) =>
+    setActiveChatSession((current) =>
       current && current.id === summary.id ? { ...current, ...summary } : current
     );
   };
 
-  const archiveChatSession = async (threadId: string) => {
+  const archiveChatSession = async (sessionId: string) => {
     await runAuthenticated((session) =>
-      archiveSessionThread(apiBaseUrl(), threadId, session.accessToken, {})
+      archiveAgentSession(apiBaseUrl(), sessionId, session.accessToken, {})
     );
-    setSessionThreads((current) =>
-      current.filter((session) => session.id !== threadId)
+    setChatSessions((current) =>
+      current.filter((session) => session.id !== sessionId)
     );
 
-    if (activeChatThreadId() === threadId || activeSessionRoute()?.sessionId === threadId) {
+    if (activeChatSessionId() === sessionId || activeSessionRoute()?.sessionId === sessionId) {
       resetChatSession();
       replaceRoute("/chat");
     }
   };
 
-  const syncChatSessionRoute = async (threadId: string) => {
-    if (loadingChatThreadId() === threadId) {
+  const syncChatSessionRoute = async (sessionId: string) => {
+    if (loadingChatSessionId() === sessionId) {
       return;
     }
 
-    setLoadingChatThreadId(threadId);
+    setLoadingChatSessionId(sessionId);
 
     try {
-      await selectChatSession(threadId);
+      await selectChatSession(sessionId);
     } catch {
       resetChatSession();
       replaceRoute("/chat");
     } finally {
-      setLoadingChatThreadId((current) =>
-        current === threadId ? undefined : current
+      setLoadingChatSessionId((current) =>
+        current === sessionId ? undefined : current
       );
     }
   };
@@ -1056,7 +1071,7 @@ export function App() {
 
     const sessionRoute = activeSessionRoute();
     if (!sessionRoute) {
-      if (path() === "/chat" && activeChatThreadId()) {
+      if (path() === "/chat" && activeChatSessionId()) {
         resetChatSession();
       }
       return;
@@ -1069,7 +1084,7 @@ export function App() {
     // A newly-created session is selected optimistically before its first turn is
     // fully persisted. Fetching it here can replace the in-flight transcript
     // with a stale server copy when the stream completes.
-    if (activeChatThreadId() === sessionRoute.sessionId) {
+    if (activeChatSessionId() === sessionRoute.sessionId) {
       return;
     }
 
@@ -1227,11 +1242,11 @@ export function App() {
                         <SessionNav
                           route={route()}
                           sessions={activeWorkspaceSessions()}
-                          activeSessionId={activeChatThreadId()}
+                          activeSessionId={activeChatSessionId()}
                           onNavigate={navigate}
                           onNewSession={resetChatSession}
-                          getSessionHref={(threadId) =>
-                            sessionRouteHref(route(), threadId)
+                          getSessionHref={(sessionId) =>
+                            sessionRouteHref(route(), sessionId)
                           }
                           onSessionArchive={archiveChatSession}
                         />
@@ -1326,7 +1341,7 @@ export function App() {
                     defaultModelSelection={modelDefaults().chat}
                     providers={enabledInferenceProviders()}
                     currentRole={membershipRole()}
-                    thread={activeChatThread()}
+                    session={activeChatSession()}
                     sessionKey={chatSessionKey()}
                     ensureSession={ensureSession}
                     onCreateSession={createChatSession}

@@ -36,9 +36,9 @@ settings, admin controls, environments, connectors, governance configuration,
 and provider/model setup. The settings UI lives inside `apps/lush`; this
 service owns the state behind that UI.
 
-**Sessions (`services/sessions`).** User sessions, conversations, threads, and
-active work contexts. It owns conversational state that must be shared across
-clients and collaboration channels.
+**Sessions (`services/sessions`).** Durable agent sessions, conversation
+messages, and active work contexts. It owns conversational state that must be
+shared across clients and collaboration channels.
 
 **Events (`services/events`).** Durable append-only event log for system
 activity. It feeds audit trails, usage reporting, and operational workflows.

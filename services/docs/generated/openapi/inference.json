@@ -1299,15 +1299,15 @@
           "modelSelection"
         ]
       },
-      "SessionThreadSummary": {
+      "AgentSessionSummary": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Owned session thread summary.",
+        "description": "Owned session summary.",
         "properties": {
           "id": {
             "type": "string",
             "format": "uuid",
-            "description": "Session thread identifier."
+            "description": "Session identifier."
           },
           "organizationId": {
             "type": "string",
@@ -1330,7 +1330,7 @@
           "stateBytes": {
             "type": "integer",
             "minimum": 0,
-            "description": "Stored session bytes counted against the thread limit."
+            "description": "Stored session bytes counted against the session limit."
           },
           "version": {
             "type": "integer",
@@ -1383,10 +1383,10 @@
             "format": "uuid",
             "description": "Message identifier."
           },
-          "threadId": {
+          "sessionId": {
             "type": "string",
             "format": "uuid",
-            "description": "Session thread identifier."
+            "description": "Session identifier."
           },
           "role": {
             "$ref": "#/components/schemas/SessionMessageRole",
@@ -1414,7 +1414,7 @@
           "byteSize": {
             "type": "integer",
             "minimum": 0,
-            "description": "Bytes counted against the thread limit."
+            "description": "Bytes counted against the session limit."
           },
           "createdAt": {
             "type": "string",
@@ -1424,7 +1424,7 @@
         },
         "required": [
           "id",
-          "threadId",
+          "sessionId",
           "role",
           "content",
           "metadata",
@@ -1443,10 +1443,10 @@
             "format": "uuid",
             "description": "Snapshot identifier."
           },
-          "threadId": {
+          "sessionId": {
             "type": "string",
             "format": "uuid",
-            "description": "Session thread identifier."
+            "description": "Session identifier."
           },
           "kind": {
             "type": "string",
@@ -1458,7 +1458,7 @@
           "byteSize": {
             "type": "integer",
             "minimum": 0,
-            "description": "Bytes counted against the thread limit."
+            "description": "Bytes counted against the session limit."
           },
           "createdAt": {
             "type": "string",
@@ -1468,17 +1468,17 @@
         },
         "required": [
           "id",
-          "threadId",
+          "sessionId",
           "kind",
           "state",
           "byteSize",
           "createdAt"
         ]
       },
-      "SessionThread": {
+      "AgentSession": {
         "allOf": [
           {
-            "$ref": "#/components/schemas/SessionThreadSummary"
+            "$ref": "#/components/schemas/AgentSessionSummary"
           },
           {
             "type": "object",
@@ -1505,17 +1505,17 @@
             ]
           }
         ],
-        "description": "Owned session thread with messages and state snapshots."
+        "description": "Owned session with messages and state snapshots."
       },
-      "ListSessionThreadsResponse": {
+      "ListAgentSessionsResponse": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Owned session thread list.",
+        "description": "Owned session list.",
         "properties": {
           "sessions": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/SessionThreadSummary"
+              "$ref": "#/components/schemas/AgentSessionSummary"
             },
             "description": "Active, unarchived sessions owned by the current user."
           }
@@ -1524,10 +1524,10 @@
           "sessions"
         ]
       },
-      "CreateSessionThreadRequest": {
+      "CreateAgentSessionRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Creates a session thread.",
+        "description": "Creates a session.",
         "properties": {
           "title": {
             "type": "string",
@@ -1542,10 +1542,10 @@
           "agentId"
         ]
       },
-      "UpdateSessionThreadRequest": {
+      "UpdateAgentSessionRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Updates session thread metadata.",
+        "description": "Updates session metadata.",
         "properties": {
           "title": {
             "type": "string",
@@ -1556,7 +1556,7 @@
       "AppendSessionMessageRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Appends a message to a session thread.",
+        "description": "Appends a message to a session.",
         "properties": {
           "role": {
             "$ref": "#/components/schemas/SessionMessageRole",
@@ -1590,7 +1590,7 @@
       "AppendSessionStateRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Appends a state snapshot to a session thread.",
+        "description": "Appends a state snapshot to a session.",
         "properties": {
           "kind": {
             "type": "string",
@@ -1605,7 +1605,7 @@
           "state"
         ]
       },
-      "ArchiveSessionThreadRequest": {
+      "ArchiveAgentSessionRequest": {
         "type": "object",
         "additionalProperties": false,
         "description": "Archive-session request body. Send an empty JSON object.",
@@ -1685,7 +1685,35 @@
       "AgentChatRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Streaming chat request for an agent.",
+        "description": "Streaming chat request for an agent session.",
+        "properties": {
+          "modelSelection": {
+            "type": "string",
+            "description": "Model selection in provider/model form."
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Session identifier whose persisted messages are used as agent context."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentChatMessage"
+            },
+            "description": "Client-side conversation snapshot or delta. The API reconciles this with persisted session messages before invoking the agent."
+          }
+        },
+        "required": [
+          "modelSelection",
+          "sessionId",
+          "messages"
+        ]
+      },
+      "AgentPromptRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Streaming prompt request for one-off agent operations.",
         "properties": {
           "modelSelection": {
             "type": "string",

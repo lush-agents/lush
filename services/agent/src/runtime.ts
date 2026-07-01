@@ -16,7 +16,8 @@ export type StreamLushAgentChatOptions = {
 export function getLushAgentMetadata() {
   return {
     id: lushAgent.id,
-    name: lushAgent.name
+    name: lushAgent.name,
+    sessionAgentId: lushAgent.sessionAgentId
   };
 }
 

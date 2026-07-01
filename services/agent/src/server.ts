@@ -10,6 +10,12 @@ import {
   getLushAgentMetadata,
   streamLushAgentChat
 } from "./runtime";
+import {
+  AgentSessionContextError,
+  loadLushAgentSessionMessages,
+  mergeAgentSessionMessages
+} from "./session-context";
+import { normalizeAgentChatMessages } from "./chat-request";
 
 const logger = createLogger("@lush/agent");
 const agentConfig = readEnvSchema({
@@ -51,14 +57,16 @@ const server = Bun.serve({
       return Response.json(auth.session, { headers: corsHeaders });
     }
 
-    const chatRouteMatch = url.pathname.match(/^\/agents\/([^/]+)\/chat$/);
-    if (request.method === "POST" && chatRouteMatch) {
+    const agentRouteMatch = url.pathname.match(
+      /^\/agents\/([^/]+)\/(chat|prompt)$/
+    );
+    if (request.method === "POST" && agentRouteMatch) {
       const auth = await authenticate(request);
       if (!auth) {
         return unauthorized();
       }
 
-      const agentSlug = decodeURIComponent(chatRouteMatch[1] ?? "");
+      const agentSlug = decodeURIComponent(agentRouteMatch[1] ?? "");
       if (agentSlug !== getLushAgentMetadata().id) {
         return Response.json(
           { error: "agent_not_found" },
@@ -66,7 +74,9 @@ const server = Bun.serve({
         );
       }
 
-      return streamChat(request, auth.principal);
+      return agentRouteMatch[2] === "chat"
+        ? streamSessionChat(request, auth.principal)
+        : streamPrompt(request, auth.principal);
     }
 
     return Response.json(
@@ -93,7 +103,7 @@ async function authenticate(request: Request) {
   return resolveAccessPrincipal(token);
 }
 
-async function streamChat(request: Request, principal: Principal) {
+async function streamSessionChat(request: Request, principal: Principal) {
   if (!principal.organizationId) {
     return Response.json(
       {
@@ -109,7 +119,29 @@ async function streamChat(request: Request, principal: Principal) {
   const inputMessages = Array.isArray(body?.messages) ? body.messages : [];
   const modelSelection =
     typeof body?.modelSelection === "string" ? body.modelSelection : undefined;
-  const messages = normalizeMessages(inputMessages);
+  const sessionId = typeof body?.sessionId === "string" ? body.sessionId : "";
+  const clientMessages = normalizeAgentChatMessages(inputMessages);
+  let messages: AgentChatMessage[];
+
+  try {
+    const persistedMessages = await loadLushAgentSessionMessages(
+      {
+        userId: principal.userId,
+        organizationId
+      },
+      sessionId
+    );
+    messages = mergeAgentSessionMessages(persistedMessages, clientMessages);
+  } catch (error) {
+    if (error instanceof AgentSessionContextError) {
+      return Response.json(
+        { error: error.code, message: error.message },
+        { status: error.status, headers: corsHeaders }
+      );
+    }
+
+    throw error;
+  }
 
   if (messages.length === 0) {
     return Response.json(
@@ -118,6 +150,43 @@ async function streamChat(request: Request, principal: Principal) {
     );
   }
 
+  return streamMessages(request, organizationId, modelSelection, messages);
+}
+
+async function streamPrompt(request: Request, principal: Principal) {
+  if (!principal.organizationId) {
+    return Response.json(
+      {
+        error: "organization_required",
+        message: "An active organization is required"
+      },
+      { status: 403, headers: corsHeaders }
+    );
+  }
+
+  const organizationId = principal.organizationId;
+  const body = await request.json().catch(() => undefined);
+  const inputMessages = Array.isArray(body?.messages) ? body.messages : [];
+  const modelSelection =
+    typeof body?.modelSelection === "string" ? body.modelSelection : undefined;
+  const messages = normalizeAgentChatMessages(inputMessages);
+
+  if (messages.length === 0) {
+    return Response.json(
+      { error: "messages_required" },
+      { status: 400, headers: corsHeaders }
+    );
+  }
+
+  return streamMessages(request, organizationId, modelSelection, messages);
+}
+
+function streamMessages(
+  request: Request,
+  organizationId: string,
+  modelSelection: string | undefined,
+  messages: AgentChatMessage[]
+) {
   const controller = new AbortController();
   request.signal.addEventListener("abort", () => controller.abort(), {
     once: true
@@ -171,30 +240,4 @@ function unauthorized() {
     { error: "unauthorized" },
     { status: 401, headers: corsHeaders }
   );
-}
-
-function normalizeMessages(messages: unknown[]): AgentChatMessage[] {
-  return messages
-    .map((message) => {
-      if (!message || typeof message !== "object") {
-        return undefined;
-      }
-
-      const candidate = message as Record<string, unknown>;
-      const role = candidate.role;
-      const content = candidate.content;
-
-      if (
-        (role !== "user" && role !== "assistant") ||
-        typeof content !== "string"
-      ) {
-        return undefined;
-      }
-
-      return {
-        role,
-        content
-      };
-    })
-    .filter((message): message is AgentChatMessage => Boolean(message));
 }

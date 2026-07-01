@@ -8,10 +8,11 @@ import {
 } from "solid-js";
 import {
   streamAgentChat,
+  streamAgentPrompt,
   type AgentChatMessage,
   type InferenceProviderStatus,
   type SessionMessage,
-  type SessionThread,
+  type AgentSession,
   type UserRole,
 } from "@lush/api-client";
 import logoUrl from "../../assets/lush-logo.svg?url";
@@ -24,6 +25,7 @@ import {
   MessageContent
 } from "../../ui/Message";
 import { MessageScroller } from "../../ui/MessageScroller";
+import { agentChatDeltaMessages } from "../../lib/agent-chat-request";
 
 const suggestionPrompts = [
   {
@@ -63,19 +65,19 @@ export function ChatPage(props: {
   defaultModelSelection: string;
   providers: InferenceProviderStatus[];
   currentRole?: UserRole;
-  thread?: SessionThread;
+  session?: AgentSession;
   sessionKey: number;
   ensureSession: (force?: boolean) => Promise<string | undefined>;
   onCreateSession: (request: { title: string }) => Promise<string>;
   onAppendSessionMessage: (
-    threadId: string,
+    sessionId: string,
     message: {
       role: "user" | "assistant";
       content: string;
       metadata?: unknown;
     }
   ) => Promise<void>;
-  onSessionTitleChange: (threadId: string, title: string) => Promise<void>;
+  onSessionTitleChange: (sessionId: string, title: string) => Promise<void>;
   onNavigate: (href: string) => void;
 }) {
   let transcriptRef: HTMLDivElement | undefined;
@@ -92,7 +94,7 @@ export function ChatPage(props: {
   const [error, setError] = createSignal("");
   const [modelMenuOpen, setModelMenuOpen] = createSignal(false);
   const [selectedModelSelection, setSelectedModelSelection] = createSignal("");
-  const [activeThreadId, setActiveThreadId] = createSignal<string>();
+  const [activeSessionId, setActiveSessionId] = createSignal<string>();
   const greeting = createMemo(
     () => `${getGreeting(now())}, ${getFirstName(props.displayName)}`
   );
@@ -128,16 +130,16 @@ export function ChatPage(props: {
   });
 
   createEffect(() => {
-    const thread = props.thread;
+    const session = props.session;
     const sessionKey = props.sessionKey;
     if (isStreaming() || sessionKey === syncedSessionKey) {
       return;
     }
 
     syncedSessionKey = sessionKey;
-    setActiveThreadId(thread?.id);
+    setActiveSessionId(session?.id);
     setMessages(
-      (thread?.messages ?? [])
+      (session?.messages ?? [])
         .filter(isRenderableChatMessage)
         .map((message) => ({
           id: message.id,
@@ -251,7 +253,7 @@ export function ChatPage(props: {
       return;
     }
 
-    const shouldGenerateThreadTitle = !activeThreadId() && messages().length === 0;
+    const shouldGenerateSessionTitle = !activeSessionId() && messages().length === 0;
     const modelSelection = activeModelSelection();
     const userMessage: ChatMessage = {
       id: createId(),
@@ -265,10 +267,7 @@ export function ChatPage(props: {
       content: "",
       status: "streaming"
     };
-    const requestMessages = [...messages(), userMessage]
-      .filter((message) => message.role === "user" || message.role === "assistant")
-      .map(({ role, content }) => ({ role, content }));
-
+    const requestMessages = agentChatDeltaMessages(userMessage);
     setError("");
     setInput("");
     requestAnimationFrame(resizeInput);
@@ -281,15 +280,15 @@ export function ChatPage(props: {
     abortController = new AbortController();
 
     try {
-      let threadId = activeThreadId();
-      if (!threadId) {
-        threadId = await props.onCreateSession({
+      let sessionId = activeSessionId();
+      if (!sessionId) {
+        sessionId = await props.onCreateSession({
           title: titleFromContent(content)
         });
-        setActiveThreadId(threadId);
+        setActiveSessionId(sessionId);
       }
 
-      await props.onAppendSessionMessage(threadId, {
+      await props.onAppendSessionMessage(sessionId, {
         role: "user",
         content,
         metadata: {
@@ -298,20 +297,22 @@ export function ChatPage(props: {
       });
 
       let token = await props.ensureSession();
-      let response = await postChat(
+      let response = await postSessionChat(
         props.apiBaseUrl,
         token,
         modelSelection,
+        sessionId,
         requestMessages,
         abortController.signal
       );
 
       if (response.status === 401) {
         token = await props.ensureSession(true);
-        response = await postChat(
+        response = await postSessionChat(
           props.apiBaseUrl,
           token,
           modelSelection,
+          sessionId,
           requestMessages,
           abortController.signal
         );
@@ -360,7 +361,7 @@ export function ChatPage(props: {
         status: "complete"
       }));
 
-      await props.onAppendSessionMessage(threadId, {
+      await props.onAppendSessionMessage(sessionId, {
         role: "assistant",
         content: assistantContent,
         metadata: {
@@ -368,14 +369,14 @@ export function ChatPage(props: {
         }
       });
 
-      if (shouldGenerateThreadTitle && assistantContent.trim()) {
-        void generateAndPersistThreadTitle({
+      if (shouldGenerateSessionTitle && assistantContent.trim()) {
+        void generateAndPersistSessionTitle({
           apiBaseUrl: props.apiBaseUrl,
           sessionToken: token,
           modelSelection,
           userContent: content,
           assistantContent,
-          threadId,
+          sessionId,
           ensureSession: props.ensureSession,
           onSessionTitleChange: props.onSessionTitleChange
         });
@@ -578,26 +579,26 @@ async function agentResponseErrorMessage(response: Response) {
   return fallback;
 }
 
-async function generateAndPersistThreadTitle(request: {
+async function generateAndPersistSessionTitle(request: {
   apiBaseUrl: string;
   sessionToken: string | undefined;
   modelSelection: string;
   userContent: string;
   assistantContent: string;
-  threadId: string;
+  sessionId: string;
   ensureSession: (force?: boolean) => Promise<string | undefined>;
-  onSessionTitleChange: (threadId: string, title: string) => Promise<void>;
+  onSessionTitleChange: (sessionId: string, title: string) => Promise<void>;
 }) {
   const abortController = new AbortController();
   const timeout = window.setTimeout(() => abortController.abort(), 15_000);
 
   try {
-    const messages = threadTitlePromptMessages(
+    const messages = sessionTitlePromptMessages(
       request.userContent,
       request.assistantContent
     );
     let token = request.sessionToken ?? (await request.ensureSession());
-    let response = await postChat(
+    let response = await postPrompt(
       request.apiBaseUrl,
       token,
       request.modelSelection,
@@ -607,7 +608,7 @@ async function generateAndPersistThreadTitle(request: {
 
     if (response.status === 401) {
       token = await request.ensureSession(true);
-      response = await postChat(
+      response = await postPrompt(
         request.apiBaseUrl,
         token,
         request.modelSelection,
@@ -620,14 +621,14 @@ async function generateAndPersistThreadTitle(request: {
       return;
     }
 
-    const generatedTitle = normalizeGeneratedThreadTitle(
+    const generatedTitle = normalizeGeneratedSessionTitle(
       await readBoundedResponseText(response.body, 500)
     );
     if (!generatedTitle) {
       return;
     }
 
-    await request.onSessionTitleChange(request.threadId, generatedTitle);
+    await request.onSessionTitleChange(request.sessionId, generatedTitle);
   } catch {
     return;
   } finally {
@@ -635,7 +636,7 @@ async function generateAndPersistThreadTitle(request: {
   }
 }
 
-function threadTitlePromptMessages(
+function sessionTitlePromptMessages(
   userContent: string,
   assistantContent: string
 ): AgentChatMessage[] {
@@ -643,7 +644,7 @@ function threadTitlePromptMessages(
     {
       role: "user",
       content: [
-        "Write a concise title for this chat thread.",
+        "Write a concise title for this chat session.",
         "Use 3 to 6 words.",
         "Return only the title. Do not wrap it in quotes.",
         "",
@@ -678,7 +679,7 @@ async function readBoundedResponseText(
   return content.slice(0, maxCharacters);
 }
 
-function normalizeGeneratedThreadTitle(content: string) {
+function normalizeGeneratedSessionTitle(content: string) {
   const firstLine =
     content
       .split(/\r?\n/)
@@ -794,14 +795,29 @@ function getModelLabel(
   return model ? model.label : "";
 }
 
-function postChat(
+function postSessionChat(
+  apiBaseUrl: string,
+  sessionToken: string | undefined,
+  modelSelection: string,
+  sessionId: string,
+  messages: AgentChatMessage[],
+  signal: AbortSignal
+) {
+  return streamAgentChat(apiBaseUrl, "lush", sessionToken, {
+    sessionId,
+    messages,
+    modelSelection
+  }, signal);
+}
+
+function postPrompt(
   apiBaseUrl: string,
   sessionToken: string | undefined,
   modelSelection: string,
   messages: AgentChatMessage[],
   signal: AbortSignal
 ) {
-  return streamAgentChat(apiBaseUrl, "lush", sessionToken, {
+  return streamAgentPrompt(apiBaseUrl, "lush", sessionToken, {
     messages,
     modelSelection
   }, signal);

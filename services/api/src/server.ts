@@ -7,6 +7,12 @@ import {
   streamLushAgentChat
 } from "@lush/agent/runtime";
 import {
+  AgentSessionContextError,
+  loadLushAgentSessionMessages,
+  mergeAgentSessionMessages
+} from "@lush/agent/session-context";
+import { normalizeAgentChatMessages } from "@lush/agent/chat-request";
+import {
   AuthError,
   type AuthzAction,
   authorizePrincipal,
@@ -43,14 +49,14 @@ import {
 import {
   appendSessionMessage,
   appendSessionState,
-  archiveSessionThread,
-  createSessionThread,
+  archiveAgentSession,
+  createAgentSession,
   fetchSessionSettings,
-  fetchSessionThread,
-  listSessionThreads,
+  fetchAgentSession,
+  listAgentSessions,
   SessionStateError,
   updateSessionSettings,
-  updateSessionThread
+  updateAgentSession
 } from "@lush/sessions/runtime";
 import {
   ConfigError,
@@ -181,8 +187,8 @@ function routePath(id: ApiRouteId) {
   return path;
 }
 
-function threadIdParam(c: Context) {
-  return c.req.param("threadId") ?? "";
+function sessionIdParam(c: Context) {
+  return c.req.param("sessionId") ?? "";
 }
 
 app.post(routePath("registerAccount"), async (c) => {
@@ -591,8 +597,8 @@ app.post(routePath("updateInferenceModelDefault"), async (c) => {
   }
 });
 
-app.get(routePath("listSessionThreads"), async (c) => {
-  const authorized = await authenticateAuthorized(c, "listSessionThreads");
+app.get(routePath("listAgentSessions"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "listAgentSessions");
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -602,14 +608,14 @@ app.get(routePath("listSessionThreads"), async (c) => {
   }
 
   try {
-    return c.json(await listSessionThreads(principal));
+    return c.json(await listAgentSessions(principal));
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to list sessions");
   }
 });
 
-app.post(routePath("createSessionThread"), async (c) => {
-  const authorized = await authenticateAuthorized(c, "createSessionThread");
+app.post(routePath("createAgentSession"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "createAgentSession");
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -620,7 +626,7 @@ app.post(routePath("createSessionThread"), async (c) => {
 
   try {
     const body = await c.req.json().catch(() => undefined);
-    return c.json(await createSessionThread(principal, body));
+    return c.json(await createAgentSession(principal, body));
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to create session");
   }
@@ -661,8 +667,8 @@ app.patch(routePath("updateSessionSettings"), async (c) => {
   }
 });
 
-app.get(routePath("fetchSessionThread"), async (c) => {
-  const authorized = await authenticateAuthorized(c, "fetchSessionThread");
+app.get(routePath("fetchAgentSession"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "fetchAgentSession");
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -672,14 +678,14 @@ app.get(routePath("fetchSessionThread"), async (c) => {
   }
 
   try {
-    return c.json(await fetchSessionThread(principal, threadIdParam(c)));
+    return c.json(await fetchAgentSession(principal, sessionIdParam(c)));
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to load session");
   }
 });
 
-app.patch(routePath("updateSessionThread"), async (c) => {
-  const authorized = await authenticateAuthorized(c, "updateSessionThread");
+app.patch(routePath("updateAgentSession"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "updateAgentSession");
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -691,7 +697,7 @@ app.patch(routePath("updateSessionThread"), async (c) => {
   try {
     const body = await c.req.json().catch(() => undefined);
     return c.json(
-      await updateSessionThread(principal, threadIdParam(c), body)
+      await updateAgentSession(principal, sessionIdParam(c), body)
     );
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to update session");
@@ -711,7 +717,7 @@ app.post(routePath("appendSessionMessage"), async (c) => {
   try {
     const body = await c.req.json().catch(() => undefined);
     return c.json(
-      await appendSessionMessage(principal, threadIdParam(c), body)
+      await appendSessionMessage(principal, sessionIdParam(c), body)
     );
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to append session message");
@@ -731,15 +737,15 @@ app.post(routePath("appendSessionState"), async (c) => {
   try {
     const body = await c.req.json().catch(() => undefined);
     return c.json(
-      await appendSessionState(principal, threadIdParam(c), body)
+      await appendSessionState(principal, sessionIdParam(c), body)
     );
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to append session state");
   }
 });
 
-app.post(routePath("archiveSessionThread"), async (c) => {
-  const authorized = await authenticateAuthorized(c, "archiveSessionThread");
+app.post(routePath("archiveAgentSession"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "archiveAgentSession");
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -750,7 +756,7 @@ app.post(routePath("archiveSessionThread"), async (c) => {
 
   try {
     return c.json(
-      await archiveSessionThread(principal, threadIdParam(c))
+      await archiveAgentSession(principal, sessionIdParam(c))
     );
   } catch (error) {
     return handleSessionStateError(c, error, "Unable to archive session");
@@ -776,7 +782,57 @@ app.post(routePath("streamAgentChat"), async (c) => {
   const inputMessages = Array.isArray(body?.messages) ? body.messages : [];
   const modelSelection =
     typeof body?.modelSelection === "string" ? body.modelSelection : undefined;
-  const messages = normalizeMessages(inputMessages);
+  const sessionId = typeof body?.sessionId === "string" ? body.sessionId : "";
+  const clientMessages = normalizeAgentChatMessages(inputMessages);
+  let messages: AgentChatMessage[];
+
+  try {
+    const persistedMessages = await loadLushAgentSessionMessages(
+      {
+        userId: principal.userId,
+        organizationId: principal.organizationId
+      },
+      sessionId
+    );
+    messages = mergeAgentSessionMessages(persistedMessages, clientMessages);
+  } catch (error) {
+    if (error instanceof AgentSessionContextError) {
+      return c.json(
+        { error: error.code, message: error.message },
+        error.status as ContentfulStatusCode
+      );
+    }
+
+    throw error;
+  }
+
+  if (messages.length === 0) {
+    return c.json({ error: "messages_required" }, 400);
+  }
+
+  return streamChat(principal, c.req.raw, modelSelection, messages);
+});
+
+app.post(routePath("streamAgentPrompt"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "streamAgentPrompt");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  const agentSlug = c.req.param("agentSlug");
+  if (agentSlug !== getLushAgentMetadata().id) {
+    return c.json({ error: "agent_not_found" }, 404);
+  }
+
+  const body = await c.req.json().catch(() => undefined);
+  const inputMessages = Array.isArray(body?.messages) ? body.messages : [];
+  const modelSelection =
+    typeof body?.modelSelection === "string" ? body.modelSelection : undefined;
+  const messages = normalizeAgentChatMessages(inputMessages);
 
   if (messages.length === 0) {
     return c.json({ error: "messages_required" }, 400);
@@ -1256,30 +1312,4 @@ function providerFailureMessage(status: number) {
   }
 
   return "The inference provider rejected the request. Check the provider configuration and selected model.";
-}
-
-function normalizeMessages(messages: unknown[]): AgentChatMessage[] {
-  return messages
-    .map((message) => {
-      if (!message || typeof message !== "object") {
-        return undefined;
-      }
-
-      const candidate = message as Record<string, unknown>;
-      const role = candidate.role;
-      const content = candidate.content;
-
-      if (
-        (role !== "user" && role !== "assistant") ||
-        typeof content !== "string"
-      ) {
-        return undefined;
-      }
-
-      return {
-        role,
-        content
-      };
-    })
-    .filter((message): message is AgentChatMessage => Boolean(message));
 }

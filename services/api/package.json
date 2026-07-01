@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/server.ts",
+    "dev": "bun --watch src/server.ts",
     "start": "bun run src/server.ts",
     "typecheck": "tsgo --noEmit",
     "codegen": "bun run scripts/generate-client.ts",
