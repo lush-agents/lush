@@ -109,7 +109,6 @@ function useAppController() {
   const [chatSessions, setChatSessions] = useState<SessionSummary[]>([]);
   const [activeChatSession, setActiveChatSession] = useState<Session>();
   const [activeChatSessionId, setActiveChatSessionId] = useState<string>();
-  const [loadingChatSessionId, setLoadingChatSessionId] = useState<string>();
   const [chatSessionKey, setChatSessionKey] = useState(0);
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(null);
   const [membershipRole, setMembershipRole] = useState<UserRole>();
@@ -319,7 +318,6 @@ function useAppController() {
       setChatSessions([]);
       setActiveChatSession(undefined);
       setActiveChatSessionId(undefined);
-      setLoadingChatSessionId(undefined);
       activeChatSessionIdRef.current = undefined;
       loadingChatSessionIdRef.current = undefined;
       setChatSessionKey((current) => current + 1);
@@ -336,7 +334,7 @@ function useAppController() {
       setActiveChatSession(undefined);
       setActiveChatSessionId(undefined);
       activeChatSessionIdRef.current = undefined;
-      setLoadingChatSessionId(undefined);
+      loadingChatSessionIdRef.current = undefined;
       setChatSessionKey((current) => current + 1);
     }
   };
@@ -436,7 +434,6 @@ function useAppController() {
     setChatSessions([]);
     setActiveChatSession(undefined);
     setActiveChatSessionId(undefined);
-    setLoadingChatSessionId(undefined);
     activeChatSessionIdRef.current = undefined;
     loadingChatSessionIdRef.current = undefined;
     setChatSessionKey((current) => current + 1);
@@ -834,7 +831,6 @@ function useAppController() {
     chatSessionLoadRequestIdRef.current += 1;
     setActiveChatSession(undefined);
     setActiveChatSessionId(undefined);
-    setLoadingChatSessionId(undefined);
     activeChatSessionIdRef.current = undefined;
     loadingChatSessionIdRef.current = undefined;
     setChatSessionKey((current) => current + 1);
@@ -969,7 +965,6 @@ function useAppController() {
       return;
     }
 
-    setLoadingChatSessionId(sessionId);
     loadingChatSessionIdRef.current = sessionId;
 
     try {
@@ -978,9 +973,6 @@ function useAppController() {
       resetChatSession();
       replaceRoute("/chat");
     } finally {
-      setLoadingChatSessionId((current) =>
-        current === sessionId ? undefined : current
-      );
       if (loadingChatSessionIdRef.current === sessionId) {
         loadingChatSessionIdRef.current = undefined;
       }
