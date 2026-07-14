@@ -9,6 +9,28 @@ follow as adapter conformance tests. Supporting all five without changing the
 core domain model is the confidence threshold for treating the harness
 abstraction as correctly scoped.
 
+## Design Review Disposition
+
+The following decisions incorporate the first external review of this plan.
+
+| Review point | Disposition |
+| --- | --- |
+| The first milestone carries too much generality | Accept. Define a narrow local dogfood slice and explicitly defer speculative environment features. |
+| Event normalization is underspecified | Accept. Phase 0 produces concrete discriminated schemas and golden mappings, not `data: unknown`. |
+| Evaluate Agent Client Protocol (ACP) | Accept. ACP becomes the preferred harness transport where available, with a documented gap analysis and Lush extensions at the domain boundary. |
+| `HarnessId` prevents third-party adapters | Accept. Replace the closed union with registry-defined IDs and adapter manifests. |
+| Protocol drift and resume compatibility arrive too late | Accept. Version policy and automated drift detection move into Phases 0 and 2. |
+| Managed consumer-subscription authentication may be unavailable | Accept as a release gate. Managed harness availability requires an official credential and licensing path with viable economics. |
+| Raw payload retention is unsafe by default | Accept. Raw payload persistence is off by default and redaction must happen before any diagnostic write. |
+| Human implementation effort is roughly a year | Push back on coding throughput, accept the risk concentration. Adapter glue is regenerable; schemas, fixtures, conformance, and security review are the durable work. |
+| Checkpoint/restore is speculative | Accept. Remove it from the required environment interface and treat it as an optional managed capability. |
+
+The practical consequence is that Phase 0 is not preliminary scaffolding. It
+is the core product-engineering phase. Adapter implementations should be cheap
+to regenerate from current upstream schemas and fixtures; the stable assets are
+the canonical event model, conformance suite, compatibility policy, and safety
+invariants.
+
 ## Objective
 
 Build Lush Code as a best-in-class client and orchestrator for existing coding
@@ -36,6 +58,38 @@ The success criterion for the first product milestone is concrete: a developer
 can use Lush Code to implement a scoped change in the Lush repository, inspect
 the activity and patch, run validation, request a revision, and accept the
 result without switching to another coding-agent client.
+
+## First Dogfood Slice
+
+The first milestone is intentionally local and single-repository:
+
+- desktop local execution on the current machine;
+- one primary Git repository;
+- a default-on Lush-managed worktree;
+- Codex, Claude Code, and OpenCode through ACP where viable or direct structured
+  adapters where required;
+- typed session, message, command, tool, diff, approval, usage, and completion
+  events;
+- resume, cancellation, bounded process output, and safe worktree retention;
+- the inline preflight composer and active-session experience; and
+- enough local preview/browser handoff to validate a Lush frontend change.
+
+The following remain represented in the architecture but are not prerequisites
+for the first dogfood milestone:
+
+- managed sandbox execution;
+- SSH and remote-control targets;
+- environment checkpoint/restore and hibernation;
+- writable multi-root or coordinated multi-repository workspaces;
+- generalized artifact pipelines beyond diffs, logs, and screenshots;
+- automated browser operation beyond the initial local validation path;
+- cross-harness usage analytics; and
+- Pi and Amp adapters.
+
+Interfaces for deferred features should be added only when an implementation or
+second concrete consumer requires them. Capability flags may reserve product
+vocabulary, but the core runtime should not contain no-op methods for
+speculative backends.
 
 ## Product Modes
 
@@ -169,8 +223,6 @@ interface CodeExecutionEnvironment {
   inspect(): Promise<ExecutionEnvironmentState>;
   startProcess(request: ProcessRequest): Promise<ProcessHandle>;
   exposePort(request: PortExposureRequest): Promise<PortExposure>;
-  checkpoint(request: CheckpointRequest): Promise<Checkpoint>;
-  restore(checkpointId: string): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -189,9 +241,16 @@ type ExecutionEnvironmentCapabilities = {
   subagents: boolean;
   platform: string;
 };
+
+interface CheckpointCapableEnvironment extends CodeExecutionEnvironment {
+  checkpoint(request: CheckpointRequest): Promise<Checkpoint>;
+  restore(checkpointId: string): Promise<void>;
+}
 ```
 
-The interface is conceptual. Harnesses may execute commands internally rather
+The base interface is conceptual. Optional extensions such as
+`CheckpointCapableEnvironment` exist only when a real executor implements
+them. Harnesses may execute commands internally rather
 than calling `startProcess` through Lush. The orchestrator still owns the
 environment lifecycle and must be able to describe, constrain, observe, and
 terminate the resulting process tree.
@@ -215,8 +274,8 @@ it:
 10. delegate bounded work to parallel agents where the harness supports it;
 11. run repository validation and compare the final diff to the requested
     task; and
-12. checkpoint, resume, or hand off the session without losing execution
-    context.
+12. resume or hand off the session without losing execution context, using an
+    environment checkpoint only where the executor supports one.
 
 These capabilities should be first-class environment features rather than
 prompt conventions. A managed agent should not need to invent port forwarding,
@@ -400,8 +459,12 @@ how execution resumes.
 type HarnessSessionBinding = {
   harnessId: HarnessId;
   harnessVersion: string;
+  adapterId: string;
+  adapterVersion: string;
+  transport: "acp" | "native-rpc" | "sdk" | "structured-cli";
+  transportProtocolVersion: string;
+  eventSchemaVersion: number;
   externalSessionId: string;
-  adapterProtocolVersion: number;
   workspaceId: string;
 };
 ```
@@ -432,7 +495,24 @@ The contract must normalize lifecycle without reducing every harness to the
 smallest feature set.
 
 ```ts
-type HarnessId = "codex" | "claude-code" | "opencode" | "pi" | "amp";
+type HarnessId = string;
+
+const builtInHarnessIds = {
+  codex: "codex",
+  claudeCode: "claude-code",
+  opencode: "opencode",
+  pi: "pi",
+  amp: "amp",
+} as const;
+
+type HarnessAdapterManifest = {
+  id: HarnessId;
+  displayName: string;
+  adapterVersion: string;
+  transport: "acp" | "native-rpc" | "sdk" | "structured-cli";
+  supportedHarnessVersions: string;
+  factory: CodingHarnessAdapterFactory;
+};
 
 interface CodingHarnessAdapter {
   readonly id: HarnessId;
@@ -453,6 +533,11 @@ interface HarnessSession {
   dispose(): Promise<void>;
 }
 ```
+
+Adapters are resolved from a registry rather than a core union. Built-in
+adapters ship with Lush; organization and third-party adapters may be installed
+only through a signed or explicitly trusted extension path. Extensibility does
+not permit a remote client to nominate an arbitrary local executable.
 
 ### Required baseline capabilities
 
@@ -494,60 +579,227 @@ such as steering, session forks, or richer approval decisions remain available.
 
 ### Normalized event envelope
 
-The event model should preserve stable product concepts and the original
-payload.
+The event model is a discriminated union with a concrete payload schema per
+kind. `unknown` is permitted only inside explicitly opaque vendor metadata that
+is neither rendered nor trusted for policy decisions.
 
 ```ts
-type HarnessEvent = {
+type EventBase<Kind extends string, Data> = {
   id: string;
   sequence: number;
   occurredAt: string;
   harnessId: HarnessId;
   externalSessionId: string;
-  kind:
-    | "session.started"
-    | "turn.started"
-    | "message.delta"
-    | "reasoning.delta"
-    | "tool.started"
-    | "tool.updated"
-    | "tool.completed"
-    | "command.started"
-    | "command.output"
-    | "command.completed"
-    | "file.changed"
-    | "diff.updated"
-    | "approval.requested"
-    | "interaction.requested"
-    | "usage.updated"
-    | "turn.completed"
-    | "turn.failed";
-  data: unknown;
-  raw: {
-    protocol: string;
-    protocolVersion: string;
-    payload: unknown;
-  };
+  turnId?: string;
+  kind: Kind;
+  data: Data;
+  diagnostic?: RawEventReference;
+};
+
+type HarnessEvent =
+  | EventBase<"session.started", SessionStartedData>
+  | EventBase<"turn.started", TurnStartedData>
+  | EventBase<"message.delta", MessageDeltaData>
+  | EventBase<"reasoning.delta", ReasoningDeltaData>
+  | EventBase<"tool.started" | "tool.updated" | "tool.completed", ToolEventData>
+  | EventBase<"command.started" | "command.completed", CommandEventData>
+  | EventBase<"command.output", CommandOutputData>
+  | EventBase<"file.changed", FileChangedData>
+  | EventBase<"diff.updated", DiffUpdatedData>
+  | EventBase<"approval.requested", ApprovalRequestedData>
+  | EventBase<"interaction.requested", InteractionRequestedData>
+  | EventBase<"usage.updated", UsageUpdatedData>
+  | EventBase<"turn.completed" | "turn.failed", TurnCompletedData>;
+
+type MessageDeltaData = {
+  messageId: string;
+  role: "assistant";
+  format: "markdown" | "text";
+  delta: string;
+};
+
+type ReasoningDeltaData = {
+  blockId: string;
+  visibility: "summary" | "native";
+  delta: string;
+};
+
+type ToolEventData = {
+  toolCallId: string;
+  kind: "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "other";
+  name: string;
+  title: string;
+  status: "pending" | "running" | "completed" | "failed" | "declined";
+  input?: JsonValue;
+  content?: ToolContent[];
+  error?: StructuredError;
+};
+
+type CommandEventData = {
+  commandId: string;
+  command: string[];
+  cwd: WorkspaceRelativePath;
+  status: "running" | "completed" | "failed" | "declined";
+  exitCode?: number;
+  durationMs?: number;
+};
+
+type CommandOutputData = {
+  commandId: string;
+  stream: "stdout" | "stderr" | "combined";
+  chunk?: string;
+  artifactRef?: string;
+  truncated: boolean;
+};
+
+type FileChangedData = {
+  path: WorkspaceRelativePath;
+  operation: "create" | "update" | "delete" | "move";
+  previousPath?: WorkspaceRelativePath;
+  status: "proposed" | "applied" | "failed" | "declined";
+};
+
+type DiffUpdatedData = {
+  baseCommit: string;
+  patch?: string;
+  artifactRef?: string;
+  files: Array<{ path: WorkspaceRelativePath; additions?: number; deletions?: number }>;
+};
+
+type ApprovalRequestedData = {
+  interactionId: string;
+  category: "command" | "file-change" | "network" | "filesystem" | "tool";
+  title: string;
+  detail?: string;
+  requestedScope: JsonValue;
+  options: Array<{ id: string; label: string; scope: "once" | "session" }>;
+};
+
+type UsageUpdatedData = {
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  costUsd?: number;
+  source: "harness-reported" | "provider-reported" | "estimated";
+};
+
+type TurnCompletedData = {
+  status: "completed" | "failed" | "interrupted";
+  error?: StructuredError;
+  usage?: UsageUpdatedData;
+};
+
+type RawEventReference = {
+  protocol: string;
+  protocolVersion: string;
+  digest: string;
+  supportBundleRef?: string;
 };
 ```
 
-Normalization should happen once in the adapter. Persisted events and live UI
-events use the same contract. Large command output and artifacts may be stored
-out of line with references in the event.
+The full Phase 0 schema also defines `SessionStartedData`, `TurnStartedData`,
+`ToolContent`, `InteractionRequestedData`, `StructuredError`, path rules, size
+limits, and forward-compatible unknown-enum behavior. The examples above commit
+the plan to typed payloads without pretending the plan itself is the schema
+package.
+
+Normalization happens once in the adapter. Persisted events and live UI events
+use the same contract. Large command output, patches, and artifacts are stored
+out of line with bounded references.
+
+### Raw payload retention
+
+Raw harness payloads are not persisted by default in either execution mode.
+The canonical event is the durable record.
+
+- Local mode may keep a bounded in-memory diagnostic ring. The user can
+  explicitly create an encrypted support bundle after reviewing its contents.
+- Managed mode diagnostic capture is disabled by default. Organization policy
+  may enable a short-TTL encrypted capture for a specific session.
+- Adapters redact through an allowlist before any raw payload crosses a durable
+  storage boundary. Redaction after persistence is not sufficient.
+- Command output is governed separately: it is bounded, truncatable, clearable,
+  and subject to secret-pattern filtering before persistence.
+- Diagnostic references contain a digest and optional support-bundle pointer,
+  never an inline `unknown` payload.
+
+### ACP strategy
+
+Lush adopts the Agent Client Protocol as the preferred harness transport where
+an upstream or well-maintained adapter is available. ACP protocol version 1
+already covers capability negotiation, session setup and resume, configuration
+options, streaming session updates, tool-call lifecycle, rich tool content,
+permission requests, and client terminal/filesystem capabilities.
+
+ACP does not replace the Lush orchestration domain. Worktree ownership,
+execution-target selection, managed sandbox policy, durable event retention,
+cross-device session indexing, credential brokerage, and requested-versus-
+effective autonomy remain Lush responsibilities.
+
+Phase 0 produces an ACP gap matrix:
+
+1. map ACP session updates and tool kinds to the canonical Lush event schemas;
+2. map ACP permission options to Lush interaction and policy semantics;
+3. identify information lost by the available ACP adapters for the five target
+   harnesses;
+4. prefer upstream ACP adapters when they meet baseline conformance;
+5. retain direct adapters only for missing capabilities or unsupported
+   harnesses; and
+6. avoid private ACP wire extensions when the same information can remain in
+   the Lush orchestration layer.
+
+Lush should also be able to expose its own harness adapters through ACP later,
+making the adapter ecosystem useful outside the Lush client.
 
 ### Harness-specific surfaces
 
 | Harness | Preferred integration | Notes |
 | --- | --- | --- |
-| Codex | `codex app-server` | Bidirectional JSON-RPC with generated schemas, thread/turn/item lifecycle, approvals, interruption, resume, and fork. |
-| Claude Code | Agent SDK or `--input-format stream-json --output-format stream-json` | Supports resumable sessions and structured assistant/tool/result messages. Permission callbacks require an explicit bridge. |
-| OpenCode | Headless server/OpenAPI and SSE; `run --format json` for the first spike | Server mode provides sessions, events, VCS state, and permission responses. |
+| Codex | Conformant ACP adapter, otherwise `codex app-server` | App-server supplies generated schemas and richer thread/turn/item, approval, interruption, resume, and fork data when ACP loses required detail. |
+| Claude Code | Conformant ACP adapter, otherwise Agent SDK or bidirectional stream JSON | Direct permission callbacks remain available when the ACP adapter cannot express the effective policy. |
+| OpenCode | Conformant ACP adapter, otherwise headless server/OpenAPI and SSE | `run --format json` remains useful for fixtures and a minimal direct fallback. |
 | Pi | `pi --mode rpc` or TypeScript SDK | JSONL RPC is explicitly intended for custom host UIs. Pi's default security posture requires Lush-side containment or an extension policy. |
 | Amp | `@ampcode/sdk` or CLI stream JSON | SDK supports streaming input/output, thread continuation, MCP, and programmatic permissions. |
 
 Formatted terminal output and screen scraping are not supported integration
 contracts. A PTY may be added later as an explicitly degraded compatibility
 adapter, but it cannot define the primary event model.
+
+### Version compatibility and drift
+
+Every adapter manifest declares its adapter version, supported harness-version
+range, transport, ACP protocol version where applicable, and canonical event
+schema version. The session binding records all of them.
+
+Resume policy:
+
+1. resume directly when the installed harness and negotiated protocol remain in
+   the recorded compatible range;
+2. perform a non-mutating compatibility probe when the installed version is
+   newer but plausibly compatible;
+3. update the binding only after the probe and fixture contract pass;
+4. keep the transcript readable but block execution when compatibility is
+   unknown or broken; and
+5. offer a pinned managed runtime or actionable local install guidance rather
+   than attempting a lossy transcript reconstruction.
+
+Lush does not silently upgrade local harnesses. Managed environments pin the
+harness build and adapter by image digest for the life of a resumable session.
+
+Protocol maintenance is fixture-driven:
+
+- record sanitized native and ACP fixture streams for every supported release
+  family;
+- store the expected canonical event stream beside each fixture;
+- run the suite against minimum, current, and latest upstream versions;
+- use scheduled isolated CI to detect new releases and protocol drift;
+- allow an agent to regenerate schemas or propose adapter patches; and
+- require human review before publishing compatibility changes, especially for
+  approval, redaction, process, filesystem, and credential behavior.
+
+A latest-version failure does not break known-good users. It marks that release
+unsupported, opens a maintenance report, and preserves the previous compatible
+range until a reviewed adapter release passes conformance.
 
 ## Local Mode
 
@@ -732,9 +984,11 @@ filesystems without requiring shared-workspace Git worktrees.
 Lifecycle states:
 
 ```text
-provisioning -> ready -> running -> idle -> hibernated -> destroyed
-                         |                     |
-                         +------ failed -------+
+provisioning -> ready -> running -> idle -> destroyed
+                  |          |
+                  +-- failed-+
+
+optional: idle -> hibernated -> ready
 ```
 
 The environment must support:
@@ -750,8 +1004,11 @@ The environment must support:
 - authenticated preview-port forwarding;
 - isolated browser automation and screenshot capture;
 - cancellation and hard termination;
-- patch and artifact extraction; and
-- checkpoint or hibernation semantics for resumable sessions.
+- patch and bounded artifact extraction.
+
+Hibernation and filesystem checkpoints are optional executor capabilities.
+Harness session resume and durable Lush events must work even when the managed
+environment can only remain active or be recreated from repository state.
 
 ### Repository access
 
@@ -777,6 +1034,21 @@ license-compatible server installation and a non-interactive credential path.
 The harness capability response therefore includes execution-mode availability
 and an actionable reason when unavailable. Lush must not imply that a local
 subscription login can be transferred into a managed sandbox.
+
+This is a Phase 5 release gate, not a detail to resolve during implementation.
+Before a harness is offered in managed mode, Lush must establish:
+
+- an official server-side or delegated authentication mechanism;
+- licensing and terms compatible with hosted execution;
+- a secure refresh, revocation, and audit path;
+- who pays for inference and how cost is surfaced; and
+- viable unit economics for the expected session duration and concurrency.
+
+Consumer subscription credentials are never assumed portable. If a harness has
+no approved managed credential path, it remains local-only. Managed Code may
+still offer another harness or a Lush-managed agent backed by organization API
+credentials; the UI must present that as a different execution product rather
+than implying subscription parity.
 
 ## Approvals and Interaction
 
@@ -1000,19 +1272,26 @@ process/server. CI must not require paid inference calls.
 Required conformance cases:
 
 1. reports missing, incompatible, and installed versions;
-2. starts with the exact requested working directory;
-3. emits and persists an external session ID;
-4. streams assistant text without duplication;
-5. represents reasoning without exposing unsupported hidden content;
-6. maps command, tool, file-change, and diff events;
-7. maps terminal success and failure;
-8. cancels a running turn and child processes;
-9. resumes the correct native session;
-10. survives unknown additive native events;
-11. redacts configured sensitive fields from raw payload retention; and
-12. maps requested autonomy to a non-broader effective harness policy;
-13. handles supported additional workspace roots without widening access; and
-14. declares capability differences accurately.
+2. negotiates or detects the expected transport protocol and capabilities;
+3. starts with the exact requested working directory;
+4. emits and persists an external session ID;
+5. streams assistant text without duplication;
+6. represents reasoning without exposing unsupported hidden content;
+7. maps command, tool, file-change, diff, approval, and usage events into their
+   concrete canonical schemas;
+8. maps terminal success and failure;
+9. cancels a running turn and child processes;
+10. resumes the correct native session across every supported version pair;
+11. blocks resume for incompatible or unknown versions without corrupting the
+    native session;
+12. survives unknown additive native events;
+13. keeps raw persistence disabled by default and redacts before diagnostic
+    writes;
+14. maps requested autonomy to a non-broader effective harness policy;
+15. handles supported additional workspace roots without widening access;
+16. produces equivalent canonical events through ACP and direct transports for
+    shared fixture scenarios; and
+17. declares capability differences accurately.
 
 Optional live smoke tests run only when explicitly enabled and authenticated.
 They use a temporary Git repository, a bounded prompt, and a cost ceiling where
@@ -1024,18 +1303,48 @@ core session, workspace, or event model. New optional capability flags are
 acceptable; special cases in shared UI and persistence are a signal to revisit
 the boundary.
 
+## Human Review Gates
+
+Agent-generated adapter and UI code is expected. Human review is mandatory for
+changes to these concentrated risk areas:
+
+- Tauri-sidecar authentication, capability tokens, and local transport;
+- executable discovery and environment-variable inheritance;
+- requested-to-effective autonomy and approval mapping;
+- filesystem and network scope expansion;
+- worktree forced removal and branch deletion;
+- raw-event, command-output, artifact, and secret redaction;
+- managed credential injection and revocation; and
+- compatibility changes that could resume or mutate an existing native
+  harness session.
+
+Humans also curate the fixture corpus: representative scenarios, expected
+canonical meaning, and checks against fixtures that pass while omitting an
+important behavior. Agents can capture and update fixtures, but they should not
+unilaterally decide what constitutes adequate protocol coverage.
+
+Those reviews should be adversarial and test-backed. Passing generated code is
+not enough when a 95 percent correct implementation could delete work or widen
+authority.
+
 ## Delivery Plan
 
 ### Phase 0: Contract and fixtures
 
-- Define the domain types, event envelope, capability model, and interaction
-  request contract.
-- Capture versioned protocol fixtures for Codex, Claude Code, and OpenCode.
+- Define the concrete canonical event schemas, capability model, interaction
+  contract, size limits, redaction rules, and unknown-event behavior.
+- Implement the ACP client baseline and publish the ACP gap matrix.
+- Capture sanitized native and ACP fixtures plus expected canonical streams for
+  Codex, Claude Code, and OpenCode.
 - Build the adapter conformance harness before live integration.
-- Document supported CLI version ranges and compatibility behavior.
+- Define supported version ranges, binding metadata, and resume compatibility
+  behavior.
+- Add scheduled latest-release drift detection that opens a maintenance report
+  or agent-generated patch for human review.
 
 Exit criterion: fake adapters and fixture replays drive one complete Code turn
-through the normalized event stream.
+through the normalized event stream, ACP-versus-direct equivalence is measured,
+and a simulated breaking harness release fails closed.
 
 ### Phase 1: Local executor and worktrees
 
@@ -1048,8 +1357,10 @@ through the normalized event stream.
 - Implement session-draft validation, lazy first-send provisioning, and
   additional-root policy.
 - Add a local-only metadata store and repository mutation locks.
-- Add process supervision, environment inspection, preview-port discovery, and
-  artifact collection.
+- Add process supervision, environment inspection, bounded logs, and local
+  preview-port discovery.
+- Complete human security review of local transport, executable discovery, and
+  destructive worktree operations.
 
 Exit criterion: the desktop app can select a repository, create a managed
 worktree on first send, and show its exact branch/base/dirty state without
@@ -1057,12 +1368,14 @@ creating resources while the session remains a draft.
 
 ### Phase 2: First three adapters
 
-- Codex through `codex app-server`.
-- Claude Code through its Agent SDK or bidirectional stream JSON interface.
-- OpenCode through its headless server, using CLI JSON mode for initial fixture
-  compatibility where useful.
+- Integrate Codex, Claude Code, and OpenCode through conformant ACP adapters
+  where available.
+- Add direct transports only for gaps demonstrated by the Phase 0 matrix:
+  `codex app-server`, the Claude Agent SDK or bidirectional stream JSON, and
+  the OpenCode headless server or CLI JSON mode.
 - Persist Lush session bindings and normalized events.
 - Implement cancellation and the supported approval flows.
+- Run minimum/current/latest version fixtures and cross-version resume tests.
 
 Exit criterion: each harness can complete and resume a multi-turn change in a
 temporary repository through the same orchestration API.
@@ -1080,29 +1393,33 @@ temporary repository through the same orchestration API.
 Exit criterion: implement a real Lush change using Lush Code with Codex, then
 repeat with Claude Code and OpenCode.
 
-### Phase 4: Managed sandbox executor
+### Phase 4: Pi and Amp validation
 
-- Select the sandbox provider and define the environment runtime contract.
-- Build repository credential and checkout workflows.
-- Package pinned harness versions in managed runtime images.
-- Add policy-controlled egress, resource limits, hibernation, and artifact
-  extraction.
-- Add process supervision, authenticated preview URLs, isolated browser
-  automation, and checkpoint restore.
-- Expose the same orchestration API to desktop and hosted web clients.
-
-Exit criterion: a session started in the hosted web app completes in a managed
-sandbox and can be resumed from the desktop app.
-
-### Phase 5: Pi and Amp validation
-
-- Implement Pi RPC/SDK and Amp SDK adapters.
-- Run the full conformance suite.
+- Implement Pi RPC/SDK and Amp SDK adapters, preferring conformant ACP adapters
+  when available.
+- Run the full conformance and drift suite.
 - Refactor the shared contract only when a concept is genuinely common or a
   capability distinction is required.
 
 Exit criterion: all five adapters pass baseline conformance without
 harness-specific branches in shared persistence or primary Code UI components.
+
+### Phase 5: Managed sandbox executor
+
+- Publish the per-harness managed credential, licensing, and unit-economics
+  matrix and make an explicit go/no-go decision for each harness.
+- Select the sandbox provider and define the environment runtime contract.
+- Build repository credential and checkout workflows.
+- Package pinned harness versions in managed runtime images.
+- Add policy-controlled egress, resource limits, and bounded artifact
+  extraction.
+- Add process supervision, authenticated preview URLs, isolated browser
+  automation, and hard termination.
+- Expose the same orchestration API to desktop and hosted web clients.
+
+Exit criterion: a session using an approved managed credential path starts in
+the hosted web app, completes in a managed sandbox, and resumes from the desktop
+app. Hibernation and checkpoint restore are not required for this exit.
 
 ### Phase 6: Hardening
 
@@ -1110,6 +1427,8 @@ harness-specific branches in shared persistence or primary Code UI components.
 - Sidecar upgrade compatibility and protocol negotiation.
 - Worktree recovery and branch publication flows.
 - Managed environment quotas and cost controls.
+- Optional managed hibernation and checkpoint/restore for executors that
+  support it.
 - OpenTelemetry spans, audit events, and support bundles.
 - Performance budgets for cold start, event latency, memory, and long-session
   rendering.
@@ -1127,6 +1446,8 @@ harness-specific branches in shared persistence or primary Code UI components.
 - Worktrees are not treated as security sandboxes.
 - The first adapters are Codex, Claude Code, and OpenCode.
 - Pi and Amp are required before declaring the adapter contract stable.
+- ACP is the preferred harness transport where it passes Lush conformance;
+  direct adapters fill measured gaps rather than defining a parallel standard.
 - Structured programmatic interfaces are required; formatted TUI scraping is
   out of scope.
 - Native harness sessions remain the execution-context source of truth.
@@ -1139,6 +1460,11 @@ harness-specific branches in shared persistence or primary Code UI components.
 - Autonomy is a visible, audited session setting distinct from harness, model,
   reasoning effort, and execution target.
 - Multi-root workspaces are explicit; additional roots default to read-only.
+- Canonical events have concrete schemas; raw payload persistence is off by
+  default.
+- Harness drift detection and resume compatibility are Phase 0/2 concerns.
+- Managed harness availability is gated on official credentials, licensing,
+  security, and viable economics.
 
 ## Open Decisions
 
@@ -1151,17 +1477,14 @@ harness-specific branches in shared persistence or primary Code UI components.
    harness capabilities?
 5. Should one Lush Code session map permanently to one worktree, or may a user
    explicitly rebind it after branch publication?
-6. What is the managed-mode credential model for harnesses whose consumer
-   subscription authentication cannot be delegated to a server environment?
-7. Which event payloads must be retained raw, and what default retention and
-   redaction policy applies to local versus managed sessions?
-8. How should branch publication, pull requests, and merge completion affect
+6. Which measured ACP gaps justify retaining a direct adapter for each harness?
+7. How should branch publication, pull requests, and merge completion affect
    worktree retention?
-9. Should SSH and remote-control targets enter immediately after local mode or
+8. Should SSH and remote-control targets enter immediately after local mode or
    wait until managed sandbox execution is complete?
-10. Which session-draft fields persist across app restarts, and which remain
-    ephemeral until first send?
-11. How should secondary writable repositories participate in branch,
+9. Which session-draft fields persist across app restarts, and which remain
+   ephemeral until first send?
+10. How should secondary writable repositories participate in branch,
     worktree, and publication workflows?
 
 These decisions should be resolved through the first Codex local-mode spike and
@@ -1169,6 +1492,8 @@ the managed sandbox proof rather than through UI-only prototyping.
 
 ## Upstream References
 
+- [Agent Client Protocol specification and SDKs](https://github.com/agentclientprotocol/agent-client-protocol)
+- [Agent Client Protocol updates](https://agentclientprotocol.com/updates)
 - [Codex app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md)
 - [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-usage)
 - [OpenCode server API](https://opencode.ai/docs/server/)
