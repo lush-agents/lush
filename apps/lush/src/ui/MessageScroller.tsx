@@ -1,43 +1,48 @@
-import type { JSX } from "solid-js";
-import { Marker } from "./Marker";
-import { ScrollFade } from "./ScrollFade";
+import type { ReactNode } from "react";
+import { ArrowDown } from "lucide-react";
+import {
+  MessageScroller as ShadcnMessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport
+} from "../components/ui/message-scroller";
 
 export function MessageScroller(props: {
-  children: JSX.Element;
-  viewportRef?: (element: HTMLDivElement) => void;
-  onScroll?: JSX.EventHandlerUnion<HTMLDivElement, Event>;
-  onPointerDown?: JSX.EventHandlerUnion<HTMLDivElement, PointerEvent>;
-  onKeyDown?: JSX.EventHandlerUnion<HTMLDivElement, KeyboardEvent>;
-  showJumpToLatest?: boolean;
-  onJumpToLatest?: () => void;
+  children: ReactNode;
+  resetKey: string;
+  busy?: boolean;
 }) {
   return (
-    <div class="relative min-h-0 flex-1">
-      <ScrollFade
-        class="h-full"
-        viewportRef={props.viewportRef}
-        onScroll={props.onScroll}
-        onPointerDown={props.onPointerDown}
-        onKeyDown={props.onKeyDown}
-        viewportClass="h-full overflow-y-auto pr-3"
-        contentClass="mx-auto flex max-w-3xl flex-col gap-5 pb-32"
-        ariaLive="polite"
-        top={false}
-        bottom
-      >
-        {props.children}
-      </ScrollFade>
-
-      {props.showJumpToLatest ? (
-        <button
-          type="button"
-          onClick={props.onJumpToLatest}
-          class="absolute bottom-28 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--color-brand)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] shadow-xl shadow-[var(--shadow-menu)]"
+    <MessageScrollerProvider
+      key={props.resetKey}
+      autoScroll
+      defaultScrollPosition="last-anchor"
+      scrollEdgeThreshold={40}
+      scrollPreviousItemPeek={64}
+      scrollMargin={32}
+    >
+      <ShadcnMessageScroller className="relative min-h-0 flex-1">
+        <MessageScrollerViewport className="h-full overflow-y-auto pr-3">
+          <MessageScrollerContent
+            aria-busy={props.busy}
+            className="mx-auto flex max-w-3xl flex-col gap-8 pb-8"
+          >
+            {props.children}
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+        <MessageScrollerButton
+          direction="end"
+          className="bottom-4 border-[var(--color-border-strong)] bg-[var(--color-panel)] text-[var(--color-text)] shadow-lg shadow-[var(--shadow-menu)] hover:bg-[var(--color-panel-hover)]"
+          render={<button type="button" />}
         >
-          <Marker tone="brand">New</Marker>
-          <span>Jump to latest</span>
-        </button>
-      ) : null}
-    </div>
+          <ArrowDown aria-hidden="true" />
+          <span className="sr-only">Jump to latest</span>
+        </MessageScrollerButton>
+      </ShadcnMessageScroller>
+    </MessageScrollerProvider>
   );
 }
+
+export { MessageScrollerItem };

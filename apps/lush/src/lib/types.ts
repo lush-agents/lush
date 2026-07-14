@@ -19,8 +19,47 @@ export type Concept = {
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
-  content: string;
+  parts: ChatMessagePart[];
   status?: "streaming" | "complete" | "error";
 };
+
+export type ChatAttachmentPart = {
+  type: "attachment";
+  id: string;
+  filename: string;
+  mediaType: string;
+  size?: number;
+  content: string;
+};
+
+export type ChatToolState =
+  | "input-streaming"
+  | "input-available"
+  | "output-available"
+  | "output-error";
+
+export type ChatMessagePart =
+  | { type: "text"; text: string }
+  | { type: "reasoning"; text: string; durationMs?: number }
+  | (ChatAttachmentPart)
+  | {
+      type: "tool";
+      toolCallId: string;
+      toolName: string;
+      state: ChatToolState;
+      input?: unknown;
+      output?: unknown;
+      errorText?: string;
+    }
+  | { type: "source"; sourceId: string; url: string; title: string }
+  | {
+      type: "artifact";
+      artifactId: string;
+      title: string;
+      description?: string;
+      mediaType: string;
+      content?: string;
+      url?: string;
+    };
 
 export type SessionStatus = "signed-out" | "loading" | "ready" | "error";

@@ -1,33 +1,32 @@
-import { createEffect, onCleanup, Show } from "solid-js";
-import type { JSX } from "solid-js";
+import { useEffect, useRef, type ReactNode } from "react";
 
 export function Dropdown(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  class?: string;
+  className?: string;
   contentClass: string;
   trigger: (controls: {
     isOpen: () => boolean;
     toggle: () => void;
     close: () => void;
-  }) => JSX.Element;
-  children: JSX.Element;
+  }) => ReactNode;
+  children: ReactNode;
 }) {
-  let rootRef: HTMLDivElement | undefined;
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const close = () => props.onOpenChange(false);
   const toggle = () => props.onOpenChange(!props.open);
 
-  createEffect(() => {
+  useEffect(() => {
     if (!props.open) {
       return;
     }
 
     const handlePointerDown = (event: PointerEvent) => {
       if (
-        rootRef &&
+        rootRef.current &&
         event.target instanceof Node &&
-        !rootRef.contains(event.target)
+        !rootRef.current.contains(event.target)
       ) {
         close();
       }
@@ -40,22 +39,20 @@ export function Dropdown(props: {
 
     document.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => {
+    return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown);
-    });
-  });
+    };
+  }, [props.open, props.onOpenChange]);
 
   return (
-    <div ref={rootRef} class={props.class ?? "relative"}>
+    <div ref={rootRef} className={props.className ?? "relative"}>
       {props.trigger({
         isOpen: () => props.open,
         toggle,
         close
       })}
-      <Show when={props.open}>
-        <div class={props.contentClass}>{props.children}</div>
-      </Show>
+      {props.open ? <div className={props.contentClass}>{props.children}</div> : null}
     </div>
   );
 }

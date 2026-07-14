@@ -16,6 +16,11 @@ import {
   mergeSessionMessages
 } from "./session-context";
 import { normalizeAgentChatMessages } from "./chat-request";
+import {
+  agentStreamContentType,
+  agentTextEventStream,
+  encodeAgentStreamEvent
+} from "./stream-protocol";
 
 const logger = createLogger("@lush/agent");
 const agentConfig = readEnvSchema({
@@ -181,7 +186,7 @@ async function streamPrompt(request: Request, principal: Principal) {
   return streamMessages(request, organizationId, modelSelection, messages);
 }
 
-function streamMessages(
+async function streamMessages(
   request: Request,
   organizationId: string,
   modelSelection: string | undefined,
@@ -192,18 +197,32 @@ function streamMessages(
     once: true
   });
 
+  const generator = streamLushAgentChat({
+    organizationId,
+    modelSelection,
+    messages,
+    signal: controller.signal
+  });
+  let firstChunk: IteratorResult<string>;
+  try {
+    firstChunk = await generator.next();
+  } catch (error) {
+    return Response.json(
+      {
+        error: "agent_stream_failed",
+        message: error instanceof Error ? error.message : "Agent stream failed"
+      },
+      { status: 400, headers: corsHeaders }
+    );
+  }
+
   const stream = new ReadableStream({
     async start(controllerStream) {
       const encoder = new TextEncoder();
 
       try {
-        for await (const chunk of streamLushAgentChat({
-          organizationId,
-          modelSelection,
-          messages,
-          signal: controller.signal
-        })) {
-          controllerStream.enqueue(encoder.encode(chunk));
+        for await (const event of agentTextEventStream(generator, firstChunk)) {
+          controllerStream.enqueue(encoder.encode(encodeAgentStreamEvent(event)));
         }
 
         controllerStream.close();
@@ -216,7 +235,15 @@ function streamMessages(
           },
           "agent stream failed after response started"
         );
-        controllerStream.error(error);
+        controllerStream.enqueue(
+          encoder.encode(
+            encodeAgentStreamEvent({
+              type: "response-error",
+              message: error instanceof Error ? error.message : "Agent stream failed"
+            })
+          )
+        );
+        controllerStream.close();
       }
     },
     cancel() {
@@ -227,7 +254,7 @@ function streamMessages(
   return new Response(stream, {
     headers: {
       ...corsHeaders,
-      "content-type": "text/plain; charset=utf-8",
+      "content-type": agentStreamContentType,
       "cache-control": "no-cache, no-transform",
       "x-lush-agent": getLushAgentMetadata().id,
       "x-lush-organization": organizationId

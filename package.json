@@ -21,7 +21,8 @@
     "test": "bun test",
     "build": "bun run typecheck && bun run --cwd apps/lush bundle",
     "tauri:dev": "bun run --cwd apps/lush tauri:dev",
-    "tauri:build": "bun run --cwd apps/lush tauri:build"
+    "tauri:build": "bun run --cwd apps/lush tauri:build",
+    "tauri:run": "open apps/lush/src-tauri/target/release/bundle/macos/Lush.app"
   },
   "workspaces": [
     "apps/*",

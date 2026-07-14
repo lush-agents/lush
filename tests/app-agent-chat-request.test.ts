@@ -5,13 +5,15 @@ describe("app agent chat request", () => {
   test("sends only the new chat message as the client delta", () => {
     expect(
       agentChatDeltaMessages({
+        id: "message-1",
         role: "user",
-        content: "new turn"
+        parts: [{ type: "text", text: "new turn" }]
       })
     ).toEqual([
       {
         role: "user",
-        content: "new turn"
+        content: "new turn",
+        attachments: []
       }
     ]);
   });
@@ -19,9 +21,10 @@ describe("app agent chat request", () => {
   test("does not include non-agent message roles in the delta", () => {
     expect(
       agentChatDeltaMessages({
+        id: "message-2",
         role: "system",
-        content: "internal"
-      })
+        parts: [{ type: "text", text: "internal" }]
+      } as never)
     ).toEqual([]);
   });
 });

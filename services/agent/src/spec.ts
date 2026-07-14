@@ -1,8 +1,45 @@
 export const agentTypes = `
+export type AgentChatAttachment = {
+  filename: string;
+  mediaType: string;
+  content: string;
+};
+
 export type AgentChatMessage = {
   role: "user" | "assistant";
   content: string;
+  attachments?: AgentChatAttachment[];
 };
+
+export type AgentStreamEvent =
+  | { type: "response-start" }
+  | { type: "text-delta"; delta: string }
+  | { type: "reasoning-delta"; delta: string }
+  | {
+      type: "tool-input";
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+    }
+  | {
+      type: "tool-output";
+      toolCallId: string;
+      toolName: string;
+      output?: unknown;
+      errorText?: string;
+    }
+  | { type: "source"; sourceId: string; url: string; title: string }
+  | {
+      type: "artifact";
+      artifactId: string;
+      title: string;
+      description?: string;
+      mediaType: string;
+      content?: string;
+      url?: string;
+    }
+  | { type: "response-complete" }
+  | { type: "response-error"; message: string };
 
 export type AgentChatRequest = {
   modelSelection: string;

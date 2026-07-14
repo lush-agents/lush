@@ -67,17 +67,6 @@ export const routes: Route[] = [
   }
 ];
 
-export type AppRouteInfo =
-  | { kind: "appBase" }
-  | { kind: "auth"; mode: "login" | "register" }
-  | { kind: "createOrganization" }
-  | { kind: "conceptsIndex" }
-  | { kind: "conceptDetail" }
-  | { kind: "settings"; href: string }
-  | { kind: "account"; href: string }
-  | { kind: "workspace"; href: string }
-  | { kind: "workspaceSession"; href: string };
-
 export function sessionRouteHref(route: Route, sessionId: string) {
   return `${route.href}/sessions/${encodeURIComponent(sessionId)}`;
 }

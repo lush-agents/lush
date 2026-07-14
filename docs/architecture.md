@@ -3,16 +3,31 @@
 Lush is an open application layer and control plane for multi-model AI agents.
 It provides a familiar chat, code, work, and agent-building experience on top
 of interchangeable inference providers, tool systems, and agent runtimes.
+The first-party client targets UX parity with the best-in-class AI frontends:
+streaming must remain readable and interruptible, agent activity must be
+inspectable, and rich outputs must remain portable across providers.
 
 The repository is a Bun workspace monorepo that separates product apps,
 backend services, and shared packages.
 
 ## Workspace Layout
 
-**`apps/lush`.** The first-party Lush app. This is the shared SolidJS and
+**`apps/lush`.** The first-party Lush app. This is the shared React and
 Tailwind client that will contain chat, code, work, agents, settings, and admin
 surfaces. It is intended to ship to web, desktop, iOS, and Android through
 Tauri packaging rather than separate app workspaces per platform.
+
+The client uses React Router's data-router APIs for nested public, authenticated,
+organization-scoped, settings, and workspace routes. A context-backed application
+controller coordinates session refresh and domain mutations, while route modules
+own page state and composition. Heavy chat and organization settings surfaces are
+split into lazy chunks; shadcn primitives remain local source under
+`apps/lush/src/components/ui`.
+
+Agent-facing composition uses the official AI Elements registry on top of
+shadcn/ui. The product owns the typed agent event and persisted message-part
+contracts; UI components render those contracts without making the backend
+dependent on a specific frontend SDK or inference gateway.
 
 **`services/*`.** Deployable backend services and control-plane boundaries.
 Services own durable state or external side effects for one concern and

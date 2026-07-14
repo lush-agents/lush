@@ -1,10 +1,10 @@
-import type { JSX } from "solid-js";
+import type { ReactNode } from "react";
 import { PageShell } from "../components/PageShell";
 import type { Route } from "../lib/types";
 
 export function RoutePlaceholderPage(props: {
   route: Route;
-  children?: JSX.Element;
+  children?: ReactNode;
 }) {
   return (
     <PageShell

@@ -59,5 +59,32 @@ export async function loadLushSessionMessages(
     .filter((message): message is typeof message & AgentChatMessage =>
       message.role === "user" || message.role === "assistant"
     )
-    .map(({ role, content }) => ({ role, content }));
+    .map(({ role, content, metadata }) => ({
+      role,
+      content,
+      attachments: attachmentsFromMetadata(metadata)
+    }));
+}
+
+function attachmentsFromMetadata(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object") return undefined;
+  const parts = (metadata as { parts?: unknown }).parts;
+  if (!Array.isArray(parts)) return undefined;
+
+  const attachments = parts.flatMap((part) => {
+    if (!part || typeof part !== "object") return [];
+    const candidate = part as Record<string, unknown>;
+    return candidate.type === "attachment" &&
+      typeof candidate.filename === "string" &&
+      typeof candidate.mediaType === "string" &&
+      typeof candidate.content === "string"
+      ? [{
+          filename: candidate.filename,
+          mediaType: candidate.mediaType,
+          content: candidate.content
+        }]
+      : [];
+  });
+
+  return attachments.length > 0 ? attachments : undefined;
 }

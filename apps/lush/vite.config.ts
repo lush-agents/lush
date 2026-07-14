@@ -1,9 +1,15 @@
 import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
 
 export default defineConfig({
-  plugins: [solid(), tailwindcss()],
+  plugins: [react(), tailwindcss()],
+  envDir: "../..",
+  resolve: {
+    alias: {
+      "@": new URL("./src", import.meta.url).pathname
+    }
+  },
   clearScreen: false,
   server: {
     host: "0.0.0.0",

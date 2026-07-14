@@ -21,6 +21,7 @@
     "./message-merge": "./src/message-merge.ts",
     "./runtime": "./src/runtime.ts",
     "./session-context": "./src/session-context.ts",
+    "./stream-protocol": "./src/stream-protocol.ts",
     "./spec": "./src/spec.ts"
   }
 }

@@ -13,6 +13,11 @@ import {
 } from "@lush/agent/session-context";
 import { normalizeAgentChatMessages } from "@lush/agent/chat-request";
 import {
+  agentStreamContentType,
+  agentTextEventStream,
+  encodeAgentStreamEvent
+} from "@lush/agent/stream-protocol";
+import {
   AuthError,
   type AuthzAction,
   authorizePrincipal,
@@ -1113,12 +1118,8 @@ async function streamChat(
       const encoder = new TextEncoder();
 
       try {
-        if (!firstChunk.done && firstChunk.value) {
-          controllerStream.enqueue(encoder.encode(firstChunk.value));
-        }
-
-        for await (const chunk of generator) {
-          controllerStream.enqueue(encoder.encode(chunk));
+        for await (const event of agentTextEventStream(generator, firstChunk)) {
+          controllerStream.enqueue(encoder.encode(encodeAgentStreamEvent(event)));
         }
 
         controllerStream.close();
@@ -1131,7 +1132,15 @@ async function streamChat(
           },
           "agent stream failed after response started"
         );
-        controllerStream.error(error);
+        controllerStream.enqueue(
+          encoder.encode(
+            encodeAgentStreamEvent({
+              type: "response-error",
+              message: error instanceof Error ? error.message : "Agent stream failed"
+            })
+          )
+        );
+        controllerStream.close();
       }
     },
     cancel() {
@@ -1141,7 +1150,7 @@ async function streamChat(
 
   return new Response(stream, {
     headers: {
-      "content-type": "text/plain; charset=utf-8",
+      "content-type": agentStreamContentType,
       "cache-control": "no-cache, no-transform",
       "x-lush-agent": getLushAgentMetadata().id,
       "x-lush-organization": principal.organizationId
