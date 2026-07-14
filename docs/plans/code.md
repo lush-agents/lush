@@ -19,11 +19,17 @@ The following decisions incorporate the first external review of this plan.
 | Event normalization is underspecified | Accept. Phase 0 produces concrete discriminated schemas and golden mappings, not `data: unknown`. |
 | Evaluate Agent Client Protocol (ACP) | Accept. ACP becomes the preferred harness transport where available, with a documented gap analysis and Lush extensions at the domain boundary. |
 | `HarnessId` prevents third-party adapters | Accept. Replace the closed union with registry-defined IDs and adapter manifests. |
-| Protocol drift and resume compatibility arrive too late | Accept. Version policy and automated drift detection move into Phases 0 and 2. |
+| Protocol drift and resume compatibility arrive too late | Accept. Version policy and layered release qualification move into Phases 0 and 2. |
 | Managed consumer-subscription authentication may be unavailable | Accept as a release gate. Managed harness availability requires an official credential and licensing path with viable economics. |
 | Raw payload retention is unsafe by default | Accept. Raw payload persistence is off by default and redaction must happen before any diagnostic write. |
 | Human implementation effort is roughly a year | Push back on coding throughput, accept the risk concentration. Adapter glue is regenerable; schemas, fixtures, conformance, and security review are the durable work. |
 | Checkpoint/restore is speculative | Accept. Remove it from the required environment interface and treat it as an optional managed capability. |
+| ACP adds a second transport per harness to the dogfood slice | Accept. Phase 0 selects exactly one primary transport per harness. Equivalence testing is conditional on maintaining a second transport, not a first-release requirement. |
+| Recorded fixtures cannot detect behavioral drift in a new release | Accept. Separate hermetic PR conformance, passive release inspection, and credentialed behavioral canaries with explicit budgets. |
+| The non-mutating compatibility probe is undefined | Accept. Define it as metadata and protocol negotiation that never opens or resumes the recorded native session. |
+| Initial platform support is ambiguous | Accept. The first local dogfood release is macOS-only; portable contracts remain a design requirement, not an implied implementation claim. |
+| Command working directories may be outside a workspace | Accept. Represent workspace and external execution paths distinctly and govern external-path persistence. |
+| Approval scopes omit persistent grants | Accept. Preserve grant duration and authority boundary; never display a persistent grant as a session-only decision. |
 
 The practical consequence is that Phase 0 is not preliminary scaffolding. It
 is the core product-engineering phase. Adapter implementations should be cheap
@@ -61,13 +67,14 @@ result without switching to another coding-agent client.
 
 ## First Dogfood Slice
 
-The first milestone is intentionally local and single-repository:
+The first milestone is intentionally macOS-only, local, and
+single-repository:
 
 - desktop local execution on the current machine;
 - one primary Git repository;
 - a default-on Lush-managed worktree;
-- Codex, Claude Code, and OpenCode through ACP where viable or direct structured
-  adapters where required;
+- Codex, Claude Code, and OpenCode through exactly one structured transport per
+  harness, selected by the Phase 0 gap matrix;
 - typed session, message, command, tool, diff, approval, usage, and completion
   events;
 - resume, cancellation, bounded process output, and safe worktree retention;
@@ -90,6 +97,19 @@ Interfaces for deferred features should be added only when an implementation or
 second concrete consumer requires them. Capability flags may reserve product
 vocabulary, but the core runtime should not contain no-op methods for
 speculative backends.
+
+### Platform scope
+
+The first local implementation and dogfood release support macOS only. It may
+use Tauri IPC, Unix domain sockets, POSIX process groups, login-shell discovery,
+and macOS application-support paths deliberately.
+
+The orchestration, adapter, event, and execution-environment contracts remain
+platform-neutral. Linux and Windows require explicit packaging, executable
+discovery, path, process-tree, local-transport, terminal, and Git-worktree
+spikes before support is claimed. In particular, Windows support must select
+native equivalents such as named pipes and Job Objects rather than inheriting
+POSIX assumptions accidentally.
 
 ## Product Modes
 
@@ -638,11 +658,24 @@ type ToolEventData = {
 type CommandEventData = {
   commandId: string;
   command: string[];
-  cwd: WorkspaceRelativePath;
+  cwd: CommandWorkingDirectory;
   status: "running" | "completed" | "failed" | "declined";
   exitCode?: number;
   durationMs?: number;
 };
+
+type CommandWorkingDirectory =
+  | {
+      kind: "workspace";
+      rootId: string;
+      path: WorkspaceRelativePath;
+    }
+  | {
+      kind: "external";
+      classification: "temporary" | "system" | "user" | "other";
+      displayPath: string;
+      executorPathRef?: string;
+    };
 
 type CommandOutputData = {
   commandId: string;
@@ -672,7 +705,19 @@ type ApprovalRequestedData = {
   title: string;
   detail?: string;
   requestedScope: JsonValue;
-  options: Array<{ id: string; label: string; scope: "once" | "session" }>;
+  options: ApprovalOption[];
+};
+
+type ApprovalOption = {
+  id: string;
+  label: string;
+  grant:
+    | { duration: "once"; boundary: "operation" }
+    | { duration: "session"; boundary: "session" }
+    | {
+        duration: "persistent";
+        boundary: "workspace" | "repository" | "user";
+      };
 };
 
 type UsageUpdatedData = {
@@ -702,6 +747,13 @@ The full Phase 0 schema also defines `SessionStartedData`, `TurnStartedData`,
 limits, and forward-compatible unknown-enum behavior. The examples above commit
 the plan to typed payloads without pretending the plan itself is the schema
 package.
+
+Workspace command paths are always relative to a declared root. External
+working directories use a classified, sanitized display path; exact absolute
+paths remain executor-local behind `executorPathRef` and are not copied into a
+managed event store. Approval options preserve both duration and authority
+boundary. An adapter must omit or block a native persistent grant it cannot
+represent exactly; it must never relabel that grant as session-scoped.
 
 Normalization happens once in the adapter. Persisted events and live UI events
 use the same contract. Large command output, patches, and artifacts are stored
@@ -748,6 +800,13 @@ Phase 0 produces an ACP gap matrix:
 6. avoid private ACP wire extensions when the same information can remain in
    the Lush orchestration layer.
 
+The matrix selects exactly one production transport for each harness in the
+first dogfood release. Evaluation may inspect or spike both ACP and a native
+surface, but only the selected transport receives a shipping adapter and
+fixture corpus. A second transport is added only for a concrete capability,
+compatibility, or ecosystem need; equivalence testing becomes required only
+once both transports are maintained.
+
 Lush should also be able to expose its own harness adapters through ACP later,
 making the adapter ecosystem useful outside the Lush client.
 
@@ -777,25 +836,47 @@ Resume policy:
    the recorded compatible range;
 2. perform a non-mutating compatibility probe when the installed version is
    newer but plausibly compatible;
-3. update the binding only after the probe and fixture contract pass;
-4. keep the transcript readable but block execution when compatibility is
-   unknown or broken; and
-5. offer a pinned managed runtime or actionable local install guidance rather
+3. block resume immediately if structural negotiation or fixture parsing fails;
+4. if the probe passes but cross-version behavior is not already qualified,
+   leave the binding unchanged and block resume pending a canary or reinstall;
+5. permit the native resume and update the binding only after the new version
+   enters a reviewed compatible range;
+6. keep the transcript readable while execution is blocked; and
+7. offer a pinned managed runtime or actionable local install guidance rather
    than attempting a lossy transcript reconstruction.
 
 Lush does not silently upgrade local harnesses. Managed environments pin the
 harness build and adapter by image digest for the life of a resumable session.
 
-Protocol maintenance is fixture-driven:
+The non-mutating probe may inspect the executable version and digest, initialize
+a fresh transport, negotiate protocol and capabilities, load published schemas,
+and run recorded payloads through the adapter. It must not open or resume the
+recorded native session, send a model turn, or write to its workspace. This
+probe establishes parser and negotiation compatibility, not behavioral resume
+compatibility. If the latter cannot be established from an already qualified
+version range, Lush blocks resume until a cross-version canary passes or the
+user reinstalls the recorded version.
 
-- record sanitized native and ACP fixture streams for every supported release
-  family;
-- store the expected canonical event stream beside each fixture;
-- run the suite against minimum, current, and latest upstream versions;
-- use scheduled isolated CI to detect new releases and protocol drift;
-- allow an agent to regenerate schemas or propose adapter patches; and
-- require human review before publishing compatibility changes, especially for
-  approval, redaction, process, filesystem, and credential behavior.
+Protocol maintenance has three distinct lanes:
+
+1. Required pull-request CI is hermetic and credential-free. It replays
+   sanitized fixtures for supported release families against expected canonical
+   events and detects regressions in Lush schemas and adapters.
+2. Scheduled passive release inspection detects new upstream versions and
+   compares executable metadata, `--version` and help surfaces, published
+   schemas, protocol initialization, and capability negotiation without making
+   an inference call. It can mark a release structurally incompatible or
+   awaiting behavioral qualification, but cannot mark it fully compatible.
+3. Release qualification uses isolated, credentialed behavioral canaries with
+   a temporary repository, bounded prompt, hard timeout, and per-run cost
+   ceiling. Canaries cover a fresh turn and resume of a synthetic prior-version
+   session where the harness supports it. Credentials and spend belong to a
+   dedicated maintenance account and are never available to pull-request code.
+
+An agent may regenerate schemas or propose adapter and fixture patches from any
+failed lane. Human review remains required before publishing compatibility
+changes, especially for approval, redaction, process, filesystem, and
+credential behavior.
 
 A latest-version failure does not break known-good users. It marks that release
 unsupported, opens a maintenance report, and preserves the previous compatible
@@ -1267,7 +1348,7 @@ harness process itself.
 ## Adapter Conformance
 
 Each adapter runs the same contract suite against recorded fixtures and a fake
-process/server. CI must not require paid inference calls.
+process/server. Required pull-request CI must not require paid inference calls.
 
 Required conformance cases:
 
@@ -1289,13 +1370,14 @@ Required conformance cases:
     writes;
 14. maps requested autonomy to a non-broader effective harness policy;
 15. handles supported additional workspace roots without widening access;
-16. produces equivalent canonical events through ACP and direct transports for
-    shared fixture scenarios; and
+16. when a harness has two maintained transports, produces equivalent canonical
+    events for their shared fixture scenarios; and
 17. declares capability differences accurately.
 
-Optional live smoke tests run only when explicitly enabled and authenticated.
-They use a temporary Git repository, a bounded prompt, and a cost ceiling where
-the harness supports one.
+Live inference is not required for pull-request CI. The isolated behavioral
+canaries defined above are required before a newly detected upstream release is
+marked supported. A missing credential or unavailable canary leaves the new
+release unverified; it does not silently promote it to supported.
 
 The abstraction is considered validated when Codex, Claude Code, OpenCode, Pi,
 and Amp pass the baseline suite without adding harness-specific concepts to the
@@ -1333,18 +1415,20 @@ authority.
 
 - Define the concrete canonical event schemas, capability model, interaction
   contract, size limits, redaction rules, and unknown-event behavior.
-- Implement the ACP client baseline and publish the ACP gap matrix.
-- Capture sanitized native and ACP fixtures plus expected canonical streams for
-  Codex, Claude Code, and OpenCode.
+- Publish the ACP gap matrix and select one primary transport each for Codex,
+  Claude Code, and OpenCode.
+- Capture sanitized fixtures plus expected canonical streams for each selected
+  transport.
 - Build the adapter conformance harness before live integration.
 - Define supported version ranges, binding metadata, and resume compatibility
   behavior.
-- Add scheduled latest-release drift detection that opens a maintenance report
-  or agent-generated patch for human review.
+- Add hermetic fixture CI and scheduled passive latest-release inspection.
+- Specify the isolated behavioral-canary runner, credential boundary, scenarios,
+  and cost budgets used during release qualification.
 
 Exit criterion: fake adapters and fixture replays drive one complete Code turn
-through the normalized event stream, ACP-versus-direct equivalence is measured,
-and a simulated breaking harness release fails closed.
+through the normalized event stream, one primary transport is chosen per
+harness, and a simulated breaking harness release fails closed.
 
 ### Phase 1: Local executor and worktrees
 
@@ -1368,14 +1452,16 @@ creating resources while the session remains a draft.
 
 ### Phase 2: First three adapters
 
-- Integrate Codex, Claude Code, and OpenCode through conformant ACP adapters
-  where available.
-- Add direct transports only for gaps demonstrated by the Phase 0 matrix:
-  `codex app-server`, the Claude Agent SDK or bidirectional stream JSON, and
-  the OpenCode headless server or CLI JSON mode.
+- Implement the one production transport selected in Phase 0 for each of Codex,
+  Claude Code, and OpenCode. Candidates are conformant ACP adapters,
+  `codex app-server`, the Claude Agent SDK or bidirectional stream JSON, and the
+  OpenCode headless server or CLI JSON mode.
+- Do not ship an alternate transport for fallback or equivalence testing in the
+  first milestone.
 - Persist Lush session bindings and normalized events.
 - Implement cancellation and the supported approval flows.
-- Run minimum/current/latest version fixtures and cross-version resume tests.
+- Run the hermetic fixture matrix and bounded release-qualification canaries,
+  including cross-version resume of synthetic sessions.
 
 Exit criterion: each harness can complete and resume a multi-turn change in a
 temporary repository through the same orchestration API.
@@ -1439,6 +1525,7 @@ app. Hibernation and checkpoint restore are not required for this exit.
 - Lush orchestrates existing harnesses; it does not implement a new coding
   agent loop.
 - Desktop supports Local and Managed modes; hosted web supports Managed only.
+- The first local implementation and dogfood release support macOS only.
 - Lush-managed Git worktrees are the default local concurrency unit.
 - Worktree creation is lazy on first send and can be explicitly disabled for a
   local session.
@@ -1448,6 +1535,8 @@ app. Hibernation and checkpoint restore are not required for this exit.
 - Pi and Amp are required before declaring the adapter contract stable.
 - ACP is the preferred harness transport where it passes Lush conformance;
   direct adapters fill measured gaps rather than defining a parallel standard.
+- The first milestone ships one selected transport per harness; a second
+  transport must justify its additional maintenance surface.
 - Structured programmatic interfaces are required; formatted TUI scraping is
   out of scope.
 - Native harness sessions remain the execution-context source of truth.
@@ -1462,7 +1551,8 @@ app. Hibernation and checkpoint restore are not required for this exit.
 - Multi-root workspaces are explicit; additional roots default to read-only.
 - Canonical events have concrete schemas; raw payload persistence is off by
   default.
-- Harness drift detection and resume compatibility are Phase 0/2 concerns.
+- Hermetic conformance, passive release inspection, credentialed behavioral
+  qualification, and resume compatibility are Phase 0/2 concerns.
 - Managed harness availability is gated on official credentials, licensing,
   security, and viable economics.
 
