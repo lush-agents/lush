@@ -82,6 +82,29 @@ Managed mode is for:
 The managed runtime owns containment. A repository checkout or Git worktree
 inside the sandbox is not the security boundary; the sandbox is.
 
+### Execution targets
+
+Execution mode describes who owns the security boundary. An execution target
+identifies the concrete machine or managed environment.
+
+```ts
+type ExecutionTarget =
+  | { kind: "local"; deviceId: string }
+  | { kind: "managed"; environmentProfileId: string }
+  | { kind: "user-managed-remote"; connectionId: string };
+```
+
+The first release implements `local` and `managed`. Desktop-only SSH hosts and
+remote-control daemons are a useful future extension, but they remain
+user-managed remote targets rather than being presented as Lush-managed
+sandboxes. They require their own trust, credential, reachability, and process
+lifecycle model. The hosted web app remains managed-only.
+
+The target selector should show connection health and settings for each target.
+Managed organizations may expose multiple named environment profiles. Changing
+the target revalidates repository availability, harness availability, model
+selection, and policy before the first turn starts.
+
 ## Execution Topology
 
 The UI consumes one Code orchestration contract regardless of execution mode.
@@ -330,8 +353,10 @@ filesystem path with a durable cross-device project.
 type CodeWorkspace = {
   id: string;
   executionMode: "local" | "managed";
+  executionTargetId: string;
   repository: RepositoryIdentity;
   checkout: LocalCheckout | ManagedCheckout;
+  roots: WorkspaceRoot[];
 };
 ```
 
@@ -339,6 +364,32 @@ type CodeWorkspace = {
 remote plus provider repository ID when available. A local-only repository may
 use an opaque local ID. Absolute local paths stay in the local sidecar store and
 must not be synced into organization session state.
+
+### New-session draft
+
+Before first send, Code holds a draft rather than a durable session:
+
+```ts
+type CodeSessionDraft = {
+  executionMode: "local" | "managed";
+  executionTargetId: string;
+  repository: RepositorySelection;
+  baseRef: string;
+  useWorktree: boolean;
+  additionalRoots: WorkspaceRootSelection[];
+  harnessId: HarnessId;
+  model?: string;
+  serviceTier?: string;
+  effort?: string;
+  autonomyMode: "plan" | "manual" | "accept-edits" | "auto" | "bypass";
+  prompt: HarnessInput;
+};
+```
+
+Draft validation resolves display selections into immutable identifiers and
+returns the effective harness and environment policy. No native harness thread,
+Git branch, worktree, managed environment, or durable Lush session exists until
+`startCodeSession` accepts the validated draft and initial input.
 
 ### Code session binding
 
@@ -371,7 +422,7 @@ sandbox IDs, and provider runtime details remain executor-specific.
 
 ```ts
 type ExecutionHandle =
-  | { mode: "local"; localWorkspaceId: string; worktreeId: string }
+  | { mode: "local"; localWorkspaceId: string; worktreeId?: string }
   | { mode: "managed"; environmentId: string; checkoutId: string };
 ```
 
@@ -426,7 +477,10 @@ type HarnessCapabilities = {
   steering: boolean;
   sessionFork: boolean;
   subagents: boolean;
+  additionalWorkspaceRoots: boolean;
+  autonomyModes: Array<"plan" | "manual" | "accept-edits" | "auto" | "bypass">;
   modelSelection: boolean;
+  serviceTierSelection: boolean;
   reasoningStream: boolean;
   structuredDiffs: boolean;
   mcp: boolean;
@@ -522,9 +576,18 @@ local sidecar.
 ### Worktree policy
 
 Lush-managed worktrees are the default local execution unit. The user's current
-checkout is not modified by default.
+checkout is not modified by default. The new-session composer exposes a
+default-on worktree toggle so an experienced user can explicitly run in the
+selected checkout when that is the desired behavior.
 
-For each new Code session, the orchestrator:
+New-session configuration is a draft until the first prompt is sent. Selecting
+a repository, branch, harness, or worktree preference should not create empty
+sessions, branches, or directories. On first send, the orchestrator validates
+the complete draft, creates the worktree and native harness session, then
+commits the Lush session binding. A partial failure rolls back only resources
+created by that transaction and preserves the draft for correction.
+
+For each new Code session with worktrees enabled, the orchestrator:
 
 1. resolves the canonical repository root and Git common directory;
 2. verifies that the source checkout is a supported non-bare Git repository;
@@ -533,6 +596,12 @@ For each new Code session, the orchestrator:
 5. creates a Lush branch and worktree from that SHA;
 6. persists local metadata before starting the harness; and
 7. launches the harness with the worktree as its working directory.
+
+If worktrees are disabled, the orchestrator binds the session to the existing
+checkout and records its current branch and HEAD. It does not switch branches
+implicitly. The UI must state that the harness will modify the selected
+checkout directly and prevent a second independent writer from attaching by
+default.
 
 Default naming:
 
@@ -554,6 +623,42 @@ git worktree add -b <branch> <managed-path> <base-commit-sha>
 Lush does not automatically fetch, pull, rebase, or choose a newer base. The UI
 shows the exact base branch and commit before creation. Updating the base is an
 explicit operation.
+
+The base-branch picker is searchable and annotates the current branch, default
+branch, remote-only branches, and branches already checked out in another
+worktree. Selecting a branch while worktrees are enabled chooses the immutable
+base commit for the new worktree; it does not check out that branch in the
+source repository.
+
+### Multi-root workspaces
+
+A Code session has one primary repository root and may include explicitly added
+folders. The composer represents these as compact removable context items and
+offers an `Add folder` action next to repository and branch configuration.
+
+Each root records purpose and effective access:
+
+```ts
+type WorkspaceRoot = {
+  id: string;
+  role: "primary" | "additional";
+  access: "read" | "write";
+  localPath?: string;
+  managedMountId?: string;
+};
+```
+
+Additional roots default to read-only. They are never implicitly branched,
+cleaned, uploaded, or deleted. Enabling write access is a separate explicit
+decision and must be supported by both the execution environment and harness
+adapter. A future compound-workspace flow may create coordinated worktrees for
+multiple repositories, but the first release manages a worktree only for the
+primary repository.
+
+Absolute additional-root paths remain local in local mode. Managed mode must
+materialize each root from an approved repository or artifact source; a browser
+cannot submit a desktop path. Adapters map roots to their native workspace-root
+or additional-directory mechanism and report when a harness cannot honor them.
 
 ### Managed and external worktrees
 
@@ -694,6 +799,40 @@ applies Lush authorization first, managed sandbox policy second, and harness
 approval semantics third. A harness cannot expand the sandbox beyond the
 managed policy even if the user approves the request in the UI.
 
+### Autonomy modes
+
+Autonomy is a first-class session setting shown beside the composer. It is
+separate from execution target, harness, model, and reasoning effort.
+
+| Lush mode | Intended behavior |
+| --- | --- |
+| Plan | Inspect and propose a plan without modifying the workspace. |
+| Manual | Ask before mutations and side-effecting commands. |
+| Accept edits | Permit workspace edits; continue asking for commands, network, and scope expansion. |
+| Auto | Proceed within the declared workspace and environment policy; ask before expansion. |
+| Bypass permissions | Disable harness confirmation where supported; never bypass the managed sandbox boundary. |
+
+These are product intents, not claims that every harness has identical native
+semantics. Each adapter maps the requested mode to an effective harness policy
+and returns that resolved policy for display before the run starts. If an exact
+mapping is unavailable, Lush shows the narrower fallback and requires the user
+to accept it rather than silently broadening permissions.
+
+The initial selection resolves from organization policy, then the user's saved
+preference, then the adapter's safe default. The control distinguishes an
+explicit choice from an inherited default, for example `Auto - Default`, and
+never defaults to `Bypass permissions`.
+
+`Bypass permissions` is an advanced local-only control by default. Enabling it
+requires an explicit warning and may be prohibited by organization policy.
+Managed mode may expose the label only when it means bypassing redundant
+harness prompts inside an already constrained sandbox; it never expands
+filesystem, network, secret, or process policy.
+
+Autonomy mode is persisted with the session, can be changed between turns, and
+is recorded on every turn for audit and replay. The active mode remains visible
+while the harness is working.
+
 ## Lush Tools and MCP
 
 The coding harness keeps its native code tools. `services/tools` should expose
@@ -709,13 +848,61 @@ authentication are separate concerns.
 
 ### Desktop
 
-The Code header includes:
+The desktop Code experience has three primary states.
 
-- execution mode selector: Local or Managed;
-- repository and worktree;
+#### Code home
+
+The home state provides a fast `New session` action, recent sessions, active
+background work, and artifacts. It can later include usage summaries such as
+session count, active days, tokens, and model distribution once normalized
+usage events are reliable across harnesses.
+
+Usage must show source and coverage. Harness-reported tokens, subscription
+usage, API cost, and estimated usage are not interchangeable. Lush should not
+produce false cross-harness comparisons or make usage analytics block the first
+functional release.
+
+#### New-session composer
+
+Session setup happens inline around the composer rather than in a multi-step
+wizard. The configuration rail directly above the prompt contains compact
+controls for:
+
+- execution target, with connection status and target settings;
+- recent repository or `Open folder` selection;
+- searchable base branch;
+- default-on worktree toggle;
+- additional workspace roots;
+- harness;
+- model or harness mode;
+- service tier or speed mode when exposed;
+- reasoning effort; and
+- autonomy mode.
+
+The prompt remains the visual focus. Secondary controls stay compact and use
+menus instead of permanently consuming vertical space. Tooltips describe icon
+actions such as adding another folder. The send button alone appears disabled
+when the draft has no prompt; the composer and setup controls remain visibly
+interactive.
+
+Changing one field revalidates dependent fields without clearing unrelated
+choices. For example, changing Local to Managed may invalidate a local folder
+and installed harness but should retain prompt text, requested autonomy, and a
+compatible model preference.
+
+The session, branch, worktree, and native harness thread are created lazily and
+atomically on first send. Until then the screen is a recoverable session draft.
+
+#### Active session
+
+Once execution starts, the configuration rail becomes a compact status header
+showing:
+
+- execution target and health;
+- repository, worktree, branch, and dirty state;
 - harness and harness version;
-- model or mode when the harness exposes it;
-- branch, base ref, and dirty state; and
+- model, service tier, and reasoning effort;
+- requested and effective autonomy mode; and
 - effective sandbox and approval policy.
 
 The main surface includes:
@@ -727,6 +914,18 @@ The main surface includes:
 - validation results;
 - stop, steer, and follow-up controls according to capabilities; and
 - explicit actions to open the worktree in a terminal or editor.
+
+Configuration that is safe to change between turns remains editable in place.
+Changes that require a new native session, workspace, or environment use an
+explicit fork/new-session flow rather than mutating provenance invisibly.
+
+#### Navigation
+
+The sidebar prioritizes New session, recents, active work, and artifacts. Recent
+session labels should include enough repository and status context to
+disambiguate similar tasks while preserving the existing compact session-list
+pattern. Filters may narrow by repository, harness, execution target, status,
+and date.
 
 ### Hosted web
 
@@ -741,20 +940,45 @@ Common controls use common placement. Harness-specific functionality appears in
 contextual menus or status panels, and unsupported functionality is omitted or
 explained at the point where it matters.
 
+### Design reference observations
+
+The Claude Desktop Code reference validates several interaction patterns worth
+adopting:
+
+- environment, repository, branch, and worktree are independent compact
+  preflight controls;
+- recent repositories and `Open folder` make local onboarding immediate;
+- the worktree decision is visible before the first prompt;
+- branch selection is searchable and remains near repository context;
+- additional folders are a first-class action rather than an attachment
+  workaround;
+- autonomy mode is always visible and quickly switchable; and
+- model and effort remain legible without competing with the prompt.
+
+Lush should preserve these workflow strengths without copying harness-specific
+assumptions. It must add explicit harness selection, requested-versus-effective
+policy, managed sandbox identity, multi-harness session provenance, and a clear
+distinction between user-managed remote targets and Lush-managed environments.
+
 ## API Shape
 
 The target-neutral orchestration API should include operations equivalent to:
 
 ```text
+listExecutionTargets(clientKind)
 listHarnesses(executionMode)
 listRepositories(executionMode)
-createWorkspace(repository, executionMode, baseRef)
+listRecentRepositories(executionTargetId)
+listRepositoryBranches(repository)
+validateSessionDraft(draft)
+startCodeSession(draft, initialInput)
+createWorkspace(repository, executionMode, baseRef, roots)
 listWorktrees(repository)
 createWorktree(repository, baseCommit, displayName)
 removeWorktree(worktreeId, disposition)
-startHarnessSession(workspace, harness, options)
 resumeHarnessSession(sessionBinding)
 sendHarnessInput(sessionId, input)
+updateSessionAutonomy(sessionId, autonomyMode)
 respondToHarnessInteraction(interactionId, response)
 interruptHarnessTurn(sessionId, turnId)
 subscribeToHarnessEvents(sessionId, cursor)
@@ -786,7 +1010,9 @@ Required conformance cases:
 9. resumes the correct native session;
 10. survives unknown additive native events;
 11. redacts configured sensitive fields from raw payload retention; and
-12. declares capability differences accurately.
+12. maps requested autonomy to a non-broader effective harness policy;
+13. handles supported additional workspace roots without widening access; and
+14. declares capability differences accurately.
 
 Optional live smoke tests run only when explicitly enabled and authenticated.
 They use a temporary Git repository, a bounded prompt, and a cost ceiling where
@@ -816,15 +1042,18 @@ through the normalized event stream.
 - Build the on-demand local agent sidecar.
 - Implement authenticated Tauri-to-sidecar transport.
 - Implement executable discovery and version probing.
+- Implement recent-repository, folder-picker, and searchable branch discovery.
 - Implement repository inspection, managed worktree create/list/reconcile, and
   safe removal.
+- Implement session-draft validation, lazy first-send provisioning, and
+  additional-root policy.
 - Add a local-only metadata store and repository mutation locks.
 - Add process supervision, environment inspection, preview-port discovery, and
   artifact collection.
 
 Exit criterion: the desktop app can select a repository, create a managed
-worktree, and show its exact branch/base/dirty state without launching a
-harness.
+worktree on first send, and show its exact branch/base/dirty state without
+creating resources while the session remains a draft.
 
 ### Phase 2: First three adapters
 
@@ -841,7 +1070,8 @@ temporary repository through the same orchestration API.
 ### Phase 3: Desktop Code experience
 
 - Replace the `/code` placeholder with repository/worktree onboarding.
-- Add harness and execution-mode selection.
+- Add the inline preflight composer with target, repository, branch, worktree,
+  additional roots, harness, model, service tier, effort, and autonomy controls.
 - Reuse the existing AI Elements message, reasoning, tool, and artifact
   components.
 - Add command output, approval, file-change, diff review, and validation UI.
@@ -883,6 +1113,7 @@ harness-specific branches in shared persistence or primary Code UI components.
 - OpenTelemetry spans, audit events, and support bundles.
 - Performance budgets for cold start, event latency, memory, and long-session
   rendering.
+- Provenance-aware usage and model analytics across harnesses.
 
 ## Initial Decisions
 
@@ -890,6 +1121,9 @@ harness-specific branches in shared persistence or primary Code UI components.
   agent loop.
 - Desktop supports Local and Managed modes; hosted web supports Managed only.
 - Lush-managed Git worktrees are the default local concurrency unit.
+- Worktree creation is lazy on first send and can be explicitly disabled for a
+  local session.
+- New Code sessions use an inline preflight composer rather than a setup wizard.
 - Worktrees are not treated as security sandboxes.
 - The first adapters are Codex, Claude Code, and OpenCode.
 - Pi and Amp are required before declaring the adapter contract stable.
@@ -902,6 +1136,9 @@ harness-specific branches in shared persistence or primary Code UI components.
 - Harness adapters and execution environments are separate contracts.
 - Both execution modes should provide a complete inspect, implement, run,
   observe, validate, and deliver loop rather than only shell access.
+- Autonomy is a visible, audited session setting distinct from harness, model,
+  reasoning effort, and execution target.
+- Multi-root workspaces are explicit; additional roots default to read-only.
 
 ## Open Decisions
 
@@ -920,6 +1157,12 @@ harness-specific branches in shared persistence or primary Code UI components.
    redaction policy applies to local versus managed sessions?
 8. How should branch publication, pull requests, and merge completion affect
    worktree retention?
+9. Should SSH and remote-control targets enter immediately after local mode or
+   wait until managed sandbox execution is complete?
+10. Which session-draft fields persist across app restarts, and which remain
+    ephemeral until first send?
+11. How should secondary writable repositories participate in branch,
+    worktree, and publication workflows?
 
 These decisions should be resolved through the first Codex local-mode spike and
 the managed sandbox proof rather than through UI-only prototyping.
