@@ -1823,7 +1823,7 @@
     "/v1beta/agents/{agentSlug}/chat": {
       "post": {
         "summary": "Stream agent chat",
-        "description": "Streams a text response from the agent identified by `agentSlug`, using persisted session messages plus a deduplicated client message snapshot as context.",
+        "description": "Streams typed newline-delimited events from the agent identified by `agentSlug`, using persisted session messages plus a deduplicated client message snapshot as context.",
         "operationId": "streamAgentChat",
         "tags": [
           "agents"
@@ -1857,11 +1857,12 @@
         },
         "responses": {
           "200": {
-            "description": "Plain-text streaming response.",
+            "description": "Typed newline-delimited agent event stream.",
             "content": {
-              "text/plain": {
+              "application/x-ndjson": {
                 "schema": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Newline-delimited AgentStreamEvent JSON objects."
                 }
               }
             }
@@ -1891,7 +1892,7 @@
     "/v1beta/agents/{agentSlug}/prompt": {
       "post": {
         "summary": "Stream agent prompt",
-        "description": "Streams a text response from the agent identified by `agentSlug` for an explicit prompt.",
+        "description": "Streams typed newline-delimited events from the agent identified by `agentSlug` for an explicit prompt.",
         "operationId": "streamAgentPrompt",
         "tags": [
           "agents"
@@ -1925,11 +1926,12 @@
         },
         "responses": {
           "200": {
-            "description": "Plain-text streaming response.",
+            "description": "Typed newline-delimited agent event stream.",
             "content": {
-              "text/plain": {
+              "application/x-ndjson": {
                 "schema": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Newline-delimited AgentStreamEvent JSON objects."
                 }
               }
             }

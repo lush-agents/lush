@@ -37,6 +37,9 @@ type Operation = {
         "text/plain"?: {
           schema: JsonSchema;
         };
+        "application/x-ndjson"?: {
+          schema: JsonSchema;
+        };
       };
     }
   >;
@@ -663,16 +666,16 @@ const operationDocs: Record<
   streamAgentChat: {
     summary: "Stream agent chat",
     description:
-      "Streams a text response from the agent identified by `agentSlug`, using persisted session messages plus a deduplicated client message snapshot as context.",
+      "Streams typed newline-delimited events from the agent identified by `agentSlug`, using persisted session messages plus a deduplicated client message snapshot as context.",
     requestDescription: "Model selection, session id, and client message snapshot.",
-    successDescription: "Plain-text streaming response."
+    successDescription: "Typed newline-delimited agent event stream."
   },
   streamAgentPrompt: {
     summary: "Stream agent prompt",
     description:
-      "Streams a text response from the agent identified by `agentSlug` for an explicit prompt.",
+      "Streams typed newline-delimited events from the agent identified by `agentSlug` for an explicit prompt.",
     requestDescription: "Model selection and prompt messages.",
-    successDescription: "Plain-text streaming response."
+    successDescription: "Typed newline-delimited agent event stream."
   }
 };
 
@@ -845,10 +848,13 @@ function responses(route: (typeof apiSpec.routes)[number]): Operation["responses
   if (route.kind === "stream") {
     return {
       "200": {
-        description: docs?.successDescription ?? "Streaming text response.",
+        description: docs?.successDescription ?? "Typed agent event stream.",
         content: {
-          "text/plain": {
-            schema: stringSchema()
+          "application/x-ndjson": {
+            schema: describeSchema(
+              stringSchema(),
+              "Newline-delimited AgentStreamEvent JSON objects."
+            )
           }
         }
       },

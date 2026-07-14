@@ -1,10 +1,4 @@
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  Show
-} from "solid-js";
+import { useEffect, useState, type FormEvent } from "react";
 import type {
   OrganizationInvite,
   OrganizationMember,
@@ -30,23 +24,23 @@ export function OrganizationSettingsPage(props: {
   onMemberRoleChange: (membershipId: string, role: UserRole) => Promise<unknown>;
   onMemberRemove: (membershipId: string) => Promise<unknown>;
 }) {
-  const [organizationNameDraft, setOrganizationNameDraft] = createSignal(
+  const [organizationNameDraft, setOrganizationNameDraft] = useState(
     props.organizationName
   );
-  const [organizationNameError, setOrganizationNameError] = createSignal("");
-  const [inviteEmail, setInviteEmail] = createSignal("");
-  const [inviteRole, setInviteRole] = createSignal<UserRole>("user");
-  const [isInviting, setIsInviting] = createSignal(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = createSignal(false);
-  const [isDeletingOrganization, setIsDeletingOrganization] = createSignal(false);
-  const isAdmin = createMemo(() => props.currentRole === "admin");
+  const [organizationNameError, setOrganizationNameError] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<UserRole>("user");
+  const [isInviting, setIsInviting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeletingOrganization, setIsDeletingOrganization] = useState(false);
+  const isAdmin = props.currentRole === "admin";
 
-  createEffect(() => {
+  useEffect(() => {
     setOrganizationNameDraft(props.organizationName);
-  });
+  }, [props.organizationName]);
 
   const commitOrganizationName = async () => {
-    const nextOrganizationName = organizationNameDraft().trim();
+    const nextOrganizationName = organizationNameDraft.trim();
     setOrganizationNameError("");
 
     if (nextOrganizationName === props.organizationName) {
@@ -66,12 +60,12 @@ export function OrganizationSettingsPage(props: {
     }
   };
 
-  const submitInvite = async (event: SubmitEvent) => {
+  const submitInvite = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsInviting(true);
 
     try {
-      await props.onInviteCreate(inviteEmail(), inviteRole());
+      await props.onInviteCreate(inviteEmail, inviteRole);
       setInviteEmail("");
       setInviteRole("user");
     } finally {
@@ -91,32 +85,32 @@ export function OrganizationSettingsPage(props: {
   };
 
   return (
-    <div class="grid max-w-3xl gap-4">
-      <section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div class="max-w-md">
-            <h2 class="text-sm font-medium text-[var(--color-text)]">
+    <div className="grid max-w-3xl gap-4">
+      <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="max-w-md">
+            <h2 className="text-sm font-medium text-[var(--color-text)]">
               Organization
             </h2>
-            <p class="mt-1 text-sm leading-5 text-[var(--color-muted)]">
-              {isAdmin()
+            <p className="mt-1 text-sm leading-5 text-[var(--color-muted)]">
+              {isAdmin
                 ? "Set your organization name."
                 : "View your organization name."}
             </p>
           </div>
 
-          <label class="grid min-w-64 gap-2">
-            <span class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+          <label className="grid min-w-64 gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
               Organization name
             </span>
             <input
               type="text"
-              value={organizationNameDraft()}
+              value={organizationNameDraft}
               onInput={(event) =>
                 setOrganizationNameDraft(event.currentTarget.value)
               }
               onBlur={() => {
-                if (isAdmin()) {
+                if (isAdmin) {
                   void commitOrganizationName();
                 }
               }}
@@ -125,97 +119,89 @@ export function OrganizationSettingsPage(props: {
                   event.currentTarget.blur();
                 }
               }}
-              readonly={!isAdmin()}
+              readOnly={!isAdmin}
               placeholder="Example, Inc."
-              class={`rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm outline-none transition placeholder:text-[var(--color-muted)] ${
-                isAdmin()
+              className={`rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm outline-none transition placeholder:text-[var(--color-muted)] ${
+                isAdmin
                   ? "text-[var(--color-text)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
                   : "cursor-default text-[var(--color-muted)]"
               }`}
             />
-            <Show when={organizationNameError()}>
-              <span class="text-xs text-red-300">
-                {organizationNameError()}
+            {organizationNameError ? (
+              <span className="text-xs text-red-300">
+                {organizationNameError}
               </span>
-            </Show>
+            ) : null}
           </label>
         </div>
       </section>
 
-      <Show when={props.organizationError}>
-        <p class="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+      {props.organizationError ? (
+        <p className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
           {props.organizationError}
         </p>
-      </Show>
+      ) : null}
 
-      <section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-        <div class="grid gap-4">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div class="max-w-md">
-              <h2 class="text-sm font-medium text-[var(--color-text)]">
+      <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+        <div className="grid gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="max-w-md">
+              <h2 className="text-sm font-medium text-[var(--color-text)]">
                 Members
               </h2>
-              <p class="mt-1 text-sm leading-5 text-[var(--color-muted)]">
-                {isAdmin()
+              <p className="mt-1 text-sm leading-5 text-[var(--color-muted)]">
+                {isAdmin
                   ? "Manage organization access."
                   : "View organization access."}
               </p>
             </div>
 
-            <Show when={isAdmin()}>
+            {isAdmin ? (
               <form
                 onSubmit={submitInvite}
-                class="grid min-w-64 gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_auto]"
+                className="grid min-w-64 gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_auto]"
               >
                 <input
                   type="email"
-                  value={inviteEmail()}
+                  value={inviteEmail}
                   onInput={(event) => setInviteEmail(event.currentTarget.value)}
                   placeholder="name@example.com"
                   required
-                  class="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+                  className="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
                 />
                 <select
-                  value={inviteRole()}
+                  value={inviteRole}
                   onChange={(event) =>
                     setInviteRole(event.currentTarget.value as UserRole)
                   }
-                  class="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+                  className="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
                 >
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
                 <button
                   type="submit"
-                  disabled={isInviting() || !inviteEmail().trim()}
-                  class="rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-2 text-sm font-medium text-white transition hover:border-[var(--color-brand-strong)] hover:bg-[var(--color-brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={isInviting || !inviteEmail.trim()}
+                  className="rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-2 text-sm font-medium text-white transition hover:border-[var(--color-brand-strong)] hover:bg-[var(--color-brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Invite
                 </button>
               </form>
-            </Show>
+            ) : null}
           </div>
 
-          <div class="grid gap-2">
-            <For each={props.members}>
-              {(member) => (
-                <div class="grid gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] p-3 sm:grid-cols-[minmax(0,1fr)_7rem_auto] sm:items-center">
-                  <div class="min-w-0">
-                    <p class="truncate text-sm font-medium text-[var(--color-text)]">
+          <div className="grid gap-2">
+            {props.members.map((member) => (
+                <div key={member.membershipId} className="grid gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] p-3 sm:grid-cols-[minmax(0,1fr)_7rem_auto] sm:items-center">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-[var(--color-text)]">
                       {member.displayName}
                     </p>
-                    <p class="truncate text-xs text-[var(--color-muted)]">
+                    <p className="truncate text-xs text-[var(--color-muted)]">
                       {member.email}
                     </p>
                   </div>
-                  <Show
-                    when={isAdmin()}
-                    fallback={
-                      <span class="rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2 py-2 text-sm text-[var(--color-muted)]">
-                        {member.role}
-                      </span>
-                    }
-                  >
+                  {isAdmin ? (
                     <select
                       value={member.role}
                       onChange={(event) =>
@@ -224,82 +210,83 @@ export function OrganizationSettingsPage(props: {
                           event.currentTarget.value as UserRole
                         )
                       }
-                      class="rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2 py-2 text-sm text-[var(--color-text)] outline-none transition hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+                      className="rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2 py-2 text-sm text-[var(--color-text)] outline-none transition hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
                     >
                       <option value="user">User</option>
                       <option value="admin">Admin</option>
                     </select>
-                  </Show>
-                  <Show when={isAdmin()}>
+                  ) : (
+                      <span className="rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2 py-2 text-sm text-[var(--color-muted)]">
+                        {member.role}
+                      </span>
+                  )}
+                  {isAdmin ? (
                     <button
                       type="button"
                       onClick={() => void props.onMemberRemove(member.membershipId)}
-                      class="rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
+                      className="rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
                     >
                       Remove
                     </button>
-                  </Show>
+                  ) : null}
                 </div>
-              )}
-            </For>
+            ))}
           </div>
 
-          <Show when={isAdmin() && props.invites.length > 0}>
-            <div class="grid gap-2">
-              <h3 class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+          {isAdmin && props.invites.length > 0 ? (
+            <div className="grid gap-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
                 Invites
               </h3>
-              <For each={props.invites}>
-                {(invite) => (
-                  <div class="flex min-w-0 items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] p-3">
-                    <div class="min-w-0">
-                      <p class="truncate text-sm font-medium text-[var(--color-text)]">
+              {props.invites.map((invite) => (
+                  <div key={invite.id} className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[var(--color-text)]">
                         {invite.email}
                       </p>
-                      <p class="truncate text-xs text-[var(--color-muted)]">
+                      <p className="truncate text-xs text-[var(--color-muted)]">
                         {invite.role} - {invite.status}
                       </p>
                     </div>
-                    <span class="shrink-0 text-xs text-[var(--color-muted)]">
+                    <span className="shrink-0 text-xs text-[var(--color-muted)]">
                       {new Date(invite.expiresAt).toLocaleDateString()}
                     </span>
                   </div>
-                )}
-              </For>
+              ))}
             </div>
-          </Show>
+          ) : null}
         </div>
       </section>
 
-      <Show when={isAdmin()}>
-        <section class="rounded-lg border border-red-500/50 bg-[var(--color-card)] p-4">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      {isAdmin ? (
+        <section className="rounded-lg border border-red-500/50 bg-[var(--color-card)] p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 class="text-sm font-medium text-[var(--color-text)]">
+              <h2 className="text-sm font-medium text-[var(--color-text)]">
                 Delete organization
               </h2>
-              <p class="mt-1 text-sm leading-5 text-[var(--color-muted)]">
+              <p className="mt-1 text-sm leading-5 text-[var(--color-muted)]">
                 Deletes this organization and all organization-owned state.
               </p>
             </div>
             <button
               type="button"
               onClick={() => setDeleteDialogOpen(true)}
-              class="self-start rounded-md border border-red-600 bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:border-red-700 hover:bg-red-700"
+              className="self-start rounded-md border border-red-600 bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:border-red-700 hover:bg-red-700"
             >
               Delete
             </button>
           </div>
         </section>
-      </Show>
+      ) : null}
 
       <ConfirmDialog
-        open={deleteDialogOpen()}
+        open={deleteDialogOpen}
         title="Delete organization?"
         body="This action is permanent. It will delete the organization for every member and remove all organization-owned state."
         confirmLabel="Delete organization"
         pendingConfirmLabel="Deleting..."
-        pending={isDeletingOrganization()}
+        pending={isDeletingOrganization}
         danger
         onCancel={() => setDeleteDialogOpen(false)}
         onConfirm={() => void confirmDeleteOrganization()}

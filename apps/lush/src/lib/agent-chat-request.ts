@@ -1,10 +1,10 @@
-import type { AgentChatMessage } from "@lush/api-client";
 import type { ChatMessage } from "./types";
+import { agentChatMessage } from "./agent-message";
 
 export function agentChatDeltaMessages(
-  message: Pick<ChatMessage, "role" | "content">
-): AgentChatMessage[] {
+  message: ChatMessage
+) {
   return message.role === "user" || message.role === "assistant"
-    ? [{ role: message.role, content: message.content }]
+    ? [agentChatMessage(message)]
     : [];
 }

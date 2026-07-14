@@ -91,4 +91,35 @@ describe("agent chat request normalization", () => {
       ])
     ).toEqual([user("hello"), assistant("hi")]);
   });
+
+  test("keeps bounded text attachments", () => {
+    expect(
+      normalizeAgentChatMessages([
+        {
+          role: "user",
+          content: "review this",
+          attachments: [
+            {
+              filename: "design.md",
+              mediaType: "text/markdown",
+              content: "# Design"
+            },
+            { filename: "bad", mediaType: 42, content: "ignored" }
+          ]
+        }
+      ])
+    ).toEqual([
+      {
+        role: "user",
+        content: "review this",
+        attachments: [
+          {
+            filename: "design.md",
+            mediaType: "text/markdown",
+            content: "# Design"
+          }
+        ]
+      }
+    ]);
+  });
 });

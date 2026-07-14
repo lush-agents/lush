@@ -260,6 +260,23 @@ client-side message delta. The API loads persisted session history from
 agent, and merges persisted history with the client messages before invoking
 inference.
 
+Agent responses use newline-delimited `AgentStreamEvent` objects rather than
+unframed text chunks. The v1 event contract covers response lifecycle, text and
+reasoning deltas, tool input/output, sources, artifacts, completion, and stream
+errors. Providers that currently expose only text are adapted into
+`response-start`, `text-delta`, and `response-complete` events at the agent
+boundary.
+
+Persisted message metadata uses the `lush.message.parts.v1` schema. Text remains
+canonical in the message `content` column; metadata stores compact text lengths
+plus structured non-text parts so ordering can be reconstructed without
+duplicating long responses into the 64 KiB metadata budget.
+
+The prompt input supports up to four inline text attachments with a 48 KiB
+combined text budget. Their content is persisted as message metadata and added
+to inference context. Binary and larger attachments remain owned by the future
+artifacts API and are intentionally not embedded in session metadata.
+
 The merge treats persisted history as canonical and appends only the
 non-overlapping client suffix. It finds overlap by comparing the persisted
 session suffix with the client message prefix using per-message MD5 hashes over

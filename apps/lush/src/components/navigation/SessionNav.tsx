@@ -1,5 +1,7 @@
-import { createSignal, For } from "solid-js";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import type { SessionSummary } from "@lush/api-client";
+import { ArchiveIcon } from "lucide-react";
 import type { Route } from "../../lib/types";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 
@@ -7,16 +9,16 @@ export function SessionNav(props: {
   route: Route;
   sessions: SessionSummary[];
   activeSessionId?: string;
-  onNavigate: (href: string) => void;
   onNewSession: () => void;
   getSessionHref: (sessionId: string) => string;
   onSessionArchive: (sessionId: string) => Promise<unknown> | unknown;
 }) {
+  const navigate = useNavigate();
   const sessionLabel = props.route.label.toLowerCase();
   const [sessionPendingArchive, setSessionPendingArchive] =
-    createSignal<SessionSummary>();
-  const [isArchivingSession, setIsArchivingSession] = createSignal(false);
-  const [archiveError, setArchiveError] = createSignal("");
+    useState<SessionSummary>();
+  const [isArchivingSession, setIsArchivingSession] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
 
   const requestSessionArchive = (session: SessionSummary) => {
     setArchiveError("");
@@ -24,7 +26,7 @@ export function SessionNav(props: {
   };
 
   const confirmSessionArchive = async () => {
-    const session = sessionPendingArchive();
+    const session = sessionPendingArchive;
     if (!session) {
       return;
     }
@@ -48,71 +50,70 @@ export function SessionNav(props: {
     <>
       <button
         type="button"
+        data-navigation-action
         onClick={() => {
           props.onNewSession();
-          props.onNavigate(props.route.href);
+          navigate(props.route.href);
         }}
-        class="mb-3 block w-full rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-1.5 text-left text-[0.625rem] font-medium text-white transition hover:border-[var(--color-brand-strong)] hover:bg-[var(--color-brand-strong)]"
+        className="mb-3 block w-full rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-1.5 text-left text-[0.625rem] font-medium text-white transition hover:border-[var(--color-brand-strong)] hover:bg-[var(--color-brand-strong)]"
       >
         New {sessionLabel} session
       </button>
 
-      <div class="mb-2 px-3 text-[0.5625rem] font-medium uppercase tracking-wide text-[var(--color-muted)]">
+      <div className="mb-2 px-3 text-[0.5625rem] font-medium uppercase tracking-wide text-[var(--color-muted)]">
         Previous sessions
       </div>
 
-      <For each={props.sessions}>
-        {(session) => (
-          <div
-            class={`group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md transition ${
+      {props.sessions.map((session) => (
+        <div
+          key={session.id}
+          className={`group relative w-full min-w-0 max-w-full overflow-hidden rounded-md transition ${
+            props.activeSessionId === session.id
+              ? "bg-[var(--color-panel-hover)]"
+              : "hover:bg-[var(--color-panel-hover)]"
+          }`}
+        >
+          <Link
+            to={props.getSessionHref(session.id)}
+            className={`session-title-button block w-full min-w-0 max-w-full overflow-hidden px-3 py-1.5 text-left text-[0.625rem] font-medium transition ${
               props.activeSessionId === session.id
-                ? "bg-[var(--color-panel-hover)]"
-                : "hover:bg-[var(--color-panel-hover)]"
-            }`}
+                ? "text-[var(--color-text)]"
+                : "text-[var(--color-subtle)] hover:text-[var(--color-text)]"
+            } ${session.title.length > 28 ? "session-title-button--long" : ""}`}
+            title={session.title}
           >
-            <button
-              type="button"
-              onClick={() => {
-                props.onNavigate(props.getSessionHref(session.id));
-              }}
-              class={`session-title-button min-w-0 overflow-hidden px-3 py-1.5 text-left text-[0.625rem] font-medium transition ${
-                props.activeSessionId === session.id
-                  ? "text-[var(--color-text)]"
-                  : "text-[var(--color-subtle)] hover:text-[var(--color-text)]"
-              }`}
-              classList={{
-                "session-title-button--long": session.title.length > 28
-              }}
-              title={session.title}
-            >
-              <span class="session-title-viewport">
-                <span class="session-title-track">
-                  <span class="session-title-text">{session.title}</span>
-                  <span aria-hidden="true" class="session-title-text session-title-duplicate">
-                    {session.title}
-                  </span>
+            <span className="session-title-viewport">
+              <span className="session-title-track">
+                <span className="session-title-text">{session.title}</span>
+                <span
+                  aria-hidden="true"
+                  className="session-title-text session-title-duplicate"
+                >
+                  {session.title}
                 </span>
               </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => requestSessionArchive(session)}
-              class="mr-1 rounded px-1.5 py-1 text-[0.5625rem] font-medium text-[var(--color-muted)] opacity-0 transition hover:text-[var(--color-text)] group-hover:opacity-100 focus:opacity-100"
-            >
-              Archive
-            </button>
-          </div>
-        )}
-      </For>
+            </span>
+          </Link>
+          <button
+            type="button"
+            aria-label={`Archive ${session.title}`}
+            title="Archive session"
+            onClick={() => requestSessionArchive(session)}
+            className="pointer-events-none absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md bg-[var(--color-panel-hover)] text-[var(--color-muted)] opacity-0 shadow-[-8px_0_8px_var(--color-panel-hover)] transition hover:text-[var(--color-text)] focus:pointer-events-auto focus:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+          >
+            <ArchiveIcon className="size-3.5" />
+          </button>
+        </div>
+      ))}
 
       <ConfirmDialog
-        open={Boolean(sessionPendingArchive())}
+        open={Boolean(sessionPendingArchive)}
         title="Archive session?"
         body="Archived sessions follow your organization's retention policy."
         confirmLabel="Archive session"
         pendingConfirmLabel="Archiving..."
-        pending={isArchivingSession()}
-        error={archiveError()}
+        pending={isArchivingSession}
+        error={archiveError}
         onCancel={() => {
           setArchiveError("");
           setSessionPendingArchive(undefined);

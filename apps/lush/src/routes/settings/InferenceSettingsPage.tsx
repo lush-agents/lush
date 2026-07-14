@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { useState, type FormEvent } from "react";
 import type {
   AddInferenceProviderRequest,
   InferenceConfig,
@@ -74,24 +74,22 @@ export function InferenceSettingsPage(props: {
     modelSelection: string
   ) => Promise<unknown>;
 }) {
-  const isAdmin = createMemo(() => props.currentRole === "admin");
-  const [providerFormOpen, setProviderFormOpen] = createSignal(false);
+  const isAdmin = props.currentRole === "admin";
+  const [providerFormOpen, setProviderFormOpen] = useState(false);
   const [providerKind, setProviderKind] =
-    createSignal<InferenceProviderKind>("fireworks");
-  const [providerLabel, setProviderLabel] = createSignal("Fireworks");
-  const [providerBaseUrl, setProviderBaseUrl] = createSignal(
+    useState<InferenceProviderKind>("fireworks");
+  const [providerLabel, setProviderLabel] = useState("Fireworks");
+  const [providerBaseUrl, setProviderBaseUrl] = useState(
     "https://api.fireworks.ai/inference/v1"
   );
-  const [providerApiKey, setProviderApiKey] = createSignal("");
-  const [openModelMenu, setOpenModelMenu] = createSignal("");
+  const [providerApiKey, setProviderApiKey] = useState("");
+  const [openModelMenu, setOpenModelMenu] = useState("");
   const [providerPendingDeletion, setProviderPendingDeletion] =
-    createSignal<InferenceProvider>();
-  const selectedQuickstart = createMemo(() =>
-    providerQuickstarts.find((quickstart) => quickstart.kind === providerKind())
-  );
-  const hasProviders = createMemo(
-    () => (props.inferenceConfig?.providers.length ?? 0) > 0
-  );
+    useState<InferenceProvider>();
+  const selectedQuickstart =
+    providerQuickstarts.find((quickstart) => quickstart.kind === providerKind)
+  ;
+  const hasProviders = (props.inferenceConfig?.providers.length ?? 0) > 0;
 
   const selectQuickstart = (kind: InferenceProviderKind) => {
     const quickstart = providerQuickstarts.find((item) => item.kind === kind);
@@ -104,17 +102,17 @@ export function InferenceSettingsPage(props: {
     setProviderBaseUrl(quickstart.baseUrl);
   };
 
-  const submitProvider = async (event: SubmitEvent) => {
+  const submitProvider = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!isAdmin()) {
+    if (!isAdmin) {
       return;
     }
 
     await props.onAddInferenceProvider({
-      kind: providerKind(),
-      label: providerLabel(),
-      apiKey: providerApiKey(),
-      baseUrl: providerBaseUrl()
+      kind: providerKind,
+      label: providerLabel,
+      apiKey: providerApiKey,
+      baseUrl: providerBaseUrl
     });
 
     setProviderApiKey("");
@@ -122,7 +120,7 @@ export function InferenceSettingsPage(props: {
   };
 
   const confirmProviderDelete = async () => {
-    const provider = providerPendingDeletion();
+    const provider = providerPendingDeletion;
     if (!provider) {
       return;
     }
@@ -132,121 +130,120 @@ export function InferenceSettingsPage(props: {
   };
 
   return (
-    <div class="grid max-w-3xl gap-4">
-      <section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-        <div class="flex flex-col gap-4">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div class="max-w-md">
-              <h2 class="text-sm font-medium text-[var(--color-text)]">
+    <div className="grid max-w-3xl gap-4">
+      <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="max-w-md">
+              <h2 className="text-sm font-medium text-[var(--color-text)]">
                 Inference
               </h2>
-              <p class="mt-1 text-sm leading-5 text-[var(--color-muted)]">
-                {isAdmin()
+              <p className="mt-1 text-sm leading-5 text-[var(--color-muted)]">
+                {isAdmin
                   ? "Connect providers and choose default models."
                   : "View connected providers and model defaults."}
               </p>
             </div>
 
-            <Show when={isAdmin()}>
+            {isAdmin ? (
               <button
                 type="button"
                 onClick={() => setProviderFormOpen((open) => !open)}
-                class="self-start rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-2 text-sm font-medium text-white transition hover:border-[var(--color-brand-strong)] hover:bg-[var(--color-brand-strong)]"
+                className="self-start rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-2 text-sm font-medium text-white transition hover:border-[var(--color-brand-strong)] hover:bg-[var(--color-brand-strong)]"
               >
                 Add provider
               </button>
-            </Show>
+            ) : null}
           </div>
 
-          <Show when={providerFormOpen() && isAdmin()}>
+          {providerFormOpen && isAdmin ? (
             <form
               onSubmit={submitProvider}
-              class="grid gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] p-3"
+              className="grid gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] p-3"
             >
-              <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                <For each={providerQuickstarts}>
-                  {(quickstart) => (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                {providerQuickstarts.map((quickstart) => (
                     <button
+                      key={quickstart.kind}
                       type="button"
                       onClick={() => selectQuickstart(quickstart.kind)}
-                      class={`rounded-md border p-3 text-left transition ${
-                        providerKind() === quickstart.kind
+                      className={`rounded-md border p-3 text-left transition ${
+                        providerKind === quickstart.kind
                           ? "border-[var(--color-brand)] bg-[var(--color-panel-hover)]"
                           : "border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-panel-hover)]"
                       }`}
                     >
-                      <span class="block text-sm font-medium text-[var(--color-text)]">
+                      <span className="block text-sm font-medium text-[var(--color-text)]">
                         {quickstart.label}
                       </span>
-                      <span class="mt-1 block text-xs leading-5 text-[var(--color-muted)]">
+                      <span className="mt-1 block text-xs leading-5 text-[var(--color-muted)]">
                         {quickstart.description}
                       </span>
                     </button>
-                  )}
-                </For>
+                ))}
               </div>
 
-              <div class="grid gap-3 lg:grid-cols-3">
-                <label class="grid gap-2">
-                  <span class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+              <div className="grid gap-3 lg:grid-cols-3">
+                <label className="grid gap-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
                     Provider name
                   </span>
                   <input
                     type="text"
-                    value={providerLabel()}
+                    value={providerLabel}
                     onInput={(event) =>
                       setProviderLabel(event.currentTarget.value)
                     }
-                    class="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+                    className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
                   />
                 </label>
 
-                <label class="grid gap-2">
-                  <span class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                <label className="grid gap-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
                     API key
                   </span>
                   <input
                     type="password"
-                    value={providerApiKey()}
+                    value={providerApiKey}
                     onInput={(event) =>
                       setProviderApiKey(event.currentTarget.value)
                     }
                     placeholder="Paste API key, stored securely"
-                    class="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+                    className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
                   />
                 </label>
 
-                <label class="grid gap-2">
-                  <span class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                <label className="grid gap-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
                     Base URL
                   </span>
                   <input
                     type="url"
-                    value={providerBaseUrl()}
+                    value={providerBaseUrl}
                     onInput={(event) =>
                       setProviderBaseUrl(event.currentTarget.value)
                     }
                     placeholder={
-                      selectedQuickstart()?.kind === "openai-compatible"
+                      selectedQuickstart?.kind === "openai-compatible"
                         ? "https://api.example.com/v1"
-                        : selectedQuickstart()?.baseUrl
+                        : selectedQuickstart?.baseUrl
                     }
-                    class="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+                    className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
                   />
                 </label>
               </div>
 
-              <Show when={props.inferenceProviderError}>
-                <p class="text-sm text-[var(--color-brand-soft)]">
+              {props.inferenceProviderError ? (
+                <p className="text-sm text-[var(--color-brand-soft)]">
                   {props.inferenceProviderError}
                 </p>
-              </Show>
+              ) : null}
 
-              <div class="flex items-center justify-end gap-2">
+              <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setProviderFormOpen(false)}
-                  class="rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
+                  className="rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
                 >
                   Cancel
                 </button>
@@ -254,11 +251,11 @@ export function InferenceSettingsPage(props: {
                   type="submit"
                   disabled={
                     props.isAddingInferenceProvider ||
-                    !providerLabel().trim() ||
-                    !providerApiKey().trim() ||
-                    !providerBaseUrl().trim()
+                    !providerLabel.trim() ||
+                    !providerApiKey.trim() ||
+                    !providerBaseUrl.trim()
                   }
-                  class="rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-2 text-sm font-medium text-white transition hover:border-[var(--color-brand-strong)] hover:bg-[var(--color-brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-2 text-sm font-medium text-white transition hover:border-[var(--color-brand-strong)] hover:bg-[var(--color-brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {props.isAddingInferenceProvider
                     ? "Discovering models"
@@ -266,49 +263,26 @@ export function InferenceSettingsPage(props: {
                 </button>
               </div>
             </form>
-          </Show>
+          ) : null}
 
-          <div class="grid gap-2">
-            <Show
-              when={props.inferenceConfig}
-              fallback={
-                <Show when={!providerFormOpen()}>
-                  <EmptyProviders
-                    readOnly={!isAdmin()}
-                    onAdd={() => setProviderFormOpen(true)}
-                  />
-                </Show>
-              }
-            >
-              {(config) => (
-                <Show
-                  when={hasProviders()}
-                  fallback={
-                    <Show when={!providerFormOpen()}>
-                      <EmptyProviders
-                        readOnly={!isAdmin()}
-                        onAdd={() => setProviderFormOpen(true)}
-                      />
-                    </Show>
-                  }
-                >
-                  <For each={config().providers}>
-                    {(provider) => (
-                      <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)]">
+          <div className="grid gap-2">
+            {props.inferenceConfig && hasProviders ? (
+              props.inferenceConfig.providers.map((provider) => (
+                      <div key={provider.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)]">
                         <div
-                          class={`flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-start sm:justify-between ${
+                          className={`flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-start sm:justify-between ${
                             provider.enabled
                               ? "border-b border-[var(--color-border)]"
                               : ""
                           }`}
                         >
-                          <div class="min-w-0">
-                            <div class="flex flex-wrap items-center gap-2">
-                              <h3 class="text-sm font-medium text-[var(--color-text)]">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-sm font-medium text-[var(--color-text)]">
                                 {provider.label}
                               </h3>
                               <span
-                                class={`rounded-md px-2 py-1 text-xs font-medium ${
+                                className={`rounded-md px-2 py-1 text-xs font-medium ${
                                   provider.enabled
                                     ? "bg-[var(--color-brand)] text-white"
                                     : "bg-[var(--color-bg)] text-[var(--color-muted)]"
@@ -317,13 +291,13 @@ export function InferenceSettingsPage(props: {
                                 {provider.enabled ? "Enabled" : "Disabled"}
                               </span>
                             </div>
-                            <p class="mt-1 truncate text-xs text-[var(--color-muted)]">
+                            <p className="mt-1 truncate text-xs text-[var(--color-muted)]">
                               {provider.baseUrl}
                             </p>
                           </div>
-                          <div class="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span
-                              class={`rounded-md px-2 py-1 text-xs font-medium ${
+                              className={`rounded-md px-2 py-1 text-xs font-medium ${
                                 provider.configured
                                   ? "bg-[var(--color-card)] text-[var(--color-subtle)]"
                                   : "bg-[var(--color-bg)] text-[var(--color-muted)]"
@@ -331,8 +305,9 @@ export function InferenceSettingsPage(props: {
                             >
                               {provider.configured ? "Configured" : "Missing key"}
                             </span>
-                            <Show when={isAdmin()}>
-                              <ToggleSwitch
+                            {isAdmin ? (
+                              <>
+                                <ToggleSwitch
                                 checked={provider.enabled}
                                 label={`${provider.enabled ? "Disable" : "Enable"} ${provider.label}`}
                                 onChange={() =>
@@ -342,51 +317,37 @@ export function InferenceSettingsPage(props: {
                                   )
                                 }
                               />
-                              <button
+                                <button
                                 type="button"
                                 onClick={() => setProviderPendingDeletion(provider)}
-                                class="rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-muted)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)]"
+                                className="rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-muted)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)]"
                               >
                                 Delete
-                              </button>
-                            </Show>
+                                </button>
+                              </>
+                            ) : null}
                           </div>
                         </div>
 
-                        <Show when={provider.enabled}>
-                          <div class="grid divide-y divide-[var(--color-border)]">
-                            <For each={provider.models}>
-                              {(model) => {
+                        {provider.enabled ? (
+                          <div className="grid divide-y divide-[var(--color-border)]">
+                            {provider.models.map((model) => {
                                 const modelSelection = `${provider.id}:${model.id}`;
-                                const selectedModes = () =>
-                                  workspaceModes.filter(
+                                const selectedModes = workspaceModes.filter(
                                     (mode) =>
                                       props.modelDefaults[mode.value] ===
                                       modelSelection
                                   );
-                                const menuOpen = () =>
-                                  openModelMenu() === modelSelection;
+                                const menuOpen = openModelMenu === modelSelection;
 
                                 return (
                                   <div
-                                    class={`grid gap-3 px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)] lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center ${
+                                    key={model.id}
+                                    className={`grid gap-3 px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)] lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center ${
                                       model.enabled ? "" : "opacity-60"
                                     }`}
                                   >
-                                    <Show
-                                      when={isAdmin()}
-                                      fallback={
-                                        <span
-                                          class={`rounded-md border px-2 py-1 text-xs font-medium ${
-                                            model.enabled
-                                              ? "border-[var(--color-brand)] text-[var(--color-brand-soft)]"
-                                              : "border-[var(--color-border)] text-[var(--color-muted)]"
-                                          }`}
-                                        >
-                                          {model.enabled ? "Enabled" : "Disabled"}
-                                        </span>
-                                      }
-                                    >
+                                    {isAdmin ? (
                                       <ToggleSwitch
                                         checked={model.enabled}
                                         label={`${model.enabled ? "Disable" : "Enable"} ${model.label}`}
@@ -398,40 +359,48 @@ export function InferenceSettingsPage(props: {
                                           )
                                         }
                                       />
-                                    </Show>
+                                    ) : (
+                                        <span
+                                          className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                                            model.enabled
+                                              ? "border-[var(--color-brand)] text-[var(--color-brand-soft)]"
+                                              : "border-[var(--color-border)] text-[var(--color-muted)]"
+                                          }`}
+                                        >
+                                          {model.enabled ? "Enabled" : "Disabled"}
+                                        </span>
+                                    )}
 
-                                    <div class="min-w-0">
-                                      <div class="flex flex-wrap items-center gap-2">
-                                        <p class="text-sm font-medium text-[var(--color-text)]">
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="text-sm font-medium text-[var(--color-text)]">
                                           {model.label}
                                         </p>
-                                        <span class="rounded-md bg-[var(--color-card)] px-2 py-1 text-xs font-medium text-[var(--color-muted)]">
+                                        <span className="rounded-md bg-[var(--color-card)] px-2 py-1 text-xs font-medium text-[var(--color-muted)]">
                                           {model.enabled ? "Enabled" : "Disabled"}
                                         </span>
                                       </div>
-                                      <p class="mt-1 truncate text-xs text-[var(--color-muted)]">
+                                      <p className="mt-1 truncate text-xs text-[var(--color-muted)]">
                                         {model.id}
                                       </p>
                                     </div>
 
-                                    <div class="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
-                                      <For each={selectedModes()}>
-                                        {(mode) => (
-                                          <span class="rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-2 py-1 text-xs font-medium text-white">
+                                    <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
+                                      {selectedModes.map((mode) => (
+                                          <span key={mode.value} className="rounded-md border border-[var(--color-brand)] bg-[var(--color-brand)] px-2 py-1 text-xs font-medium text-white">
                                             {mode.label}
                                           </span>
-                                        )}
-                                      </For>
+                                      ))}
 
-                                      <Show when={isAdmin()}>
+                                      {isAdmin ? (
                                         <Dropdown
-                                          open={menuOpen()}
+                                          open={menuOpen}
                                           onOpenChange={(open) =>
                                             setOpenModelMenu(
                                               open ? modelSelection : ""
                                             )
                                           }
-                                          class="relative"
+                                          className="relative"
                                           contentClass="absolute right-0 top-8 z-20 min-w-48 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] p-1 shadow-lg"
                                           trigger={(dropdown) => (
                                             <button
@@ -440,22 +409,22 @@ export function InferenceSettingsPage(props: {
                                               aria-expanded={dropdown.isOpen()}
                                               disabled={!model.enabled}
                                               onClick={dropdown.toggle}
-                                              class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--color-border)] text-[var(--color-muted)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50"
+                                              className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--color-border)] text-[var(--color-muted)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50"
                                             >
-                                              <span class="grid gap-0.5">
-                                                <span class="h-1 w-1 rounded-full bg-current" />
-                                                <span class="h-1 w-1 rounded-full bg-current" />
-                                                <span class="h-1 w-1 rounded-full bg-current" />
+                                              <span className="grid gap-0.5">
+                                                <span className="h-1 w-1 rounded-full bg-current" />
+                                                <span className="h-1 w-1 rounded-full bg-current" />
+                                                <span className="h-1 w-1 rounded-full bg-current" />
                                               </span>
                                             </button>
                                           )}
                                         >
-                                          <div class="px-2 py-1.5 text-xs font-medium text-[var(--color-muted)]">
+                                          <div className="px-2 py-1.5 text-xs font-medium text-[var(--color-muted)]">
                                             Set default as...
                                           </div>
-                                          <For each={workspaceModes}>
-                                            {(mode) => (
+                                          {workspaceModes.map((mode) => (
                                               <button
+                                                key={mode.value}
                                                 type="button"
                                                 onClick={() => {
                                                   props.onModelDefaultChange(
@@ -464,40 +433,38 @@ export function InferenceSettingsPage(props: {
                                                   );
                                                   setOpenModelMenu("");
                                                 }}
-                                                class="block w-full rounded px-2 py-1.5 text-left text-xs font-medium text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
+                                                className="block w-full rounded px-2 py-1.5 text-left text-xs font-medium text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
                                               >
                                                 {mode.label}
                                               </button>
-                                            )}
-                                          </For>
+                                          ))}
                                         </Dropdown>
-                                      </Show>
+                                      ) : null}
                                     </div>
                                   </div>
                                 );
-                              }}
-                            </For>
+                            })}
                           </div>
-                        </Show>
+                        ) : null}
                       </div>
-                    )}
-                  </For>
-                </Show>
-              )}
-            </Show>
+              ))
+            ) : !providerFormOpen ? (
+              <EmptyProviders
+                readOnly={!isAdmin}
+                onAdd={() => setProviderFormOpen(true)}
+              />
+            ) : null}
           </div>
         </div>
       </section>
 
-      <Show when={providerPendingDeletion()}>
-        {(provider) => (
+      {providerPendingDeletion ? (
           <ProviderDeleteModal
-            providerLabel={provider().label}
+            providerLabel={providerPendingDeletion.label}
             onCancel={() => setProviderPendingDeletion(undefined)}
             onConfirm={() => void confirmProviderDelete()}
           />
-        )}
-      </Show>
+      ) : null}
     </div>
   );
 }
@@ -508,37 +475,37 @@ function ProviderDeleteModal(props: {
   onConfirm: () => void;
 }) {
   return (
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="delete-provider-title"
-        class="grid w-full max-w-sm gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-2xl shadow-[var(--shadow-menu)]"
+        className="grid w-full max-w-sm gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-2xl shadow-[var(--shadow-menu)]"
       >
         <div>
           <h2
             id="delete-provider-title"
-            class="text-sm font-semibold text-[var(--color-text)]"
+            className="text-sm font-semibold text-[var(--color-text)]"
           >
             Delete provider?
           </h2>
-          <p class="mt-2 text-sm leading-5 text-[var(--color-muted)]">
+          <p className="mt-2 text-sm leading-5 text-[var(--color-muted)]">
             This permanently removes {props.providerLabel} and its discovered
             models from this organization.
           </p>
         </div>
-        <div class="flex justify-end gap-2">
+        <div className="flex justify-end gap-2">
           <button
             type="button"
             onClick={props.onCancel}
-            class="rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
+            className="rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={props.onConfirm}
-            class="rounded-md border border-red-700 bg-red-700 px-3 py-2 text-sm font-medium text-white transition hover:border-red-800 hover:bg-red-800"
+            className="rounded-md border border-red-700 bg-red-700 px-3 py-2 text-sm font-medium text-white transition hover:border-red-800 hover:bg-red-800"
           >
             Delete provider
           </button>
@@ -550,24 +517,24 @@ function ProviderDeleteModal(props: {
 
 function EmptyProviders(props: { readOnly: boolean; onAdd: () => void }) {
   return (
-    <div class="rounded-lg border border-dashed border-[var(--color-border-strong)] bg-[var(--color-panel)] p-6 text-center">
-      <p class="text-sm font-medium text-[var(--color-text)]">
+    <div className="rounded-lg border border-dashed border-[var(--color-border-strong)] bg-[var(--color-panel)] p-6 text-center">
+      <p className="text-sm font-medium text-[var(--color-text)]">
         No inference providers connected
       </p>
-      <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--color-muted)]">
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--color-muted)]">
         {props.readOnly
           ? "Ask an organization admin to connect a provider before using organization models."
           : "Add Baseten, Fireworks, Anthropic, OpenAI, or any OpenAI-compatible endpoint. Lush will use the supplied credentials to discover available chat models."}
       </p>
-      <Show when={!props.readOnly}>
+      {!props.readOnly ? (
         <button
           type="button"
           onClick={props.onAdd}
-          class="mt-4 rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
+          className="mt-4 rounded-md border border-[var(--color-border-strong)] px-3 py-2 text-sm text-[var(--color-text)] transition hover:bg-[var(--color-panel-hover)]"
         >
           Add provider
         </button>
-      </Show>
+      ) : null}
     </div>
   );
 }
@@ -584,14 +551,14 @@ function ToggleSwitch(props: {
       aria-checked={props.checked}
       aria-label={props.label}
       onClick={props.onChange}
-      class={`group relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border p-0.5 transition duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-panel)] ${
+      className={`group relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border p-0.5 transition duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-panel)] ${
         props.checked
           ? "border-[var(--color-brand)] bg-[var(--color-brand)]"
           : "border-[var(--color-border-strong)] bg-[var(--color-card)] hover:bg-[var(--color-panel-hover)]"
       }`}
     >
       <span
-        class={`h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200 ease-out ${
+        className={`h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200 ease-out ${
           props.checked ? "translate-x-[20px]" : "translate-x-0"
         }`}
       />

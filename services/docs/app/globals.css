@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "fumadocs-ui/style.css";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @source "./**/*.{ts,tsx}";
 @source "../components/**/*.{ts,tsx}";
 @source "../content/**/*.{md,mdx}";

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { useEffect, useState } from "react";
 import { appearanceOptions } from "../../lib/app-data";
 import type { Appearance } from "../../lib/types";
 
@@ -10,17 +10,17 @@ export function PersonalSettingsPage(props: {
   onDisplayNameChange: (displayName: string) => Promise<unknown> | unknown;
   onAppearanceChange: (appearance: Appearance) => void;
 }) {
-  const [displayNameDraft, setDisplayNameDraft] = createSignal(
+  const [displayNameDraft, setDisplayNameDraft] = useState(
     props.displayName
   );
-  const [displayNameError, setDisplayNameError] = createSignal("");
+  const [displayNameError, setDisplayNameError] = useState("");
 
-  createEffect(() => {
+  useEffect(() => {
     setDisplayNameDraft(props.displayName);
-  });
+  }, [props.displayName]);
 
   const commitDisplayName = async () => {
-    const nextDisplayName = displayNameDraft().trim();
+    const nextDisplayName = displayNameDraft.trim();
     setDisplayNameError("");
 
     if (nextDisplayName === props.displayName) {
@@ -39,39 +39,39 @@ export function PersonalSettingsPage(props: {
   };
 
   return (
-    <div class="grid max-w-3xl gap-4">
-      <Show when={props.pane === "profile"}>
-        <section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div class="max-w-md">
-              <h2 class="text-sm font-medium text-[var(--color-text)]">
+    <div className="grid max-w-3xl gap-4">
+      {props.pane === "profile" ? (
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="max-w-md">
+              <h2 className="text-sm font-medium text-[var(--color-text)]">
                 Profile
               </h2>
-              <p class="mt-1 text-sm leading-5 text-[var(--color-muted)]">
+              <p className="mt-1 text-sm leading-5 text-[var(--color-muted)]">
                 Set your display name shown in Lush.
               </p>
             </div>
 
-            <div class="grid min-w-64 gap-3">
-              <label class="grid gap-2">
-                <span class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+            <div className="grid min-w-64 gap-3">
+              <label className="grid gap-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
                   Email address
                 </span>
                 <input
                   type="email"
                   value={props.email}
-                  readonly
-                  class="cursor-default rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-muted)] outline-none"
+                  readOnly
+                  className="cursor-default rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-muted)] outline-none"
                 />
               </label>
 
-              <label class="grid gap-2">
-                <span class="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+              <label className="grid gap-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
                   Display name
                 </span>
                 <input
                   type="text"
-                  value={displayNameDraft()}
+                  value={displayNameDraft}
                   onInput={(event) =>
                     setDisplayNameDraft(event.currentTarget.value)
                   }
@@ -82,34 +82,34 @@ export function PersonalSettingsPage(props: {
                     }
                   }}
                   placeholder="First Last"
-                  class="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
+                  className="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
                 />
-                <Show when={displayNameError()}>
-                  <span class="text-xs text-red-300">{displayNameError()}</span>
-                </Show>
+                {displayNameError ? (
+                  <span className="text-xs text-red-300">{displayNameError}</span>
+                ) : null}
               </label>
             </div>
           </div>
         </section>
-      </Show>
+      ) : null}
 
-      <Show when={props.pane === "appearance"}>
-        <section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div class="max-w-md">
-              <h2 class="text-sm font-medium text-[var(--color-text)]">
+      {props.pane === "appearance" ? (
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="max-w-md">
+              <h2 className="text-sm font-medium text-[var(--color-text)]">
                 Appearance
               </h2>
-              <p class="mt-1 text-sm leading-5 text-[var(--color-muted)]">
+              <p className="mt-1 text-sm leading-5 text-[var(--color-muted)]">
                 Choose how Lush renders across this device.
               </p>
             </div>
 
-            <div class="grid min-w-64 gap-2">
-              <For each={appearanceOptions}>
-                {(option) => (
+            <div className="grid min-w-64 gap-2">
+              {appearanceOptions.map((option) => (
                   <label
-                    class={`flex cursor-pointer items-start gap-3 rounded-md border p-3 transition ${
+                    key={option.value}
+                    className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 transition ${
                       props.appearance === option.value
                         ? "border-[var(--color-brand)] bg-[var(--color-panel-hover)]"
                         : "border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-panel-hover)]"
@@ -121,23 +121,22 @@ export function PersonalSettingsPage(props: {
                       value={option.value}
                       checked={props.appearance === option.value}
                       onChange={() => props.onAppearanceChange(option.value)}
-                      class="mt-1 accent-[var(--color-brand)]"
+                      className="mt-1 accent-[var(--color-brand)]"
                     />
                     <span>
-                      <span class="block text-sm font-medium text-[var(--color-text)]">
+                      <span className="block text-sm font-medium text-[var(--color-text)]">
                         {option.label}
                       </span>
-                      <span class="mt-1 block text-xs leading-5 text-[var(--color-muted)]">
+                      <span className="mt-1 block text-xs leading-5 text-[var(--color-muted)]">
                         {option.description}
                       </span>
                     </span>
                   </label>
-                )}
-              </For>
+              ))}
             </div>
           </div>
         </section>
-      </Show>
+      ) : null}
     </div>
   );
 }
