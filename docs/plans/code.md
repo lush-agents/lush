@@ -9,28 +9,6 @@ follow as adapter conformance tests. Supporting all five without changing the
 core domain model is the confidence threshold for treating the harness
 abstraction as correctly scoped.
 
-## Design Review Disposition
-
-The following decisions incorporate the first external review of this plan.
-
-| Review point | Disposition |
-| --- | --- |
-| The first milestone carries too much generality | Accept. Define a narrow local dogfood slice and explicitly defer speculative environment features. |
-| Event normalization is underspecified | Accept. Phase 0 produces concrete discriminated schemas and golden mappings, not `data: unknown`. |
-| Evaluate Agent Client Protocol (ACP) | Accept. ACP becomes the preferred harness transport where available, with a documented gap analysis and Lush extensions at the domain boundary. |
-| `HarnessId` prevents third-party adapters | Accept. Replace the closed union with registry-defined IDs and adapter manifests. |
-| Protocol drift and resume compatibility arrive too late | Accept. Version policy and layered release qualification move into Phases 0 and 2. |
-| Managed consumer-subscription authentication may be unavailable | Accept as a release gate. Managed harness availability requires an official credential and licensing path with viable economics. |
-| Raw payload retention is unsafe by default | Accept. Raw payload persistence is off by default and redaction must happen before any diagnostic write. |
-| Human implementation effort is roughly a year | Push back on coding throughput, accept the risk concentration. Adapter glue is regenerable; schemas, fixtures, conformance, and security review are the durable work. |
-| Checkpoint/restore is speculative | Accept. Remove it from the required environment interface and treat it as an optional managed capability. |
-| ACP adds a second transport per harness to the dogfood slice | Accept. Phase 0 selects exactly one primary transport per harness. Equivalence testing is conditional on maintaining a second transport, not a first-release requirement. |
-| Recorded fixtures cannot detect behavioral drift in a new release | Accept. Separate hermetic PR conformance, passive release inspection, and credentialed behavioral canaries with explicit budgets. |
-| The non-mutating compatibility probe is undefined | Accept. Define it as metadata and protocol negotiation that never opens or resumes the recorded native session. |
-| Initial platform support is ambiguous | Accept. The first local dogfood release is macOS-only; portable contracts remain a design requirement, not an implied implementation claim. |
-| Command working directories may be outside a workspace | Accept. Represent workspace and external execution paths distinctly and govern external-path persistence. |
-| Approval scopes omit persistent grants | Accept. Preserve grant duration and authority boundary; never display a persistent grant as a session-only decision. |
-
 The practical consequence is that Phase 0 is not preliminary scaffolding. It
 is the core product-engineering phase. Adapter implementations should be cheap
 to regenerate from current upstream schemas and fixtures; the stable assets are
@@ -478,7 +456,9 @@ how execution resumes.
 ```ts
 type HarnessSessionBinding = {
   harnessId: HarnessId;
-  harnessVersion: string;
+  createdWithHarnessVersion: string;
+  currentHarnessVersion: string;
+  versionQualification: HarnessVersionQualification;
   adapterId: string;
   adapterVersion: string;
   transport: "acp" | "native-rpc" | "sdk" | "structured-cli";
@@ -487,12 +467,24 @@ type HarnessSessionBinding = {
   externalSessionId: string;
   workspaceId: string;
 };
+
+type HarnessVersionQualification =
+  | {
+      status: "qualified";
+      qualificationId: string;
+    }
+  | {
+      status: "unverified";
+      reason: "new-local-session" | "local-resume-override";
+      acknowledgedAt: string;
+      structuralProbeDigest: string;
+    };
 ```
 
 The harness's native session is the source of truth for future model context.
-Lush stores normalized events for rendering, search, audit, and recovery. Lush
-also retains versioned raw harness events for debugging and forward-compatible
-reprocessing, subject to retention and redaction policy.
+Lush stores normalized events for rendering, search, audit, and recovery. Raw
+harness events are not part of the durable session record; narrowly scoped
+diagnostic capture follows the opt-in retention and redaction policy below.
 
 If a native local session is missing, the Lush transcript remains readable but
 the session is marked unavailable for resume. Lush must not silently reconstruct
@@ -830,7 +822,7 @@ Every adapter manifest declares its adapter version, supported harness-version
 range, transport, ACP protocol version where applicable, and canonical event
 schema version. The session binding records all of them.
 
-Resume policy:
+Default resume policy:
 
 1. resume directly when the installed harness and negotiated protocol remain in
    the recorded compatible range;
@@ -838,10 +830,10 @@ Resume policy:
    newer but plausibly compatible;
 3. block resume immediately if structural negotiation or fixture parsing fails;
 4. if the probe passes but cross-version behavior is not already qualified,
-   leave the binding unchanged and block resume pending a canary or reinstall;
-5. permit the native resume and update the binding only after the new version
-   enters a reviewed compatible range;
-6. keep the transcript readable while execution is blocked; and
+   mark the candidate version unverified and leave the binding unchanged;
+5. absent the local override below, permit the native resume and update the
+   binding only after the new version enters a reviewed compatible range;
+6. keep the transcript readable whenever execution is blocked; and
 7. offer a pinned managed runtime or actionable local install guidance rather
    than attempting a lossy transcript reconstruction.
 
@@ -853,9 +845,30 @@ a fresh transport, negotiate protocol and capabilities, load published schemas,
 and run recorded payloads through the adapter. It must not open or resume the
 recorded native session, send a model turn, or write to its workspace. This
 probe establishes parser and negotiation compatibility, not behavioral resume
-compatibility. If the latter cannot be established from an already qualified
-version range, Lush blocks resume until a cross-version canary passes or the
-user reinstalls the recorded version.
+compatibility.
+
+### Unverified local versions
+
+Local mode provides an explicit escape hatch after the structural probe passes:
+
+- For an existing session, the default remains blocked. The user may start a
+  fresh native session against the same worktree, reinstall the recorded
+  version, wait for qualification, or choose **Try unverified resume**.
+- Unverified resume requires confirmation for that session and version pair.
+  It is never a remembered global preference. The UI shows both versions and
+  states that the native session may be mutated incompatibly.
+- A successful override updates `currentHarnessVersion`, sets
+  `versionQualification.status` to `unverified`, and emits an immutable audit
+  event containing the version pair, probe digest, and acknowledgment time.
+- Structural probe failure, an unknown transport protocol, or a known unsafe
+  version cannot be overridden.
+
+For a new local session, a structurally compatible but not yet qualified
+version may start after the preflight UI labels it **Unverified** and the first
+send records acknowledgment in the binding. This asymmetry is deliberate: a
+new native session risks only its own state, while resuming may corrupt existing
+native context. Managed mode never offers either override and runs qualified,
+pinned harness builds only.
 
 Protocol maintenance has three distinct lanes:
 
@@ -1363,16 +1376,18 @@ Required conformance cases:
 8. maps terminal success and failure;
 9. cancels a running turn and child processes;
 10. resumes the correct native session across every supported version pair;
-11. blocks resume for incompatible or unknown versions without corrupting the
-    native session;
-12. survives unknown additive native events;
-13. keeps raw persistence disabled by default and redacts before diagnostic
+11. blocks structurally incompatible and managed unqualified versions without
+    mutating the native session;
+12. permits an unverified local start or resume only after a successful
+    structural probe and records the exact acknowledgment and version pair;
+13. survives unknown additive native events;
+14. keeps raw persistence disabled by default and redacts before diagnostic
     writes;
-14. maps requested autonomy to a non-broader effective harness policy;
-15. handles supported additional workspace roots without widening access;
-16. when a harness has two maintained transports, produces equivalent canonical
+15. maps requested autonomy to a non-broader effective harness policy;
+16. handles supported additional workspace roots without widening access;
+17. when a harness has two maintained transports, produces equivalent canonical
     events for their shared fixture scenarios; and
-17. declares capability differences accurately.
+18. declares capability differences accurately.
 
 Live inference is not required for pull-request CI. The isolated behavioral
 canaries defined above are required before a newly detected upstream release is
@@ -1397,8 +1412,8 @@ changes to these concentrated risk areas:
 - worktree forced removal and branch deletion;
 - raw-event, command-output, artifact, and secret redaction;
 - managed credential injection and revocation; and
-- compatibility changes that could resume or mutate an existing native
-  harness session.
+- compatibility changes and override semantics that could resume or mutate an
+  existing native harness session.
 
 Humans also curate the fixture corpus: representative scenarios, expected
 canonical meaning, and checks against fixtures that pass while omitting an
@@ -1460,6 +1475,8 @@ creating resources while the session remains a draft.
   first milestone.
 - Persist Lush session bindings and normalized events.
 - Implement cancellation and the supported approval flows.
+- Implement qualified, structurally incompatible, and unverified local version
+  states with immutable override audit events.
 - Run the hermetic fixture matrix and bounded release-qualification canaries,
   including cross-version resume of synthetic sessions.
 
@@ -1474,6 +1491,8 @@ temporary repository through the same orchestration API.
 - Reuse the existing AI Elements message, reasoning, tool, and artifact
   components.
 - Add command output, approval, file-change, diff review, and validation UI.
+- Add unverified-version badges and the fresh-session, reinstall, wait, and
+  explicit local-resume choices.
 - Add open-in-terminal/editor and retain/archive/remove-worktree actions.
 
 Exit criterion: implement a real Lush change using Lush Code with Codex, then
@@ -1553,6 +1572,9 @@ app. Hibernation and checkpoint restore are not required for this exit.
   default.
 - Hermetic conformance, passive release inspection, credentialed behavioral
   qualification, and resume compatibility are Phase 0/2 concerns.
+- Structurally compatible unverified versions may start or explicitly resume
+  local sessions with recorded acknowledgment; managed execution remains
+  qualified and pinned.
 - Managed harness availability is gated on official credentials, licensing,
   security, and viable economics.
 
