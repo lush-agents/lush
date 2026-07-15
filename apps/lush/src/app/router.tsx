@@ -20,6 +20,9 @@ import { NotFoundPage } from "../routes/NotFoundPage";
 import { RoutePlaceholderPage } from "../routes/RoutePlaceholderPage";
 import { ConceptDetailPage } from "../routes/concepts/ConceptDetailPage";
 import { ConceptsPage } from "../routes/concepts/ConceptsPage";
+import { SessionsPage } from "../routes/SessionsPage";
+import { ProjectsPage } from "../routes/projects/ProjectsPage";
+import { ProjectPage } from "../routes/projects/ProjectPage";
 import { PersonalSettingsPage } from "../routes/settings/PersonalSettingsPage";
 
 const ChatPage = lazy(() =>
@@ -76,29 +79,35 @@ const router = createBrowserRouter([
                 children: [
                   { path: "concepts", element: <ConceptsRoute /> },
                   { path: "concepts/:slug", element: <ConceptDetailRoute /> },
+                  { path: "sessions", element: <SessionsPage /> },
+                  { path: "projects", element: <ProjectsPage /> },
+                  { path: "projects/:projectId", element: <ProjectRoute /> },
                   { path: "settings/personal", element: <Navigate to="/settings/profile" replace /> },
                   { path: "settings/profile", element: <PersonalSettingsRoute pane="profile" /> },
                   { path: "settings/appearance", element: <PersonalSettingsRoute pane="appearance" /> },
                   { path: "settings/organization", element: <OrganizationSettingsRoute /> },
                   { path: "settings/inference", element: <InferenceSettingsRoute /> },
-                  ...routes.flatMap((route) => [
-                    {
+                  ...routes.flatMap((route) => {
+                    const element = route.href === "/chat"
+                      ? <ChatRoute />
+                      : route.href === "/code"
+                        ? <CodePage />
+                        : <RoutePlaceholderPage route={route} />;
+                    const baseRoute = {
                       path: route.href.slice(1),
-                      element: route.href === "/chat"
-                        ? <ChatRoute />
-                        : route.href === "/code"
-                          ? <CodePage />
-                          : <RoutePlaceholderPage route={route} />
-                    },
-                    {
-                      path: `${route.href.slice(1)}/sessions/:sessionId`,
-                      element: route.href === "/chat"
-                        ? <ChatRoute />
-                        : route.href === "/code"
-                          ? <CodePage />
-                          : <RoutePlaceholderPage route={route} />
-                    }
-                  ]),
+                      element
+                    };
+
+                    return route.sessionAgentId
+                      ? [
+                          baseRoute,
+                          {
+                            path: `${route.href.slice(1)}/sessions/:sessionId`,
+                            element
+                          }
+                        ]
+                      : [baseRoute];
+                  }),
                   { path: "*", element: <NotFoundRoute /> }
                 ]
               }
@@ -128,14 +137,14 @@ function IndexRoute() {
   const app = useApp();
   if (app.sessionStatus === "loading") return null;
   if (!app.isAuthenticated) return <Navigate to="/sign-in" replace />;
-  return <Navigate to={app.hasActiveOrganization ? "/concepts" : "/organizations/new"} replace />;
+  return <Navigate to={app.hasActiveOrganization ? "/sessions" : "/organizations/new"} replace />;
 }
 
 function PublicOnlyRoute() {
   const app = useApp();
   if (app.sessionStatus === "loading") return null;
   if (app.isAuthenticated) {
-    return <Navigate to={app.hasActiveOrganization ? "/concepts" : "/organizations/new"} replace />;
+    return <Navigate to={app.hasActiveOrganization ? "/sessions" : "/organizations/new"} replace />;
   }
   return <Outlet />;
 }
@@ -162,6 +171,11 @@ function ConceptsRoute() {
 function ConceptDetailRoute() {
   const { slug } = useParams();
   return <ConceptDetailPage slug={slug ?? ""} />;
+}
+
+function ProjectRoute() {
+  const { projectId } = useParams();
+  return <ProjectPage projectId={projectId ?? ""} />;
 }
 
 function CreateOrganizationRoute() {
@@ -194,7 +208,7 @@ function OrganizationSettingsRoute() {
 
   const deleteOrganization = async () => {
     const result = await app.deleteActiveOrganization();
-    navigate(result.requiresOrganization ? "/organizations/new" : "/concepts", {
+    navigate(result.requiresOrganization ? "/organizations/new" : "/sessions", {
       replace: true
     });
   };
@@ -247,8 +261,10 @@ function ChatRoute() {
       ensureSession={app.ensureSession}
       onCreateSession={app.createChatSession}
       onAppendSessionMessage={app.appendChatSessionMessage}
+      onTruncateSession={app.truncateChatSession}
       onSessionTitleChange={app.updateChatSessionTitle}
       onMessageFeedback={app.recordChatMessageFeedback}
+      onModelSelectionChange={app.recordChatModelSelection}
     />
   );
 }

@@ -3,6 +3,8 @@ import {
   CheckIcon,
   CopyIcon,
   FileTextIcon,
+  PencilIcon,
+  RotateCwIcon,
   ThumbsDownIcon,
   ThumbsUpIcon
 } from "lucide-react";
@@ -63,11 +65,17 @@ import type { ChatMessage, ChatMessagePart } from "../lib/types";
 export function Message({
   message,
   initialFeedback,
-  onFeedback
+  onFeedback,
+  onRetry,
+  onEdit,
+  actionsDisabled = false
 }: {
   message: ChatMessage;
   initialFeedback?: "up" | "down";
   onFeedback?: (messageId: string, sentiment: "up" | "down") => Promise<void>;
+  onRetry?: () => void | Promise<void>;
+  onEdit?: () => void;
+  actionsDisabled?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<"up" | "down" | undefined>(
@@ -91,8 +99,13 @@ export function Message({
   useEffect(() => setFeedback(initialFeedback), [initialFeedback]);
 
   const submitFeedback = async (sentiment: "up" | "down") => {
+    const previousFeedback = feedback;
     setFeedback(sentiment);
-    await onFeedback?.(message.id, sentiment);
+    try {
+      await onFeedback?.(message.serverId ?? message.id, sentiment);
+    } catch {
+      setFeedback(previousFeedback);
+    }
   };
 
   return (
@@ -189,17 +202,45 @@ export function Message({
               }
             >
               <MessageActions className="gap-0.5">
+                {message.role === "user" && message.createdAt ? (
+                  <time
+                    dateTime={message.createdAt}
+                    title={formatMessageDate(message.createdAt)}
+                    className="mr-1 tabular-nums text-muted-foreground"
+                  >
+                    {formatMessageTime(message.createdAt)}
+                  </time>
+                ) : null}
+                {message.role === "user" && onRetry ? (
+                  <MessageAction
+                    tooltip="Retry"
+                    disabled={actionsDisabled}
+                    onClick={() => void onRetry()}
+                  >
+                    <RotateCwIcon />
+                  </MessageAction>
+                ) : null}
+                {message.role === "user" && onEdit ? (
+                  <MessageAction
+                    tooltip="Edit"
+                    disabled={actionsDisabled}
+                    onClick={onEdit}
+                  >
+                    <PencilIcon />
+                  </MessageAction>
+                ) : null}
                 <MessageAction
                   tooltip={message.role === "user" ? "Copy message" : "Copy response"}
                   onClick={() => void copy()}
                 >
                   {copied ? <CheckIcon /> : <CopyIcon />}
                 </MessageAction>
-                {message.role === "assistant" ? (
+                {message.role === "assistant" && onFeedback ? (
                   <>
                     <MessageAction
                       tooltip="Helpful"
                       aria-pressed={feedback === "up"}
+                      className={feedback === "up" ? "bg-muted text-foreground" : undefined}
                       onClick={() => void submitFeedback("up")}
                     >
                       <ThumbsUpIcon />
@@ -207,6 +248,7 @@ export function Message({
                     <MessageAction
                       tooltip="Not helpful"
                       aria-pressed={feedback === "down"}
+                      className={feedback === "down" ? "bg-muted text-foreground" : undefined}
                       onClick={() => void submitFeedback("down")}
                     >
                       <ThumbsDownIcon />
@@ -220,6 +262,24 @@ export function Message({
       </ShadcnMessage>
     </article>
   );
+}
+
+function formatMessageTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function formatMessageDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
 }
 
 function MessagePart(props: {

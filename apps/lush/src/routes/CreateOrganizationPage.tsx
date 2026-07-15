@@ -16,7 +16,7 @@ export function CreateOrganizationPage(props: {
     try {
       await props.onCreate(name);
       setName("");
-      navigate("/concepts", { replace: true });
+      navigate("/sessions", { replace: true });
     } catch {
       // The application provider exposes the server message through `error`.
     } finally {

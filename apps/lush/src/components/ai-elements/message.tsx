@@ -11,7 +11,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { normalizeMarkdownMath } from "@/lib/markdown-math";
 import { cn } from "@/lib/utils";
+import { math } from "@streamdown/math";
 import type { UIMessage } from "ai";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
@@ -318,14 +320,19 @@ export const MessageBranchPage = ({
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
+  ({ children, className, plugins, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
-        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "lush-markdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
+      plugins={{ ...plugins, math: plugins?.math ?? math }}
       {...props}
-    />
+    >
+      {typeof children === "string"
+        ? normalizeMarkdownMath(children)
+        : children}
+    </Streamdown>
   ),
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&

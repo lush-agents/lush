@@ -14,10 +14,18 @@ export type AgentChatMessage = InferenceChatMessage & {
   attachments?: AgentChatAttachment[];
 };
 
+export type ProjectAgentContext = {
+  name: string;
+  instructions: string;
+  memory: string;
+  contextItems: AgentChatAttachment[];
+};
+
 export type StreamLushAgentChatOptions = {
   organizationId: string;
   modelSelection?: string;
   messages: AgentChatMessage[];
+  project?: ProjectAgentContext;
   signal: AbortSignal;
 };
 
@@ -33,15 +41,42 @@ export async function* streamLushAgentChat({
   organizationId,
   modelSelection,
   messages,
+  project,
   signal
 }: StreamLushAgentChatOptions) {
   yield* streamInferenceChat({
     organizationId,
     modelSelection,
-    systemPrompt: lushAgent.systemPrompt,
+    systemPrompt: projectSystemPrompt(lushAgent.systemPrompt, project),
     messages: messages.map(toInferenceMessage),
     signal
   });
+}
+
+export function projectSystemPrompt(
+  basePrompt: string,
+  project: StreamLushAgentChatOptions["project"]
+) {
+  if (!project) return basePrompt;
+
+  const sections = [basePrompt, `<project name=${JSON.stringify(project.name)}>`];
+  if (project.instructions) {
+    sections.push(`<instructions>\n${project.instructions}\n</instructions>`);
+  }
+  if (project.memory) {
+    sections.push(`<memory>\n${project.memory}\n</memory>`);
+  }
+  if (project.contextItems.length > 0) {
+    const context = project.contextItems
+      .map(
+        (item) =>
+          `<file name=${JSON.stringify(item.filename)} media-type=${JSON.stringify(item.mediaType)}>\n${item.content}\n</file>`
+      )
+      .join("\n\n");
+    sections.push(`<context>\n${context}\n</context>`);
+  }
+  sections.push("</project>");
+  return sections.join("\n\n");
 }
 
 function toInferenceMessage(message: AgentChatMessage): InferenceChatMessage {

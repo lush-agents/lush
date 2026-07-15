@@ -3,28 +3,37 @@ import {
   type AddInferenceProviderRequest,
   appendSessionMessage,
   appendSessionState,
+  addProjectContext,
   archiveSession,
+  createProject,
   createSession,
   createOrganization,
   createOrganizationInvite,
   createInferenceProvider,
   deleteCurrentOrganization,
   deleteInferenceProvider,
+  deleteProject,
+  deleteProjectContext,
   fetchInferenceConfig,
+  fetchProjectById,
   fetchSessionById,
   listOrganizationInvites,
   listOrganizationMembers,
   listOrganizations,
+  listProjects,
   login,
   logout,
   type OrganizationInvite,
   type OrganizationMember,
   type OrganizationSummary,
+  type Project,
+  type ProjectSummary,
   openClientEvents,
   registerAccount,
   removeOrganizationMember,
   refreshSession,
   switchOrganization,
+  truncateSession,
   updateCurrentOrganization,
   updateInferenceModelDefault,
   type InferenceConfig,
@@ -33,6 +42,7 @@ import {
   updateInferenceProvider,
   updateOrganizationMemberRole,
   updateCurrentUser,
+  updateProject,
   updateSession,
   type Session,
   type SessionSummary,
@@ -75,8 +85,10 @@ import {
 } from "./lib/api-session";
 import {
   appendSessionMessageSnapshot,
+  appendSessionStateSnapshot,
   preferNewestSessionSnapshot
 } from "./lib/chat-session-state";
+import { chatModelSelectionState } from "./lib/chat-model-selection";
 import { abortableDelay, readClientEventStream } from "./lib/client-event-stream";
 import type { Appearance, SessionStatus } from "./lib/types";
 
@@ -106,7 +118,8 @@ function useAppController() {
     useState<OrganizationMember[]>([]);
   const [organizationInvites, setOrganizationInvites] =
     useState<OrganizationInvite[]>([]);
-  const [chatSessions, setChatSessions] = useState<SessionSummary[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [activeChatSession, setActiveChatSession] = useState<Session>();
   const [activeChatSessionId, setActiveChatSessionId] = useState<string>();
   const [chatSessionKey, setChatSessionKey] = useState(0);
@@ -315,7 +328,8 @@ function useAppController() {
     const claims = parseAccessTokenClaims(accessSession.accessToken);
     if (!claims?.org) {
       chatSessionLoadRequestIdRef.current += 1;
-      setChatSessions([]);
+      setSessions([]);
+      setProjects([]);
       setActiveChatSession(undefined);
       setActiveChatSessionId(undefined);
       activeChatSessionIdRef.current = undefined;
@@ -324,10 +338,16 @@ function useAppController() {
       return;
     }
 
-    const response = await runWithTokenRefresh(accessSession, (session) =>
-      listSessions(apiBaseUrl, session.accessToken)
-    );
-    setChatSessions(response.sessions);
+    const [response, projectResponse] = await Promise.all([
+      runWithTokenRefresh(accessSession, (session) =>
+        listSessions(apiBaseUrl, session.accessToken)
+      ),
+      runWithTokenRefresh(accessSession, (session) =>
+        listProjects(apiBaseUrl, session.accessToken)
+      )
+    ]);
+    setSessions(response.sessions);
+    setProjects(projectResponse.projects);
     const activeId = activeChatSessionIdRef.current;
     if (activeId && !response.sessions.some((session) => session.id === activeId)) {
       chatSessionLoadRequestIdRef.current += 1;
@@ -431,7 +451,8 @@ function useAppController() {
     setOrganizations([]);
     setOrganizationMembers([]);
     setOrganizationInvites([]);
-    setChatSessions([]);
+    setSessions([]);
+    setProjects([]);
     setActiveChatSession(undefined);
     setActiveChatSessionId(undefined);
     activeChatSessionIdRef.current = undefined;
@@ -827,6 +848,83 @@ function useAppController() {
     }
   };
 
+  const loadProject = (projectId: string) =>
+    runAuthenticated((session) =>
+      fetchProjectById(apiBaseUrl, projectId, session.accessToken)
+    );
+
+  const createUserProject = async (name: string) => {
+    const project = await runAuthenticated((session) =>
+      createProject(apiBaseUrl, session.accessToken, { name })
+    );
+    setProjects((current) => [project, ...current]);
+    return project;
+  };
+
+  const updateUserProject = async (
+    projectId: string,
+    update: {
+      name?: string;
+      instructions?: string;
+      memory?: string;
+      pinned?: boolean;
+    }
+  ) => {
+    const project = await runAuthenticated((session) =>
+      updateProject(apiBaseUrl, projectId, session.accessToken, update)
+    );
+    setProjects((current) =>
+      current.map((item) => (item.id === project.id ? project : item))
+    );
+    return project;
+  };
+
+  const deleteUserProject = async (projectId: string) => {
+    await runAuthenticated((session) =>
+      deleteProject(apiBaseUrl, projectId, session.accessToken, {})
+    );
+    setProjects((current) => current.filter((item) => item.id !== projectId));
+    setSessions((current) =>
+      current.map((item) =>
+        item.projectId === projectId ? { ...item, projectId: null } : item
+      )
+    );
+  };
+
+  const addUserProjectContext = async (
+    projectId: string,
+    context: { filename: string; mediaType: string; content: string }
+  ) => {
+    await runAuthenticated((session) =>
+      addProjectContext(
+        apiBaseUrl,
+        projectId,
+        session.accessToken,
+        context
+      )
+    );
+    return loadProject(projectId);
+  };
+
+  const deleteUserProjectContext = async (
+    projectId: string,
+    contextId: string
+  ) => {
+    const project = await runAuthenticated((session) =>
+      deleteProjectContext(
+        apiBaseUrl,
+        projectId,
+        contextId,
+        session.accessToken,
+        {}
+      )
+    );
+    setProjects((current) =>
+      current.map((item) => (item.id === project.id ? project : item))
+    );
+    return project;
+  };
+
   const resetChatSession = () => {
     chatSessionLoadRequestIdRef.current += 1;
     setActiveChatSession(undefined);
@@ -867,11 +965,15 @@ function useAppController() {
     }
   };
 
-  const createChatSession = async (request: { title: string }) => {
+  const createChatSession = async (request: {
+    title: string;
+    projectId?: string | null;
+  }) => {
     const summary = await runAuthenticated((session) =>
       createSession(apiBaseUrl, session.accessToken, {
         title: request.title,
-        agentId: builtInAgentIds.chat
+        agentId: builtInAgentIds.chat,
+        projectId: request.projectId
       })
     );
 
@@ -882,7 +984,7 @@ function useAppController() {
       messages: [],
       stateSnapshots: []
     });
-    setChatSessions((current) => [
+    setSessions((current) => [
       summary,
       ...current.filter((session) => session.id !== summary.id)
     ]);
@@ -909,21 +1011,84 @@ function useAppController() {
     );
     setChatSessionKey((current) => current + 1);
     await refreshSessions().catch(() => undefined);
+    return appendedMessage.id;
   };
 
-  const updateChatSessionTitle = async (sessionId: string, title: string) => {
+  const updateChatSession = async (
+    sessionId: string,
+    update: { title?: string; projectId?: string | null; pinned?: boolean }
+  ) => {
     const summary = await runAuthenticated((session) =>
-      updateSession(apiBaseUrl, sessionId, session.accessToken, {
-        title
-      })
+      updateSession(apiBaseUrl, sessionId, session.accessToken, update)
     );
 
-    setChatSessions((current) =>
+    setSessions((current) =>
       current.map((session) => (session.id === summary.id ? summary : session))
     );
     setActiveChatSession((current) =>
       current && current.id === summary.id ? { ...current, ...summary } : current
     );
+    return summary;
+  };
+
+  const updateChatSessionTitle = async (sessionId: string, title: string) => {
+    await updateChatSession(sessionId, { title });
+  };
+
+  const truncateChatSession = async (
+    sessionId: string,
+    afterMessageId: string | null
+  ) => {
+    const truncated = await runAuthenticated((session) =>
+      truncateSession(apiBaseUrl, sessionId, session.accessToken, {
+        afterMessageId
+      })
+    );
+    setActiveChatSession(truncated);
+    setSessions((current) => {
+      const summary: SessionSummary = {
+        id: truncated.id,
+        organizationId: truncated.organizationId,
+        ownerUserId: truncated.ownerUserId,
+        title: truncated.title,
+        agentId: truncated.agentId,
+        projectId: truncated.projectId,
+        pinnedAt: truncated.pinnedAt,
+        stateBytes: truncated.stateBytes,
+        version: truncated.version,
+        createdAt: truncated.createdAt,
+        updatedAt: truncated.updatedAt,
+        archivedAt: truncated.archivedAt
+      };
+      return [summary, ...current.filter((item) => item.id !== sessionId)];
+    });
+    setChatSessionKey((current) => current + 1);
+    return truncated;
+  };
+
+  const appendChatSessionState = async (
+    sessionId: string,
+    request: { kind: string; state: unknown }
+  ) => {
+    const snapshot = await runAuthenticated((session) =>
+      appendSessionState(apiBaseUrl, sessionId, session.accessToken, request)
+    );
+    setActiveChatSession((current) =>
+      appendSessionStateSnapshot(current, sessionId, snapshot)
+    );
+    setSessions((current) =>
+      current.map((session) =>
+        session.id === sessionId
+          ? {
+              ...session,
+              stateBytes: session.stateBytes + snapshot.byteSize,
+              version: session.version + 1,
+              updatedAt: snapshot.createdAt
+            }
+          : session
+      )
+    );
+    return snapshot;
   };
 
   const recordChatMessageFeedback = async (
@@ -931,15 +1096,23 @@ function useAppController() {
     messageId: string,
     sentiment: "up" | "down"
   ) => {
-    await runAuthenticated((session) =>
-      appendSessionState(apiBaseUrl, sessionId, session.accessToken, {
-        kind: "message_feedback",
-        state: {
-          messageId,
-          sentiment,
-          recordedAt: new Date().toISOString()
-        }
-      })
+    await appendChatSessionState(sessionId, {
+      kind: "message_feedback",
+      state: {
+        messageId,
+        sentiment,
+        recordedAt: new Date().toISOString()
+      }
+    });
+  };
+
+  const recordChatModelSelection = async (
+    sessionId: string,
+    modelSelection: string
+  ) => {
+    await appendChatSessionState(
+      sessionId,
+      chatModelSelectionState(modelSelection)
     );
   };
 
@@ -947,15 +1120,14 @@ function useAppController() {
     await runAuthenticated((session) =>
       archiveSession(apiBaseUrl, sessionId, session.accessToken, {})
     );
-    setChatSessions((current) =>
+    setSessions((current) =>
       current.filter((session) => session.id !== sessionId)
     );
 
-    if (
-      activeChatSessionId === sessionId ||
-      chatSessionMatch?.params.sessionId === sessionId
-    ) {
+    if (activeChatSessionId === sessionId) {
       resetChatSession();
+    }
+    if (chatSessionMatch?.params.sessionId === sessionId) {
       replaceRoute("/chat");
     }
   };
@@ -1045,7 +1217,8 @@ function useAppController() {
     organizations,
     organizationMembers,
     organizationInvites,
-    chatSessions,
+    sessions,
+    projects,
     activeChatSession,
     activeChatSessionId,
     chatSessionKey,
@@ -1072,11 +1245,20 @@ function useAppController() {
     setInferenceModelEnabled,
     removeInferenceProvider,
     setModelDefault,
+    loadProject,
+    createUserProject,
+    updateUserProject,
+    deleteUserProject,
+    addUserProjectContext,
+    deleteUserProjectContext,
     resetChatSession,
     createChatSession,
     appendChatSessionMessage,
+    truncateChatSession,
+    updateChatSession,
     updateChatSessionTitle,
     recordChatMessageFeedback,
+    recordChatModelSelection,
     archiveChatSession
   };
 }

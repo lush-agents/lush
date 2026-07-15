@@ -3,12 +3,13 @@ import { cors } from "hono/cors";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
   type AgentChatMessage,
+  type ProjectAgentContext,
   getLushAgentMetadata,
   streamLushAgentChat
 } from "@lush/agent/runtime";
 import {
   SessionContextError,
-  loadLushSessionMessages,
+  loadLushSessionContext,
   mergeSessionMessages
 } from "@lush/agent/session-context";
 import { normalizeAgentChatMessages } from "@lush/agent/chat-request";
@@ -54,12 +55,20 @@ import {
 import {
   appendSessionMessage,
   appendSessionState,
+  addProjectContext,
   archiveSession,
+  createProject,
   createSession,
+  deleteProject,
+  deleteProjectContext,
+  fetchProject,
   fetchSessionSettings,
   fetchSession,
+  listProjects,
   listSessions,
   SessionStateError,
+  truncateSession,
+  updateProject,
   updateSessionSettings,
   updateSession
 } from "@lush/sessions/runtime";
@@ -194,6 +203,14 @@ function routePath(id: ApiRouteId) {
 
 function sessionIdParam(c: Context) {
   return c.req.param("sessionId") ?? "";
+}
+
+function projectIdParam(c: Context) {
+  return c.req.param("projectId") ?? "";
+}
+
+function contextIdParam(c: Context) {
+  return c.req.param("contextId") ?? "";
 }
 
 app.post(routePath("registerAccount"), async (c) => {
@@ -602,6 +619,106 @@ app.post(routePath("updateInferenceModelDefault"), async (c) => {
   }
 });
 
+app.get(routePath("listProjects"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "listProjects");
+  if ("response" in authorized) return authorized.response;
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) return organizationRequired(c);
+
+  try {
+    return c.json(await listProjects(principal));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to list projects");
+  }
+});
+
+app.post(routePath("createProject"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "createProject");
+  if ("response" in authorized) return authorized.response;
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) return organizationRequired(c);
+
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(await createProject(principal, body));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to create project");
+  }
+});
+
+app.get(routePath("fetchProjectById"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "fetchProjectById");
+  if ("response" in authorized) return authorized.response;
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) return organizationRequired(c);
+
+  try {
+    return c.json(await fetchProject(principal, projectIdParam(c)));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to load project");
+  }
+});
+
+app.patch(routePath("updateProject"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "updateProject");
+  if ("response" in authorized) return authorized.response;
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) return organizationRequired(c);
+
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(await updateProject(principal, projectIdParam(c), body));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to update project");
+  }
+});
+
+app.post(routePath("deleteProject"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "deleteProject");
+  if ("response" in authorized) return authorized.response;
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) return organizationRequired(c);
+
+  try {
+    return c.json(await deleteProject(principal, projectIdParam(c)));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to delete project");
+  }
+});
+
+app.post(routePath("addProjectContext"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "addProjectContext");
+  if ("response" in authorized) return authorized.response;
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) return organizationRequired(c);
+
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(await addProjectContext(principal, projectIdParam(c), body));
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to add project context");
+  }
+});
+
+app.post(routePath("deleteProjectContext"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "deleteProjectContext");
+  if ("response" in authorized) return authorized.response;
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) return organizationRequired(c);
+
+  try {
+    return c.json(
+      await deleteProjectContext(
+        principal,
+        projectIdParam(c),
+        contextIdParam(c)
+      )
+    );
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to remove project context");
+  }
+});
+
 app.get(routePath("listSessions"), async (c) => {
   const authorized = await authenticateAuthorized(c, "listSessions");
   if ("response" in authorized) {
@@ -749,6 +866,26 @@ app.post(routePath("appendSessionState"), async (c) => {
   }
 });
 
+app.post(routePath("truncateSession"), async (c) => {
+  const authorized = await authenticateAuthorized(c, "truncateSession");
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+  const principal = organizationPrincipal(authorized.auth.principal);
+  if (!principal) {
+    return organizationRequired(c);
+  }
+
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(
+      await truncateSession(principal, sessionIdParam(c), body)
+    );
+  } catch (error) {
+    return handleSessionStateError(c, error, "Unable to truncate session");
+  }
+});
+
 app.post(routePath("archiveSession"), async (c) => {
   const authorized = await authenticateAuthorized(c, "archiveSession");
   if ("response" in authorized) {
@@ -790,16 +927,18 @@ app.post(routePath("streamAgentChat"), async (c) => {
   const sessionId = typeof body?.sessionId === "string" ? body.sessionId : "";
   const clientMessages = normalizeAgentChatMessages(inputMessages);
   let messages: AgentChatMessage[];
+  let project: ProjectAgentContext | undefined;
 
   try {
-    const persistedMessages = await loadLushSessionMessages(
+    const sessionContext = await loadLushSessionContext(
       {
         userId: principal.userId,
         organizationId: principal.organizationId
       },
       sessionId
     );
-    messages = mergeSessionMessages(persistedMessages, clientMessages);
+    messages = mergeSessionMessages(sessionContext.messages, clientMessages);
+    project = sessionContext.project;
   } catch (error) {
     if (error instanceof SessionContextError) {
       return c.json(
@@ -815,7 +954,7 @@ app.post(routePath("streamAgentChat"), async (c) => {
     return c.json({ error: "messages_required" }, 400);
   }
 
-  return streamChat(principal, c.req.raw, modelSelection, messages);
+  return streamChat(principal, c.req.raw, modelSelection, messages, project);
 });
 
 app.post(routePath("streamAgentPrompt"), async (c) => {
@@ -1093,7 +1232,8 @@ async function streamChat(
   principal: OrganizationPrincipal,
   request: Request,
   modelSelection: string | undefined,
-  messages: AgentChatMessage[]
+  messages: AgentChatMessage[],
+  project?: ProjectAgentContext
 ) {
   const abortController = new AbortController();
   request.signal.addEventListener("abort", () => abortController.abort(), {
@@ -1103,6 +1243,7 @@ async function streamChat(
     organizationId: principal.organizationId,
     modelSelection,
     messages,
+    project,
     signal: abortController.signal
   });
   let firstChunk: IteratorResult<string>;

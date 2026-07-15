@@ -7,6 +7,8 @@ export type SessionSummary = {
   ownerUserId: string;
   title: string;
   agentId: string;
+  projectId: string | null;
+  pinnedAt: string | null;
   stateBytes: number;
   version: number;
   createdAt: string;
@@ -46,11 +48,65 @@ export type ListSessionsResponse = {
 export type CreateSessionRequest = {
   title?: string;
   agentId: string;
+  projectId?: string | null;
 };
 
 export type UpdateSessionRequest = {
   title?: string;
+  projectId?: string | null;
+  pinned?: boolean;
 };
+
+export type ProjectSummary = {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+  name: string;
+  instructions: string;
+  memory: string;
+  pinnedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectContextItem = {
+  id: string;
+  projectId: string;
+  filename: string;
+  mediaType: string;
+  content: string;
+  byteSize: number;
+  createdAt: string;
+};
+
+export type Project = ProjectSummary & {
+  contextItems: ProjectContextItem[];
+};
+
+export type ListProjectsResponse = {
+  projects: ProjectSummary[];
+};
+
+export type CreateProjectRequest = {
+  name: string;
+};
+
+export type UpdateProjectRequest = {
+  name?: string;
+  instructions?: string;
+  memory?: string;
+  pinned?: boolean;
+};
+
+export type DeleteProjectRequest = Record<string, never>;
+
+export type AddProjectContextRequest = {
+  filename: string;
+  mediaType: string;
+  content: string;
+};
+
+export type DeleteProjectContextRequest = Record<string, never>;
 
 export type AppendSessionMessageRequest = {
   role: SessionMessageRole;
@@ -62,6 +118,10 @@ export type AppendSessionMessageRequest = {
 export type AppendSessionStateRequest = {
   kind: string;
   state: unknown;
+};
+
+export type TruncateSessionRequest = {
+  afterMessageId: string | null;
 };
 
 export type ArchiveSessionRequest = Record<string, never>;
@@ -79,6 +139,67 @@ export type UpdateSessionSettingsRequest = {
 `;
 
 export const sessionRoutes = [
+  {
+    id: "listProjects",
+    method: "GET",
+    path: "/projects",
+    responseType: "ListProjectsResponse",
+    auth: true,
+    kind: "json"
+  },
+  {
+    id: "createProject",
+    method: "POST",
+    path: "/projects",
+    requestType: "CreateProjectRequest",
+    responseType: "Project",
+    auth: true,
+    kind: "json"
+  },
+  {
+    id: "fetchProjectById",
+    method: "GET",
+    path: "/projects/:projectId",
+    responseType: "Project",
+    auth: true,
+    kind: "json"
+  },
+  {
+    id: "updateProject",
+    method: "PATCH",
+    path: "/projects/:projectId",
+    requestType: "UpdateProjectRequest",
+    responseType: "Project",
+    auth: true,
+    kind: "json"
+  },
+  {
+    id: "deleteProject",
+    method: "POST",
+    path: "/projects/:projectId/delete",
+    requestType: "DeleteProjectRequest",
+    responseType: "ProjectSummary",
+    auth: true,
+    kind: "json"
+  },
+  {
+    id: "addProjectContext",
+    method: "POST",
+    path: "/projects/:projectId/context",
+    requestType: "AddProjectContextRequest",
+    responseType: "ProjectContextItem",
+    auth: true,
+    kind: "json"
+  },
+  {
+    id: "deleteProjectContext",
+    method: "POST",
+    path: "/projects/:projectId/context/:contextId/delete",
+    requestType: "DeleteProjectContextRequest",
+    responseType: "Project",
+    auth: true,
+    kind: "json"
+  },
   {
     id: "listSessions",
     method: "GET",
@@ -128,6 +249,15 @@ export const sessionRoutes = [
     path: "/sessions/:sessionId/state",
     requestType: "AppendSessionStateRequest",
     responseType: "SessionStateSnapshot",
+    auth: true,
+    kind: "json"
+  },
+  {
+    id: "truncateSession",
+    method: "POST",
+    path: "/sessions/:sessionId/truncate",
+    requestType: "TruncateSessionRequest",
+    responseType: "Session",
     auth: true,
     kind: "json"
   },

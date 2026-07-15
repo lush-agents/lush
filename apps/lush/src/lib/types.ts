@@ -18,6 +18,9 @@ export type Concept = {
 
 export type ChatMessage = {
   id: string;
+  serverId?: string;
+  createdAt?: string;
+  animateEntrance?: boolean;
   role: "user" | "assistant";
   parts: ChatMessagePart[];
   status?: "streaming" | "complete" | "error";

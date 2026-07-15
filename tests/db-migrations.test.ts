@@ -13,6 +13,7 @@ test("database migration ids match their ordinal prefix", () => {
   expect(migrations.map((migration) => migration.id)).toEqual([
     "001_auth_and_inference_state",
     "002_session_state",
-    "003_session_agent_id"
+    "003_session_agent_id",
+    "004_projects"
   ]);
 });

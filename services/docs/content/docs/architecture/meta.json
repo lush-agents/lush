@@ -2,6 +2,7 @@
   "title": "Architecture",
   "pages": [
     "overview",
+    "session-orchestration",
     "coding-harness-orchestration",
     "authentication",
     "authorization"

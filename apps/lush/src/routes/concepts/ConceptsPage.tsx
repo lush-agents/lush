@@ -5,9 +5,8 @@ import { Link } from "react-router-dom";
 export function ConceptsPage() {
   return (
     <PageShell
-      eyebrow="First experience"
-      title="Concepts"
-      body="A quick orientation to the main boundaries that make up Lush. Each concept maps to a service or shared package in the current scaffold."
+      title="Lush concepts"
+      body="A quick orientation to the main boundaries that make up Lush."
     >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {concepts.map((concept) => (

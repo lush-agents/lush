@@ -54,7 +54,7 @@ export const routes: Route[] = [
     label: "Work",
     eyebrow: "Workspace",
     title: "Work",
-    body: "Placeholder for tasks, long-running work, documents, workflows, and scheduled follow-ups.",
+    body: "Placeholder for long-running work, documents, workflows, and scheduled follow-ups.",
     sessionAgentId: builtInAgentIds.work
   },
   {
@@ -64,6 +64,13 @@ export const routes: Route[] = [
     title: "Agents",
     body: "Placeholder for creating, managing, and monitoring agent runtimes and skills.",
     sessionAgentId: builtInAgentIds.agents
+  },
+  {
+    href: "/artifacts",
+    label: "Artifacts",
+    eyebrow: "Workspace",
+    title: "Artifacts",
+    body: "Files, uploads, and generated work products from your sessions."
   }
 ];
 
@@ -81,6 +88,35 @@ export function readComposerFocusRequest(state: unknown) {
   }
   const request = state.focusComposerRequest;
   return typeof request === "string" ? request : undefined;
+}
+
+export function createProjectChatState(projectId: string, prompt: string) {
+  return {
+    ...createComposerFocusState(),
+    projectId,
+    projectPrompt: prompt,
+    projectPromptRequest: crypto.randomUUID()
+  };
+}
+
+export function readProjectChatState(state: unknown) {
+  if (!state || typeof state !== "object") return undefined;
+  const candidate = state as Record<string, unknown>;
+  if (
+    typeof candidate.projectId !== "string" ||
+    typeof candidate.projectPrompt !== "string" ||
+    typeof candidate.projectPromptRequest !== "string"
+  ) {
+    return undefined;
+  }
+  const prompt = candidate.projectPrompt.trim();
+  return prompt
+    ? {
+        projectId: candidate.projectId,
+        prompt,
+        requestId: candidate.projectPromptRequest
+      }
+    : undefined;
 }
 
 export function matchWorkspaceSessionPath(pathname: string) {
@@ -173,6 +209,13 @@ export const accountRoutes: Route[] = [
     ...organizationSettingsRoute,
     label: "Organization settings",
     title: "Organization settings"
+  },
+  {
+    href: "/concepts",
+    label: "Help",
+    eyebrow: "Help",
+    title: "Lush concepts",
+    body: "A quick orientation to the main boundaries that make up Lush."
   },
   {
     href: "/sign-out",

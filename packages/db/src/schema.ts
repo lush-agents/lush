@@ -152,6 +152,8 @@ export type SessionThreadsTable = {
   ownerUserId: string;
   title: string;
   agentId: string;
+  projectId: string | null;
+  pinnedAt: Timestamp | null;
   stateBytes: number;
   version: number;
   deleted: boolean;
@@ -160,6 +162,30 @@ export type SessionThreadsTable = {
   createdAt: Timestamp;
   updatedAt: Timestamp;
   archivedAt: Timestamp | null;
+};
+
+export type ProjectsTable = {
+  id: Generated<string>;
+  organizationId: string;
+  ownerUserId: string;
+  name: string;
+  instructions: string;
+  memory: string;
+  pinnedAt: Timestamp | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+};
+
+export type ProjectContextItemsTable = {
+  id: Generated<string>;
+  projectId: string;
+  organizationId: string;
+  ownerUserId: string;
+  filename: string;
+  mediaType: string;
+  content: string;
+  byteSize: number;
+  createdAt: Timestamp;
 };
 
 export type SessionMessagesTable = {
@@ -223,6 +249,8 @@ export type Database = {
   inferenceProviderModels: InferenceProviderModelsTable;
   inferenceModelDefaults: InferenceModelDefaultsTable;
   sessionThreads: SessionThreadsTable;
+  projects: ProjectsTable;
+  projectContextItems: ProjectContextItemsTable;
   sessionMessages: SessionMessagesTable;
   sessionStateSnapshots: SessionStateSnapshotsTable;
   sessionAttachments: SessionAttachmentsTable;
@@ -236,6 +264,8 @@ export type Organization = Selectable<OrganizationsTable>;
 export type OrganizationMembership = Selectable<OrganizationMembershipsTable>;
 export type Session = Selectable<SessionsTable>;
 export type SessionThreadRow = Selectable<SessionThreadsTable>;
+export type ProjectRow = Selectable<ProjectsTable>;
+export type ProjectContextItemRow = Selectable<ProjectContextItemsTable>;
 export type SessionMessageRow = Selectable<SessionMessagesTable>;
 export type SessionStateSnapshotRow = Selectable<SessionStateSnapshotsTable>;
 export type InferenceProviderRow = Selectable<InferenceProvidersTable>;

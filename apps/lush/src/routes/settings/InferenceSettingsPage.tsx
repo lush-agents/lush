@@ -40,7 +40,7 @@ const providerQuickstarts: Array<{
     kind: "openai",
     label: "OpenAI",
     baseUrl: "https://api.openai.com/v1",
-    description: "Discover OpenAI chat-capable models."
+    description: "Use OpenAI models through the Responses API."
   },
   {
     kind: "openai-compatible",

@@ -121,7 +121,7 @@
     "/v1beta/sessions/{sessionId}": {
       "get": {
         "summary": "Get session",
-        "description": "Returns an owned session with messages and append-only state snapshots.",
+        "description": "Returns an owned session with messages and versioned state snapshots.",
         "operationId": "fetchSessionById",
         "tags": [
           "sessions"
@@ -351,6 +351,74 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SessionStateSnapshot"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1beta/sessions/{sessionId}/truncate": {
+      "post": {
+        "summary": "Truncate session",
+        "description": "Atomically removes messages after a boundary and removes state snapshots that reference deleted messages.",
+        "operationId": "truncateSession",
+        "tags": [
+          "sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "description": "Session identifier.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Message ID to retain as the final message, or null to remove all messages.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TruncateSessionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Truncated session details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
                 }
               }
             }
@@ -1634,7 +1702,7 @@
       "SessionStateSnapshot": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Append-only session state snapshot.",
+        "description": "Versioned session state snapshot.",
         "properties": {
           "id": {
             "type": "string",
@@ -1801,6 +1869,28 @@
         "required": [
           "kind",
           "state"
+        ]
+      },
+      "TruncateSessionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Truncates a session at a message boundary.",
+        "properties": {
+          "afterMessageId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Final message to retain, or null to remove all messages."
+          }
+        },
+        "required": [
+          "afterMessageId"
         ]
       },
       "ArchiveSessionRequest": {
