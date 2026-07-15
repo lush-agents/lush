@@ -190,7 +190,7 @@ export function Message({
             >
               <MessageActions className="gap-0.5">
                 <MessageAction
-                  tooltip="Copy response"
+                  tooltip={message.role === "user" ? "Copy message" : "Copy response"}
                   onClick={() => void copy()}
                 >
                   {copied ? <CheckIcon /> : <CopyIcon />}
@@ -232,7 +232,7 @@ function MessagePart(props: {
     case "text":
       return props.role === "assistant" ? (
         <MessageResponse
-          className="text-[0.975rem] leading-7"
+          className="font-serif text-base leading-[25px] [&_code]:font-mono [&_pre]:font-mono"
           isAnimating={props.streaming}
         >
           {part.text}

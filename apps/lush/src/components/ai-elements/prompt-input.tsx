@@ -920,6 +920,7 @@ export const PromptInput = ({
       />
       <form
         className={cn("w-full", className)}
+        data-slot="prompt-input"
         onSubmit={handleSubmit}
         ref={formRef}
         {...props}
@@ -1060,7 +1061,7 @@ export const PromptInputTextarea = ({
 
   return (
     <InputGroupTextarea
-      className={cn("field-sizing-content max-h-48 min-h-16", className)}
+      className={cn("field-sizing-content max-h-48 min-h-10 transition-[min-height] focus:min-h-16", className)}
       name="message"
       onCompositionEnd={handleCompositionEnd}
       onCompositionStart={handleCompositionStart}
@@ -1084,6 +1085,7 @@ export const PromptInputHeader = ({
 }: PromptInputHeaderProps) => (
   <InputGroupAddon
     align="block-end"
+    data-slot="prompt-input-header"
     className={cn("order-first flex-wrap gap-1", className)}
     {...props}
   />
@@ -1100,6 +1102,7 @@ export const PromptInputFooter = ({
 }: PromptInputFooterProps) => (
   <InputGroupAddon
     align="block-end"
+    data-slot="prompt-input-footer"
     className={cn("justify-between gap-1", className)}
     {...props}
   />
@@ -1112,6 +1115,7 @@ export const PromptInputTools = ({
   ...props
 }: PromptInputToolsProps) => (
   <div
+    data-slot="prompt-input-tools"
     className={cn("flex min-w-0 items-center gap-1", className)}
     {...props}
   />

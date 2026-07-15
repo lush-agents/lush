@@ -11,5 +11,6 @@ declare const Bun: {
   }): {
     hostname: string;
     port: number;
+    stop(force?: boolean): void;
   };
 };

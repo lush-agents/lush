@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   type InferenceProviderStatus,
   type Session,
@@ -35,7 +35,7 @@ import {
   usePromptInputAttachments
 } from "../../components/ai-elements/prompt-input";
 import { Settings2Icon } from "lucide-react";
-import { createId, getFirstName } from "../../lib/app-data";
+import { createId, getFirstName, readComposerFocusRequest } from "../../lib/app-data";
 import {
   appendAgentStreamEvent,
   chatMessageFromSession,
@@ -97,7 +97,9 @@ export function ChatPage(props: {
   ) => Promise<void>;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const abortControllerRef = useRef<AbortController | undefined>(undefined);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const syncedSessionKeyRef = useRef<number | undefined>(undefined);
 
   const [now, setNow] = useState(new Date());
@@ -108,6 +110,7 @@ export function ChatPage(props: {
   const [selectedModelSelection, setSelectedModelSelection] = useState("");
   const [activeSessionId, setActiveSessionId] = useState<string>();
   const greeting = `${getGreeting(now)}, ${getFirstName(props.displayName)}`;
+  const composerFocusRequest = readComposerFocusRequest(location.state);
   const hasMessages = messages.length > 0;
   const enabledModelSelections =
     props.providers.flatMap((provider) =>
@@ -161,6 +164,12 @@ export function ChatPage(props: {
       window.clearInterval(clockInterval);
     };
   }, []);
+
+  useEffect(() => {
+    if (!composerFocusRequest) return;
+    const frame = window.requestAnimationFrame(() => composerRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [composerFocusRequest]);
 
   const updateAssistantMessage = (
     id: string,
@@ -364,7 +373,7 @@ export function ChatPage(props: {
         )}
       </MessageScroller>
 
-      <div className="mx-auto mt-4 w-full max-w-3xl shrink-0">
+      <div className="mx-auto mt-2 w-full max-w-3xl shrink-0">
         <PromptInput
           onSubmit={submit}
           accept="text/*,application/json,application/xml,application/yaml,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.yaml,.yml,.toml,.sql"
@@ -377,12 +386,13 @@ export function ChatPage(props: {
           <PendingAttachments />
           <PromptInputBody>
             <PromptInputTextarea
+              ref={composerRef}
               value={input}
               onChange={(event) => setInput(event.currentTarget.value)}
               placeholder={
                 hasMessages ? "Write a message..." : "How can I help you today?"
               }
-              className="min-h-12 px-4 pt-3 text-base md:text-base"
+              className="px-4 text-base md:text-base"
             />
           </PromptInputBody>
           <PromptInputFooter>

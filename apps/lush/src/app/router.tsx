@@ -11,6 +11,7 @@ import {
 } from "react-router-dom";
 import { AppProvider, useApp } from "../App";
 import { TooltipProvider } from "../components/ui/tooltip";
+import { CodeProvider } from "../features/code/CodeProvider";
 import { routes } from "../lib/app-data";
 import { AppShell } from "./AppShell";
 import { AuthPage } from "../routes/AuthPage";
@@ -23,6 +24,9 @@ import { PersonalSettingsPage } from "../routes/settings/PersonalSettingsPage";
 
 const ChatPage = lazy(() =>
   import("../routes/chat/ChatPage").then((module) => ({ default: module.ChatPage }))
+);
+const CodePage = lazy(() =>
+  import("../routes/code/CodePage").then((module) => ({ default: module.CodePage }))
 );
 const InferenceSettingsPage = lazy(() =>
   import("../routes/settings/InferenceSettingsPage").then((module) => ({
@@ -40,9 +44,11 @@ const router = createBrowserRouter([
     errorElement: <RouteErrorPage />,
     element: (
       <AppProvider>
-        <TooltipProvider>
-          <AppRoot />
-        </TooltipProvider>
+        <CodeProvider>
+          <TooltipProvider>
+            <AppRoot />
+          </TooltipProvider>
+        </CodeProvider>
       </AppProvider>
     ),
     children: [
@@ -78,11 +84,19 @@ const router = createBrowserRouter([
                   ...routes.flatMap((route) => [
                     {
                       path: route.href.slice(1),
-                      element: route.href === "/chat" ? <ChatRoute /> : <RoutePlaceholderPage route={route} />
+                      element: route.href === "/chat"
+                        ? <ChatRoute />
+                        : route.href === "/code"
+                          ? <CodePage />
+                          : <RoutePlaceholderPage route={route} />
                     },
                     {
                       path: `${route.href.slice(1)}/sessions/:sessionId`,
-                      element: route.href === "/chat" ? <ChatRoute /> : <RoutePlaceholderPage route={route} />
+                      element: route.href === "/chat"
+                        ? <ChatRoute />
+                        : route.href === "/code"
+                          ? <CodePage />
+                          : <RoutePlaceholderPage route={route} />
                     }
                   ]),
                   { path: "*", element: <NotFoundRoute /> }

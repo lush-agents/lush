@@ -10,6 +10,7 @@ import {
 } from "../components/ui/dialog";
 import { PrimaryNav } from "../components/navigation/PrimaryNav";
 import { SessionNav } from "../components/navigation/SessionNav";
+import { CodeSessionNav } from "../components/navigation/CodeSessionNav";
 import { SettingsNav } from "../components/navigation/SettingsNav";
 import { UserMenu } from "../components/navigation/UserMenu";
 import {
@@ -62,6 +63,8 @@ export function AppShell() {
   const workspaceNavigation = () =>
     isSettingsRoute ? (
       <SettingsNav backHref={lastAppPath} />
+    ) : activeWorkspaceRoute?.href === "/code" ? (
+      <CodeSessionNav activeSessionId={sessionMatch?.sessionId} />
     ) : activeWorkspaceRoute ? (
       <SessionNav
         route={activeWorkspaceRoute}
@@ -92,52 +95,46 @@ export function AppShell() {
     />
   );
 
+  const brandLink = () => (
+    <Link
+      to="/concepts"
+      className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--color-text)]"
+    >
+      <img src={logoUrl} alt="Lush" className="size-8 shrink-0" />
+      <span>Lush</span>
+      {activeWorkspaceRoute ? (
+        <>
+          <span className="h-4 w-px shrink-0 bg-[var(--color-border-strong)]" />
+          <span className="truncate rounded-md bg-[var(--color-panel)] px-2 py-1 text-xs font-medium text-[var(--color-subtle)]">
+            {activeWorkspaceRoute.label}
+          </span>
+        </>
+      ) : null}
+    </Link>
+  );
+
   return (
     <section className="flex h-screen min-h-0 w-full flex-col px-4 sm:px-6">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--color-border)] sm:h-20">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--color-border)] lg:hidden">
+        <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
             aria-label="Open navigation"
             onClick={() => setMobileNavigationOpen(true)}
-            className="flex size-9 shrink-0 items-center justify-center rounded-md text-[var(--color-subtle)] transition hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)] lg:hidden"
+            className="flex size-9 shrink-0 items-center justify-center rounded-md text-[var(--color-subtle)] transition hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)]"
           >
             <MenuIcon className="size-5" />
           </button>
-          <Link
-            to="/concepts"
-            className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--color-text)] sm:gap-3"
-          >
-            <img src={logoUrl} alt="Lush" className="h-8 w-8 shrink-0 sm:h-9 sm:w-9" />
-            <span>Lush</span>
-            {activeWorkspaceRoute ? (
-              <>
-                <span className="h-4 w-px shrink-0 bg-[var(--color-border-strong)]" />
-                <span className="truncate rounded-md bg-[var(--color-panel)] px-2 py-1 text-xs font-medium text-[var(--color-subtle)]">
-                  {activeWorkspaceRoute.label}
-                </span>
-              </>
-            ) : null}
-          </Link>
+          {brandLink()}
         </div>
-
-        <Link
-          to="/concepts"
-          aria-label="Open Concepts"
-          title="Concepts"
-          className={`flex h-10 w-10 items-center justify-center rounded-full border text-lg font-medium transition ${
-            path.startsWith("/concepts")
-              ? "border-[var(--color-brand)] bg-[var(--color-brand)] text-white"
-              : "border-[var(--color-border-strong)] text-[var(--color-subtle)] hover:border-[var(--color-brand)] hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)]"
-          }`}
-        >
-          ?
-        </Link>
       </header>
 
       <div className="grid min-h-0 flex-1 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-6">
-        <aside className="hidden min-h-0 min-w-0 max-w-full grid-rows-[1fr_auto] overflow-hidden border-r border-[var(--color-border)] pr-6 lg:grid">
-          <nav className="min-h-0 min-w-0 max-w-full overflow-hidden pt-6">
+        <aside className="hidden min-h-0 min-w-0 max-w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-r border-[var(--color-border)] pr-6 lg:grid">
+          <div className="flex h-14 min-w-0 items-center border-b border-[var(--color-border)]">
+            {brandLink()}
+          </div>
+          <nav className="min-h-0 min-w-0 max-w-full overflow-hidden pt-4">
             <ScrollFade
               className="h-full w-full min-w-0 max-w-full overflow-hidden"
               viewportClass="h-full w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto"
@@ -152,7 +149,7 @@ export function AppShell() {
           {accountMenu()}
         </aside>
 
-        <section className="min-h-0 min-w-0 overflow-y-auto py-4 sm:py-6 lg:py-8 lg:pr-2">
+        <section className="min-h-0 min-w-0 overflow-y-auto py-3 sm:py-4 lg:pr-2">
           <Outlet />
         </section>
       </div>

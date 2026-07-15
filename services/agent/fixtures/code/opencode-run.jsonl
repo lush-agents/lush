@@ -1,0 +1,5 @@
+{"type":"step_start","sessionID":"33333333-3333-4333-8333-333333333333","part":{"id":"step-1","type":"step-start"}}
+{"type":"tool_use","sessionID":"33333333-3333-4333-8333-333333333333","part":{"id":"tool-1","callID":"call-1","type":"tool","tool":"bash","state":{"status":"running","input":{"command":"bun test"}}}}
+{"type":"tool_use","sessionID":"33333333-3333-4333-8333-333333333333","part":{"id":"tool-1","callID":"call-1","type":"tool","tool":"bash","state":{"status":"completed","input":{"command":"bun test"},"output":"2 pass"}}}
+{"type":"text","sessionID":"33333333-3333-4333-8333-333333333333","part":{"id":"text-1","type":"text","text":"Implemented the change."}}
+{"type":"step_finish","sessionID":"33333333-3333-4333-8333-333333333333","part":{"id":"step-1","type":"step-finish","cost":0.01,"tokens":{"input":120,"output":40,"cache":{"read":80}}}}

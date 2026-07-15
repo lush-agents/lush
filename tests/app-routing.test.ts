@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import {
+  createComposerFocusState,
   matchWorkspaceSessionPath,
+  readComposerFocusRequest,
   routes,
   sessionRouteHref
 } from "../apps/lush/src/lib/app-data";
@@ -25,4 +27,15 @@ test("workspace session route matching resolves route metadata and id", () => {
   expect(matchWorkspaceSessionPath("/chat/sessions")).toBeUndefined();
   expect(matchWorkspaceSessionPath("/chat/sessions/one/two")).toBeUndefined();
   expect(matchWorkspaceSessionPath("/settings/profile")).toBeUndefined();
+});
+
+test("new session navigation carries a unique composer focus request", () => {
+  const first = createComposerFocusState();
+  const second = createComposerFocusState();
+
+  expect(readComposerFocusRequest(first)).toBe(first.focusComposerRequest);
+  expect(readComposerFocusRequest(second)).toBe(second.focusComposerRequest);
+  expect(first.focusComposerRequest).not.toBe(second.focusComposerRequest);
+  expect(readComposerFocusRequest({ focusComposerRequest: 42 })).toBeUndefined();
+  expect(readComposerFocusRequest(undefined)).toBeUndefined();
 });
