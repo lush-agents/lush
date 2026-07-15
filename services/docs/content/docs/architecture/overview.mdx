@@ -22,8 +22,10 @@ Domain services keep ownership of their own runtime logic:
   model discovery, enabled models, and model defaults.
 - Sessions owns durable user-owned sessions, messages, state snapshots,
   retention settings, and archive/delete lifecycle.
-- Agent owns agent harness behavior and delegates model calls through the
-  inference boundary.
+- Agent owns coding-harness orchestration and execution contexts while leaving
+  native agent loops and model context with the selected harness. Lush's
+  target-neutral adapter and event contracts keep local and managed execution
+  behind the same client surface.
 - Docs owns the local and hosted documentation site.
 
 ## State Ownership

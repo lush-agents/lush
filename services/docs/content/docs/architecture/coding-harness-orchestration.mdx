@@ -1,0 +1,201 @@
+---
+title: Coding harness orchestration
+description: How Lush Code coordinates existing coding agents, execution environments, and policy without replacing their native agent loops.
+---
+
+> This page describes the planned architecture for Lush Code. The first
+> dogfood milestone is macOS-only and local; managed execution follows after
+> the local orchestration contract is proven.
+
+Lush Code is a client and orchestrator for existing coding harnesses, not a new
+coding harness. It gives Codex, Claude Code, OpenCode, and later other harnesses
+a consistent workspace, conversation, activity, approval, and diff-review
+experience while preserving what makes each harness distinct.
+
+## Ownership boundaries
+
+Lush owns the product and orchestration concerns around a run:
+
+- execution target, repository, workspace, and Git worktree selection;
+- session indexing, lifecycle, resume, and cross-client presentation;
+- normalized activity, command, approval, usage, diff, and completion events;
+- organization policy, audit records, and Lush-managed tools; and
+- process supervision, previews, artifacts, and environment cleanup.
+
+The selected harness continues to own:
+
+- its agent loop and context management;
+- built-in filesystem, search, edit, and shell tools;
+- model-specific behavior and configuration;
+- its native session state; and
+- authentication with its inference provider or subscription.
+
+The native harness session remains the source of truth for future model
+context. Lush stores the normalized record needed to render, search, audit, and
+recover the user-facing session. It does not reconstruct a missing native
+session from a lossy transcript.
+
+## One contract, two execution modes
+
+The client consumes the same target-neutral orchestration contract in both
+execution modes:
+
+```text
+Desktop local
+
+Lush client
+    -> authenticated Tauri IPC or local socket
+    -> Lush agent sidecar
+    -> harness adapter
+    -> installed coding harness
+    -> Lush-managed Git worktree
+
+Desktop or hosted web managed
+
+Lush client
+    -> Lush API
+    -> agent orchestration service
+    -> managed sandbox executor
+    -> harness adapter
+    -> pinned coding harness
+    -> isolated repository checkout
+```
+
+Local mode uses an installed harness, its existing credentials and
+configuration, and repositories already on the developer's machine. It is a
+desktop-only capability because it requires local process, filesystem, and Git
+access. Absolute paths and harness credentials remain on that device.
+
+Managed mode provisions an isolated remote environment with centrally governed
+credentials, network policy, resource limits, and lifecycle. Both desktop and
+hosted web clients can use it. The sandbox—not a checkout or worktree inside
+it—is the security boundary.
+
+The first dogfood slice proves local execution against one primary repository.
+Managed execution is a later executor behind the same session, event, adapter,
+and environment contracts.
+
+## Adapters and environments are separate
+
+A harness adapter translates harness-native sessions, turns, events,
+approvals, and controls into Lush's domain. An execution environment provides
+the workspace, processes, isolation, connectivity, previews, and artifacts in
+which that harness runs.
+
+Keeping these contracts separate lets the same adapter run locally or in a
+managed sandbox, and lets an executor improve without changing harness
+semantics. It also prevents the React client from parsing vendor protocols,
+managing child processes, or owning Git lifecycle logic.
+
+An environment advertises its real capabilities, including writable roots,
+shell and background-process support, network policy, browser access, port
+forwarding, checkpoints, and subagents. Validation records include the actual
+platform, repository commit, environment, and harness version; a Linux sandbox
+does not claim to validate a macOS packaging flow.
+
+## Adapter contract and ACP
+
+Adapters are registry entries rather than members of a closed union. Every
+supported adapter must detect its installation and version, start in an exact
+working directory, stream structured events, expose a resumable native session
+identifier, cancel work, and report terminal status.
+
+Optional capabilities—such as steering, session forks, subagents, structured
+diffs, model selection, or native sandboxing—are advertised explicitly. The UI
+shows a control only when both the adapter and executor can honor it. Lush does
+not reduce all harnesses to the smallest common feature set or pretend they
+have capabilities they lack.
+
+The Agent Client Protocol (ACP) is the preferred transport when an upstream or
+well-maintained adapter passes Lush's conformance suite. Direct SDK, RPC, or
+structured CLI adapters fill measured gaps. Formatted terminal scraping is not
+a supported integration contract.
+
+ACP standardizes harness communication, but it does not replace Lush's
+orchestration domain. Execution targets, worktrees, managed sandbox policy,
+durable event retention, credential brokerage, and requested-versus-effective
+autonomy remain Lush responsibilities.
+
+## Canonical events and durable sessions
+
+Each adapter normalizes its native stream once into typed Lush events. The live
+UI and persisted session consume the same ordered contract, including:
+
+- session and turn lifecycle;
+- assistant messages and visible reasoning summaries;
+- tools, commands, bounded output, and file changes;
+- diffs and artifacts;
+- approval and user-input requests;
+- usage with its source and coverage; and
+- completion, interruption, and structured failure.
+
+Large output, patches, and artifacts are stored out of line behind bounded
+references. Workspace paths are relative to declared roots; exact local paths
+do not leak into managed session state.
+
+Raw harness payloads are not persisted by default. Diagnostic capture is
+explicit, bounded, encrypted where durable, and redacted through an allowlist
+before crossing a storage boundary.
+
+## Workspace and worktree lifecycle
+
+Before the first prompt is sent, Code keeps a validated draft rather than
+creating a session, native harness thread, branch, worktree, or managed
+environment. First send provisions those resources atomically and preserves the
+draft if provisioning fails.
+
+Local sessions use a Lush-managed Git worktree by default so independent runs
+do not modify or contend over the developer's current checkout. Each
+independent writer gets a separate worktree; attaching another writer requires
+explicit confirmation. Additional workspace roots are explicit and read-only
+by default.
+
+A worktree is a concurrency boundary, not a security sandbox. Lush shows the
+effective harness sandbox, approval policy, filesystem roots, network policy,
+and subprocess access for every local run. Cleanup refuses to discard dirty
+state or unpushed commits without a separate destructive confirmation, and
+branch deletion remains distinct from worktree removal.
+
+## Approvals, autonomy, and tools
+
+Autonomy is a visible, audited session setting, separate from harness, model,
+reasoning effort, and execution target. An adapter maps the requested Lush mode
+to the effective native policy. If exact parity is unavailable, Lush presents a
+narrower fallback rather than silently broadening authority.
+
+In managed mode, authorization is evaluated in this order:
+
+1. Lush authorization for the session-context principal;
+2. managed sandbox filesystem, network, secret, and process policy; and
+3. harness-native approval semantics.
+
+A user approval cannot expand the managed sandbox boundary. Permission bypass
+never bypasses Lush's containment policy.
+
+Harnesses retain their native code tools. Organization-scoped integrations,
+such as issue trackers and internal APIs, are exposed through `services/tools`
+over MCP or an adapter-specific bridge. Every call carries the session-context
+principal; the tools service owns authorization, redaction, audit logging,
+timeouts, and credential isolation.
+
+## Compatibility is a product contract
+
+Harness protocols evolve independently of Lush. A session binding therefore
+records the harness, adapter, transport, protocol, canonical event schema, and
+qualified version range used to create it.
+
+Compatibility has three layers:
+
+1. hermetic fixture replay in pull-request CI;
+2. passive inspection of new upstream versions and schemas; and
+3. isolated, credentialed behavioral canaries before a release is qualified.
+
+Managed environments use qualified, pinned builds. Local mode never silently
+upgrades a harness. A structurally compatible but unqualified local version may
+be used only through an explicit, recorded override; structural incompatibility
+fails closed.
+
+Codex, Claude Code, and OpenCode are the first production adapters. Pi and Amp
+then act as conformance tests: supporting all five without adding
+harness-specific concepts to the shared session, workspace, persistence, or
+primary UI model is the threshold for treating the abstraction as stable.

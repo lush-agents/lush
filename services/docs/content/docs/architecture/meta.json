@@ -1,4 +1,9 @@
 {
   "title": "Architecture",
-  "pages": ["overview", "authentication", "authorization"]
+  "pages": [
+    "overview",
+    "coding-harness-orchestration",
+    "authentication",
+    "authorization"
+  ]
 }
