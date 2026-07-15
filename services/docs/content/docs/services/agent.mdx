@@ -19,6 +19,30 @@ bun run agent:dev
 
 The service listens on `http://127.0.0.1:7331`.
 
+## Local Code sidecar
+
+The desktop app launches a compiled sidecar from `src/code/sidecar.ts`. It owns
+local Git worktrees, installed-harness discovery, process supervision, native
+session bindings, normalized Code events, and the local session store. The
+sidecar binds a random loopback port and requires a per-launch capability token
+delivered over stdin by Tauri; it is not a public localhost API.
+
+The dogfood adapters use one structured transport each:
+
+- `codex exec --json`;
+- `claude --print --output-format stream-json`; and
+- `opencode run --format json`.
+
+Run a credentialed two-turn behavioral canary in a temporary repository with:
+
+```sh
+bun run code:canary codex
+bun run code:canary claude-code
+bun run code:canary opencode openai/gpt-5.4-mini
+```
+
+Pull-request tests use sanitized fixtures and do not make inference calls.
+
 ## Auth
 
 The standalone agent service verifies the same short-lived bearer access JWTs as

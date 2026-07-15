@@ -1039,6 +1039,7 @@ function useAppController() {
     organizationName,
     resolvedOrganizationName,
     appearance,
+    resolvedTheme,
     modelDefaults,
     enabledInferenceProviders,
     organizations,

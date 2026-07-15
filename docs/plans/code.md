@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed architecture and delivery plan.
+Accepted architecture and active delivery plan. The macOS-local dogfood slice is
+in implementation.
 
 The first implementation targets Codex, Claude Code, and OpenCode. Pi and Amp
 follow as adapter conformance tests. Supporting all five without changing the

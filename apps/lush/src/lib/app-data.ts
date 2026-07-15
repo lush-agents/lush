@@ -71,6 +71,18 @@ export function sessionRouteHref(route: Route, sessionId: string) {
   return `${route.href}/sessions/${encodeURIComponent(sessionId)}`;
 }
 
+export function createComposerFocusState() {
+  return { focusComposerRequest: crypto.randomUUID() };
+}
+
+export function readComposerFocusRequest(state: unknown) {
+  if (!state || typeof state !== "object" || !("focusComposerRequest" in state)) {
+    return undefined;
+  }
+  const request = state.focusComposerRequest;
+  return typeof request === "string" ? request : undefined;
+}
+
 export function matchWorkspaceSessionPath(pathname: string) {
   const currentPath = normalizedPath(pathname);
 
