@@ -17,6 +17,14 @@ Agent frameworks provide runtime primitives for planning, tools, and execution.
 Lush treats those primitives as service capabilities that need tenancy,
 configuration, observability, and durable state.
 
+## Coding harnesses
+
+Coding harnesses such as Codex, Claude Code, and OpenCode own their agent loop,
+context management, native tools, and provider authentication. Lush Code
+orchestrates those harnesses instead of replacing them: it owns execution
+targets, repositories and worktrees, durable session indexing, normalized
+activity, policy, approvals, and review across local and managed environments.
+
 ## Model gateways
 
 Model gateways normalize provider APIs and routing. Lush includes provider
