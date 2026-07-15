@@ -1,0 +1,138 @@
+---
+title: Session orchestration
+description: How Chat delegates to Code, background Work, and custom agents without fragmenting the user's context.
+---
+
+## Decision
+
+Chat is Lush's universal front door. A user can ask for anything without first
+classifying the request as Chat, Code, or Work.
+
+Code and Work remain first-class product surfaces, but they are specialized
+execution environments rather than mutually exclusive conversation modes. A
+user who already knows the required environment can enter it directly. When a
+request begins in Chat, Lush can recommend a more capable execution path at the
+point where that path becomes useful:
+
+- **Open in Code** when the request needs a repository, coding harness,
+  worktree, iterative commands, or diff review.
+- **Run in background** when the request benefits from durable, asynchronous,
+  or long-horizon execution.
+- **Delegate to an agent** when a custom agent is the appropriate executor.
+
+Accepting one of these actions creates a delegated child session. It does not
+convert, replace, or fork the visible history of the parent Chat session. The
+parent remains the place where the user expressed the goal and can continue to
+converse while delegated work runs.
+
+> One interaction front door, specialized execution paths, and one continuous
+> context for the user.
+
+## Session and delegation model
+
+A **session** is a durable interaction context. It owns its transcript and the
+state needed to resume that interaction. Chat, Code, and Work sessions use the
+same session abstraction even though their executors, event streams, tools,
+permissions, and presentation differ.
+
+A **delegation** is a durable relationship from a parent session and
+originating message to a child session. Conceptually, it records:
+
+- the parent session and originating message;
+- the child session and assigned agent;
+- the execution environment, such as Code or background Work;
+- the purpose and scoped context passed to the child;
+- the requested and effective authority;
+- lifecycle state, progress, and terminal outcome; and
+- artifacts and results returned to the parent.
+
+This produces a graph of sessions rather than isolated mode-specific threads.
+The common case is a parent with one or more independently running child
+sessions. Custom agents use the same delegation primitive instead of creating a
+parallel orchestration model.
+
+Projects are orthogonal. A project is a durable context container for shared
+instructions, knowledge, memory, and related sessions; it is not an execution
+mode.
+
+## Parent presentation
+
+The parent transcript renders a user-meaningful delegation as a rich object. It
+may show:
+
+- status, assigned agent, environment, and elapsed time;
+- current step, blockers, and permission requests;
+- repository, branch, diff, tests, and commits for Code;
+- produced artifacts and completion summary; and
+- controls to open, interrupt, resume, or review the child session.
+
+The child remains independently addressable and retains its detailed execution
+log, permissions, and native context. The parent receives bounded lifecycle
+updates and a result summary rather than copying the complete child transcript.
+
+Not every internal sub-agent invocation deserves a top-level object. Lush
+exposes delegations that are meaningful to the user and keeps incidental
+planner, worker, or harness-native sub-agents as expandable execution detail.
+This preserves inspectability without turning the parent transcript into an
+operational trace.
+
+## Escalation and authority
+
+Lush may detect that a request would benefit from Code, background Work, or a
+custom agent, but the recommendation is expressed in terms of the outcome and
+consequence rather than an implementation mode. For example:
+
+> This needs repository access and iterative testing. Open in Code?
+
+> This may take 20–30 minutes. Run it in the background?
+
+The transition must never silently broaden authority. New filesystem or
+application access, external side effects, durable background execution, or a
+materially different spend boundary requires explicit authorization or a
+previously configured user or organization policy. The child receives only the
+context and capabilities required for its delegated purpose.
+
+## Rationale
+
+A required Chat-versus-Work choice is easy to explain and maps directly to
+existing products, but it asks the user to understand the runtime before they
+have expressed the goal. It also fragments history when a seemingly simple
+request becomes long-running or requires specialized tools.
+
+Using Chat as the front door instead:
+
+- preserves the familiar, low-friction starting point;
+- introduces specialized environments only when their value is concrete;
+- keeps the original request, delegation, progress, and outcome connected;
+- supports parallel work without blocking the conversation;
+- generalizes from Code and Work to custom agents; and
+- preserves distinct containment and execution boundaries underneath a
+  coherent product model.
+
+The decision deliberately copies the useful behavior of dedicated work modes,
+not their top-level ontology. Lush retains fast conversational execution and
+specialized durable runtimes without requiring users to choose the right
+architecture before asking a question.
+
+## Consequences
+
+- Chat must be able to recommend and create delegated child sessions.
+- Sessions need durable parent, origin, executor, visibility, authority, and
+  lifecycle relationships; these should not be inferred from transcript text.
+- Code and Work may be entered directly or reached through delegation, and the
+  resulting sessions behave consistently in either case.
+- The parent must remain usable while children run and must not auto-scroll or
+  otherwise move the reader as child events arrive.
+- Authorization, retention, cancellation, artifacts, notifications, and audit
+  records apply independently to each child session.
+- Navigation surfaces such as Code and Work are filtered views over compatible
+  sessions and runs, not separate stores.
+- The implementation may begin with explicit handoff actions. Automatic
+  routing can be added later without changing the persisted model.
+
+## Non-goals
+
+This decision does not define the database schema, scheduling protocol, or
+agent event contract. It also does not require every Chat request to create a
+heavyweight background run. Simple requests retain a low-latency conversational
+path.

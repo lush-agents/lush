@@ -221,6 +221,8 @@ export type SessionSummary = {
   ownerUserId: string;
   title: string;
   agentId: string;
+  projectId: string | null;
+  pinnedAt: string | null;
   stateBytes: number;
   version: number;
   createdAt: string;
@@ -260,11 +262,65 @@ export type ListSessionsResponse = {
 export type CreateSessionRequest = {
   title?: string;
   agentId: string;
+  projectId?: string | null;
 };
 
 export type UpdateSessionRequest = {
   title?: string;
+  projectId?: string | null;
+  pinned?: boolean;
 };
+
+export type ProjectSummary = {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+  name: string;
+  instructions: string;
+  memory: string;
+  pinnedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectContextItem = {
+  id: string;
+  projectId: string;
+  filename: string;
+  mediaType: string;
+  content: string;
+  byteSize: number;
+  createdAt: string;
+};
+
+export type Project = ProjectSummary & {
+  contextItems: ProjectContextItem[];
+};
+
+export type ListProjectsResponse = {
+  projects: ProjectSummary[];
+};
+
+export type CreateProjectRequest = {
+  name: string;
+};
+
+export type UpdateProjectRequest = {
+  name?: string;
+  instructions?: string;
+  memory?: string;
+  pinned?: boolean;
+};
+
+export type DeleteProjectRequest = Record<string, never>;
+
+export type AddProjectContextRequest = {
+  filename: string;
+  mediaType: string;
+  content: string;
+};
+
+export type DeleteProjectContextRequest = Record<string, never>;
 
 export type AppendSessionMessageRequest = {
   role: SessionMessageRole;
@@ -276,6 +332,10 @@ export type AppendSessionMessageRequest = {
 export type AppendSessionStateRequest = {
   kind: string;
   state: unknown;
+};
+
+export type TruncateSessionRequest = {
+  afterMessageId: string | null;
 };
 
 export type ArchiveSessionRequest = Record<string, never>;
@@ -558,6 +618,67 @@ export const apiRoutes = [
     "kind": "json"
   },
   {
+    "id": "listProjects",
+    "method": "GET",
+    "path": "/v1beta/projects",
+    "responseType": "ListProjectsResponse",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "createProject",
+    "method": "POST",
+    "path": "/v1beta/projects",
+    "requestType": "CreateProjectRequest",
+    "responseType": "Project",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "fetchProjectById",
+    "method": "GET",
+    "path": "/v1beta/projects/:projectId",
+    "responseType": "Project",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "updateProject",
+    "method": "PATCH",
+    "path": "/v1beta/projects/:projectId",
+    "requestType": "UpdateProjectRequest",
+    "responseType": "Project",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "deleteProject",
+    "method": "POST",
+    "path": "/v1beta/projects/:projectId/delete",
+    "requestType": "DeleteProjectRequest",
+    "responseType": "ProjectSummary",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "addProjectContext",
+    "method": "POST",
+    "path": "/v1beta/projects/:projectId/context",
+    "requestType": "AddProjectContextRequest",
+    "responseType": "ProjectContextItem",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "deleteProjectContext",
+    "method": "POST",
+    "path": "/v1beta/projects/:projectId/context/:contextId/delete",
+    "requestType": "DeleteProjectContextRequest",
+    "responseType": "Project",
+    "auth": true,
+    "kind": "json"
+  },
+  {
     "id": "listSessions",
     "method": "GET",
     "path": "/v1beta/sessions",
@@ -606,6 +727,15 @@ export const apiRoutes = [
     "path": "/v1beta/sessions/:sessionId/state",
     "requestType": "AppendSessionStateRequest",
     "responseType": "SessionStateSnapshot",
+    "auth": true,
+    "kind": "json"
+  },
+  {
+    "id": "truncateSession",
+    "method": "POST",
+    "path": "/v1beta/sessions/:sessionId/truncate",
+    "requestType": "TruncateSessionRequest",
+    "responseType": "Session",
     "auth": true,
     "kind": "json"
   },
@@ -679,12 +809,20 @@ const UPDATE_INFERENCE_PROVIDER_ROUTE = apiRoutes.find((route) => route.id === "
 const UPDATE_INFERENCE_MODEL_ROUTE = apiRoutes.find((route) => route.id === "updateInferenceModel")!;
 const DELETE_INFERENCE_PROVIDER_ROUTE = apiRoutes.find((route) => route.id === "deleteInferenceProvider")!;
 const UPDATE_INFERENCE_MODEL_DEFAULT_ROUTE = apiRoutes.find((route) => route.id === "updateInferenceModelDefault")!;
+const LIST_PROJECTS_ROUTE = apiRoutes.find((route) => route.id === "listProjects")!;
+const CREATE_PROJECT_ROUTE = apiRoutes.find((route) => route.id === "createProject")!;
+const FETCH_PROJECT_BY_ID_ROUTE = apiRoutes.find((route) => route.id === "fetchProjectById")!;
+const UPDATE_PROJECT_ROUTE = apiRoutes.find((route) => route.id === "updateProject")!;
+const DELETE_PROJECT_ROUTE = apiRoutes.find((route) => route.id === "deleteProject")!;
+const ADD_PROJECT_CONTEXT_ROUTE = apiRoutes.find((route) => route.id === "addProjectContext")!;
+const DELETE_PROJECT_CONTEXT_ROUTE = apiRoutes.find((route) => route.id === "deleteProjectContext")!;
 const LIST_SESSIONS_ROUTE = apiRoutes.find((route) => route.id === "listSessions")!;
 const CREATE_SESSION_ROUTE = apiRoutes.find((route) => route.id === "createSession")!;
 const FETCH_SESSION_BY_ID_ROUTE = apiRoutes.find((route) => route.id === "fetchSessionById")!;
 const UPDATE_SESSION_ROUTE = apiRoutes.find((route) => route.id === "updateSession")!;
 const APPEND_SESSION_MESSAGE_ROUTE = apiRoutes.find((route) => route.id === "appendSessionMessage")!;
 const APPEND_SESSION_STATE_ROUTE = apiRoutes.find((route) => route.id === "appendSessionState")!;
+const TRUNCATE_SESSION_ROUTE = apiRoutes.find((route) => route.id === "truncateSession")!;
 const ARCHIVE_SESSION_ROUTE = apiRoutes.find((route) => route.id === "archiveSession")!;
 const FETCH_SESSION_SETTINGS_ROUTE = apiRoutes.find((route) => route.id === "fetchSessionSettings")!;
 const UPDATE_SESSION_SETTINGS_ROUTE = apiRoutes.find((route) => route.id === "updateSessionSettings")!;
@@ -1241,6 +1379,154 @@ export async function updateInferenceModelDefault(
   return response.json() as Promise<InferenceConfig>;
 }
 
+export async function listProjects(
+  apiBaseUrl: string,
+  sessionToken: string | undefined,
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, LIST_PROJECTS_ROUTE.path), {
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+
+    }
+  });
+
+  if (!response.ok) {
+    throw await apiError("listProjects", response);
+  }
+
+  return response.json() as Promise<ListProjectsResponse>;
+}
+
+export async function createProject(
+  apiBaseUrl: string,
+  sessionToken: string | undefined, body: CreateProjectRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, CREATE_PROJECT_ROUTE.path), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("createProject", response);
+  }
+
+  return response.json() as Promise<Project>;
+}
+
+export async function fetchProjectById(
+  apiBaseUrl: string,
+  projectId: string,
+  sessionToken: string | undefined,
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(FETCH_PROJECT_BY_ID_ROUTE.path, { projectId })), {
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+
+    }
+  });
+
+  if (!response.ok) {
+    throw await apiError("fetchProjectById", response);
+  }
+
+  return response.json() as Promise<Project>;
+}
+
+export async function updateProject(
+  apiBaseUrl: string,
+  projectId: string,
+  sessionToken: string | undefined, body: UpdateProjectRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(UPDATE_PROJECT_ROUTE.path, { projectId })), {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("updateProject", response);
+  }
+
+  return response.json() as Promise<Project>;
+}
+
+export async function deleteProject(
+  apiBaseUrl: string,
+  projectId: string,
+  sessionToken: string | undefined, body: DeleteProjectRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(DELETE_PROJECT_ROUTE.path, { projectId })), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("deleteProject", response);
+  }
+
+  return response.json() as Promise<ProjectSummary>;
+}
+
+export async function addProjectContext(
+  apiBaseUrl: string,
+  projectId: string,
+  sessionToken: string | undefined, body: AddProjectContextRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(ADD_PROJECT_CONTEXT_ROUTE.path, { projectId })), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("addProjectContext", response);
+  }
+
+  return response.json() as Promise<ProjectContextItem>;
+}
+
+export async function deleteProjectContext(
+  apiBaseUrl: string,
+  projectId: string, contextId: string,
+  sessionToken: string | undefined, body: DeleteProjectContextRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(DELETE_PROJECT_CONTEXT_ROUTE.path, { projectId, contextId })), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("deleteProjectContext", response);
+  }
+
+  return response.json() as Promise<Project>;
+}
+
 export async function listSessions(
   apiBaseUrl: string,
   sessionToken: string | undefined,
@@ -1365,6 +1651,28 @@ export async function appendSessionState(
   }
 
   return response.json() as Promise<SessionStateSnapshot>;
+}
+
+export async function truncateSession(
+  apiBaseUrl: string,
+  sessionId: string,
+  sessionToken: string | undefined, body: TruncateSessionRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, routePath(TRUNCATE_SESSION_ROUTE.path, { sessionId })), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("truncateSession", response);
+  }
+
+  return response.json() as Promise<Session>;
 }
 
 export async function archiveSession(

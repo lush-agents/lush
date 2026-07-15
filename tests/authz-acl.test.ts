@@ -41,6 +41,7 @@ test("role action bindings keep users read-only for organization and inference s
   expect(roleActionBindings.user).toContain("fetchInferenceConfig");
   expect(roleActionBindings.user).toContain("listSessions");
   expect(roleActionBindings.user).toContain("appendSessionMessage");
+  expect(roleActionBindings.user).toContain("truncateSession");
   expect(roleActionBindings.user).not.toContain("updateCurrentOrganization");
   expect(roleActionBindings.user).not.toContain("createInferenceProvider");
   expect(roleActionBindings.user).not.toContain("updateInferenceModelDefault");

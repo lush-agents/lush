@@ -40,6 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { resetPromptMessageField } from "../../lib/prompt-input-form";
 import type { ChatStatus, FileUIPart, SourceDocumentUIPart } from "ai";
 import {
   CornerDownLeftIcon,
@@ -856,10 +857,10 @@ export const PromptInput = ({
             return (formData.get("message") as string) || "";
           })();
 
-      // Reset form immediately after capturing text to avoid race condition
-      // where user input during async blob conversion would be lost
+      // Clear only the message control. A full form reset also resets Radix's
+      // hidden select controls, which can silently change the selected model.
       if (!usingProvider) {
-        form.reset();
+        resetPromptMessageField(form.elements);
       }
 
       try {
@@ -925,7 +926,7 @@ export const PromptInput = ({
         ref={formRef}
         {...props}
       >
-        <InputGroup className="overflow-hidden rounded-2xl bg-[var(--color-panel)] shadow-[var(--shadow-composer)]">
+        <InputGroup className="overflow-hidden rounded-2xl bg-[var(--color-panel)] shadow-[var(--shadow-composer)] has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:ring-0">
           {children}
         </InputGroup>
       </form>
@@ -1061,7 +1062,10 @@ export const PromptInputTextarea = ({
 
   return (
     <InputGroupTextarea
-      className={cn("field-sizing-content max-h-48 min-h-10 transition-[min-height] focus:min-h-16", className)}
+      className={cn(
+        "field-sizing-content max-h-48 min-h-10",
+        className
+      )}
       name="message"
       onCompositionEnd={handleCompositionEnd}
       onCompositionStart={handleCompositionStart}
@@ -1103,7 +1107,7 @@ export const PromptInputFooter = ({
   <InputGroupAddon
     align="block-end"
     data-slot="prompt-input-footer"
-    className={cn("justify-between gap-1", className)}
+    className={cn("justify-between gap-1 py-1", className)}
     {...props}
   />
 );

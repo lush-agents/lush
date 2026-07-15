@@ -80,7 +80,8 @@ The sessions migrations create these service-owned tables:
 - `byte_size`
 - `created_at`
 
-`session_state_snapshots` stores append-only state snapshots:
+`session_state_snapshots` stores versioned state snapshots. Normal writes append;
+conversation truncation removes snapshots that reference deleted messages:
 
 - `id`
 - `thread_id`
@@ -136,6 +137,7 @@ The session routes are published through the API gateway under `/v1beta`:
 - `PATCH /v1beta/sessions/:sessionId`
 - `POST /v1beta/sessions/:sessionId/messages`
 - `POST /v1beta/sessions/:sessionId/state`
+- `POST /v1beta/sessions/:sessionId/truncate`
 - `POST /v1beta/sessions/:sessionId/archive`
 - `GET /v1beta/settings/sessions`
 - `PATCH /v1beta/settings/sessions`
@@ -201,6 +203,14 @@ accept `expectedVersion`, so client-side optimistic merge behavior is deferred.
 
 Message ordering is currently `created_at` plus `id`.
 
+Retry and edit use an atomic truncation boundary. `afterMessageId` retains that
+message and removes every later message; `null` removes all messages. The same
+transaction removes state snapshots that reference deleted messages, decrements
+`state_bytes`, bumps `version`, and records `session.thread_truncated`. Retry
+then streams a replacement assistant response from the retained user message;
+Edit truncates immediately before the edited user message when the replacement
+is submitted.
+
 ## Archiving and Retention
 
 Archive is the only end-user removal action.
@@ -232,6 +242,7 @@ state changes:
 - `session.thread_updated`
 - `session.message_created`
 - `session.state_snapshot_created`
+- `session.thread_truncated`
 - `session.thread_archived`
 - `session.thread_purged`
 - `session.settings_updated`
@@ -323,7 +334,7 @@ The implementation intentionally leaves these pieces for follow-up work:
 - `expectedVersion` support for optimistic concurrency and client-side merge
   handling.
 - A dedicated realtime session event stream for sync/invalidation.
-- State compaction or derived latest-state snapshots if append-only snapshots
+- State compaction or derived latest-state snapshots if accumulated snapshots
   become too expensive.
 - Optional service-specific database configuration if sessions need independent
   scaling later.

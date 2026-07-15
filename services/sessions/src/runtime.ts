@@ -2,6 +2,8 @@ import type { Kysely, Transaction } from "kysely";
 import { getDb } from "@lush/db/client";
 import type {
   Database,
+  ProjectContextItemRow,
+  ProjectRow,
   SessionMessageRole,
   SessionMessageRow,
   SessionStateSnapshotRow,
@@ -19,6 +21,8 @@ export type SessionSummary = {
   ownerUserId: string;
   title: string;
   agentId: string;
+  projectId: string | null;
+  pinnedAt: string | null;
   stateBytes: number;
   version: number;
   createdAt: string;
@@ -54,10 +58,56 @@ export type Session = SessionSummary & {
 export type CreateSessionRequest = {
   title?: string;
   agentId: string;
+  projectId?: string | null;
 };
 
 export type UpdateSessionRequest = {
   title?: string;
+  projectId?: string | null;
+  pinned?: boolean;
+};
+
+export type ProjectSummary = {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+  name: string;
+  instructions: string;
+  memory: string;
+  pinnedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectContextItem = {
+  id: string;
+  projectId: string;
+  filename: string;
+  mediaType: string;
+  content: string;
+  byteSize: number;
+  createdAt: string;
+};
+
+export type Project = ProjectSummary & {
+  contextItems: ProjectContextItem[];
+};
+
+export type CreateProjectRequest = {
+  name: string;
+};
+
+export type UpdateProjectRequest = {
+  name?: string;
+  instructions?: string;
+  memory?: string;
+  pinned?: boolean;
+};
+
+export type AddProjectContextRequest = {
+  filename: string;
+  mediaType: string;
+  content: string;
 };
 
 export type AppendSessionMessageRequest = {
@@ -70,6 +120,10 @@ export type AppendSessionMessageRequest = {
 export type AppendSessionStateRequest = {
   kind: string;
   state: unknown;
+};
+
+export type TruncateSessionRequest = {
+  afterMessageId: string | null;
 };
 
 export type SessionSettings = {
@@ -87,7 +141,9 @@ export const sessionSizeLimits = {
   maxThreadBytes: 10 * 1024 * 1024,
   maxMessageContentBytes: 256 * 1024,
   maxStateSnapshotBytes: 1024 * 1024,
-  maxMetadataBytes: 64 * 1024
+  maxMetadataBytes: 64 * 1024,
+  maxProjectContextItemBytes: 256 * 1024,
+  maxProjectContextBytes: 1024 * 1024
 } as const;
 
 const messageRoles: SessionMessageRole[] = [
@@ -107,6 +163,213 @@ export class SessionStateError extends Error {
   ) {
     super(message);
   }
+}
+
+export async function listProjects(principal: SessionPrincipal) {
+  const rows = await getDb()
+    .selectFrom("projects")
+    .selectAll()
+    .where("organizationId", "=", principal.organizationId)
+    .where("ownerUserId", "=", principal.userId)
+    .orderBy("updatedAt", "desc")
+    .execute();
+
+  return { projects: rows.map(toProjectSummary) };
+}
+
+export async function createProject(
+  principal: SessionPrincipal,
+  request: unknown
+) {
+  const body = normalizeCreateProjectRequest(request);
+  const db = getDb();
+  const now = new Date();
+  const project = await db
+    .insertInto("projects")
+    .values({
+      organizationId: principal.organizationId,
+      ownerUserId: principal.userId,
+      name: body.name,
+      instructions: "",
+      memory: "",
+      pinnedAt: null,
+      createdAt: now,
+      updatedAt: now
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
+  await recordSessionEvent(db, principal, {
+    action: "project.created",
+    targetId: project.id,
+    targetType: "project",
+    metadata: {}
+  });
+
+  return { ...toProjectSummary(project), contextItems: [] } satisfies Project;
+}
+
+export async function fetchProject(
+  principal: SessionPrincipal,
+  projectId: string
+) {
+  const db = getDb();
+  const project = await loadOwnedProject(db, principal, projectId);
+  if (!project) {
+    throw new SessionStateError("project_not_found", "Project was not found", 404);
+  }
+
+  const contextItems = await db
+    .selectFrom("projectContextItems")
+    .selectAll()
+    .where("projectId", "=", project.id)
+    .orderBy("createdAt", "asc")
+    .orderBy("id", "asc")
+    .execute();
+
+  return {
+    ...toProjectSummary(project),
+    contextItems: contextItems.map(toProjectContextItem)
+  } satisfies Project;
+}
+
+export async function updateProject(
+  principal: SessionPrincipal,
+  projectId: string,
+  request: unknown
+) {
+  const body = normalizeUpdateProjectRequest(request);
+  const db = getDb();
+  const current = await loadOwnedProject(db, principal, projectId);
+  if (!current) {
+    throw new SessionStateError("project_not_found", "Project was not found", 404);
+  }
+
+  const now = new Date();
+  const project = await db
+    .updateTable("projects")
+    .set({
+      ...(body.name === undefined ? {} : { name: body.name }),
+      ...(body.instructions === undefined
+        ? {}
+        : { instructions: body.instructions }),
+      ...(body.memory === undefined ? {} : { memory: body.memory }),
+      ...(body.pinned === undefined
+        ? {}
+        : { pinnedAt: body.pinned ? current.pinnedAt ?? now : null }),
+      updatedAt: now
+    })
+    .where("id", "=", current.id)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
+  await recordSessionEvent(db, principal, {
+    action: "project.updated",
+    targetId: project.id,
+    targetType: "project",
+    metadata: { fields: Object.keys(body) }
+  });
+
+  return fetchProject(principal, project.id);
+}
+
+export async function deleteProject(
+  principal: SessionPrincipal,
+  projectId: string
+) {
+  const db = getDb();
+  const project = await loadOwnedProject(db, principal, projectId);
+  if (!project) {
+    throw new SessionStateError("project_not_found", "Project was not found", 404);
+  }
+
+  await db.deleteFrom("projects").where("id", "=", project.id).execute();
+  await recordSessionEvent(db, principal, {
+    action: "project.deleted",
+    targetId: project.id,
+    targetType: "project",
+    metadata: {}
+  });
+  return toProjectSummary(project);
+}
+
+export async function addProjectContext(
+  principal: SessionPrincipal,
+  projectId: string,
+  request: unknown
+) {
+  const body = normalizeProjectContextRequest(request);
+  const db = getDb();
+  const project = await loadOwnedProject(db, principal, projectId);
+  if (!project) {
+    throw new SessionStateError("project_not_found", "Project was not found", 404);
+  }
+
+  const total = await db
+    .selectFrom("projectContextItems")
+    .select(({ fn }) => fn.sum<number>("byteSize").as("bytes"))
+    .where("projectId", "=", project.id)
+    .executeTakeFirst();
+  if (Number(total?.bytes ?? 0) + body.byteSize > sessionSizeLimits.maxProjectContextBytes) {
+    throw new SessionStateError(
+      "project_context_too_large",
+      "Project context exceeds the maximum total size"
+    );
+  }
+
+  const item = await db
+    .insertInto("projectContextItems")
+    .values({
+      projectId: project.id,
+      organizationId: principal.organizationId,
+      ownerUserId: principal.userId,
+      filename: body.filename,
+      mediaType: body.mediaType,
+      content: body.content,
+      byteSize: body.byteSize,
+      createdAt: new Date()
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  await db
+    .updateTable("projects")
+    .set({ updatedAt: new Date() })
+    .where("id", "=", project.id)
+    .execute();
+
+  return toProjectContextItem(item);
+}
+
+export async function deleteProjectContext(
+  principal: SessionPrincipal,
+  projectId: string,
+  contextId: string
+) {
+  const db = getDb();
+  const project = await loadOwnedProject(db, principal, projectId);
+  if (!project) {
+    throw new SessionStateError("project_not_found", "Project was not found", 404);
+  }
+
+  const result = await db
+    .deleteFrom("projectContextItems")
+    .where("id", "=", contextId)
+    .where("projectId", "=", project.id)
+    .executeTakeFirst();
+  if (Number(result.numDeletedRows) === 0) {
+    throw new SessionStateError(
+      "project_context_not_found",
+      "Project context item was not found",
+      404
+    );
+  }
+
+  await db
+    .updateTable("projects")
+    .set({ updatedAt: new Date() })
+    .where("id", "=", project.id)
+    .execute();
+  return fetchProject(principal, project.id);
 }
 
 export async function listSessions(principal: SessionPrincipal) {
@@ -132,6 +395,12 @@ export async function createSession(
 ) {
   const body = normalizeCreateThreadRequest(request);
   const db = getDb();
+  if (body.projectId) {
+    const project = await loadOwnedProject(db, principal, body.projectId);
+    if (!project) {
+      throw new SessionStateError("project_not_found", "Project was not found", 404);
+    }
+  }
   const now = new Date();
   const thread = await db
     .insertInto("sessionThreads")
@@ -140,6 +409,8 @@ export async function createSession(
       ownerUserId: principal.userId,
       title: body.title,
       agentId: body.agentId,
+      projectId: body.projectId,
+      pinnedAt: null,
       stateBytes: 0,
       version: 1,
       deleted: false,
@@ -220,11 +491,25 @@ export async function updateSession(
     }
     assertThreadCanAcceptWrite(current);
 
+    if (body.projectId) {
+      const project = await loadOwnedProject(trx, principal, body.projectId);
+      if (!project) {
+        throw new SessionStateError("project_not_found", "Project was not found", 404);
+      }
+    }
+
+    const updates = {
+      ...(body.title === undefined ? {} : { title: body.title }),
+      ...(body.projectId === undefined ? {} : { projectId: body.projectId }),
+      ...(body.pinned === undefined
+        ? {}
+        : { pinnedAt: body.pinned ? current.pinnedAt ?? now : null })
+    };
+
     const updated = await trx
       .updateTable("sessionThreads")
       .set({
-        ...body,
-        updatedAt: now,
+        ...updates,
         version: current.version + 1
       })
       .where("id", "=", current.id)
@@ -361,6 +646,94 @@ export async function appendSessionState(
     });
 
     return toStateSnapshot(snapshot);
+  });
+}
+
+export async function truncateSession(
+  principal: SessionPrincipal,
+  sessionId: string,
+  request: unknown
+) {
+  const body = normalizeTruncateSessionRequest(request);
+  const db = getDb();
+
+  return db.transaction().execute(async (trx) => {
+    const thread = await loadOwnedThreadForUpdate(trx, principal, sessionId);
+    if (!thread) {
+      throw new SessionStateError(
+        "session_not_found",
+        "Session was not found",
+        404
+      );
+    }
+    assertThreadCanAcceptWrite(thread);
+
+    const [messages, snapshots] = await Promise.all([
+      trx
+        .selectFrom("sessionMessages")
+        .selectAll()
+        .where("threadId", "=", thread.id)
+        .orderBy("createdAt", "asc")
+        .orderBy("id", "asc")
+        .execute(),
+      trx
+        .selectFrom("sessionStateSnapshots")
+        .selectAll()
+        .where("threadId", "=", thread.id)
+        .orderBy("createdAt", "asc")
+        .orderBy("id", "asc")
+        .execute()
+    ]);
+
+    const {
+      retainedMessages,
+      removedMessages,
+      retainedSnapshots,
+      removedSnapshots,
+      removedBytes
+    } = planSessionTruncation(messages, snapshots, body.afterMessageId);
+
+    if (removedMessages.length > 0) {
+      await trx
+        .deleteFrom("sessionMessages")
+        .where("id", "in", removedMessages.map((message) => message.id))
+        .execute();
+    }
+    if (removedSnapshots.length > 0) {
+      await trx
+        .deleteFrom("sessionStateSnapshots")
+        .where("id", "in", removedSnapshots.map((snapshot) => snapshot.id))
+        .execute();
+    }
+
+    const now = new Date();
+    const updated = await trx
+      .updateTable("sessionThreads")
+      .set({
+        stateBytes: Math.max(0, thread.stateBytes - removedBytes),
+        updatedAt: now,
+        version: thread.version + 1
+      })
+      .where("id", "=", thread.id)
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    await recordSessionEvent(trx, principal, {
+      action: "session.thread_truncated",
+      targetId: thread.id,
+      metadata: {
+        afterMessageId: body.afterMessageId,
+        removedMessageCount: removedMessages.length,
+        removedStateSnapshotCount: removedSnapshots.length,
+        removedBytes
+      }
+    });
+
+    return {
+      ...toThreadSummary(updated),
+      messages: retainedMessages.map(toMessage),
+      stateSnapshots: retainedSnapshots.map(toStateSnapshot)
+    } satisfies Session;
   });
 }
 
@@ -521,11 +894,55 @@ export function titleFromContent(content: string) {
     : normalized;
 }
 
+export function planSessionTruncation<
+  Message extends { id: string; byteSize: number },
+  Snapshot extends { id: string; byteSize: number; state: unknown }
+>(
+  messages: Message[],
+  snapshots: Snapshot[],
+  afterMessageId: string | null
+) {
+  const boundaryIndex = afterMessageId === null
+    ? -1
+    : messages.findIndex((message) => message.id === afterMessageId);
+  if (afterMessageId !== null && boundaryIndex < 0) {
+    throw new SessionStateError(
+      "session_message_not_found",
+      "Session message was not found",
+      404
+    );
+  }
+
+  const retainedMessages = messages.slice(0, boundaryIndex + 1);
+  const removedMessages = messages.slice(boundaryIndex + 1);
+  const removedMessageIds = new Set(removedMessages.map((message) => message.id));
+  const removedSnapshots = snapshots.filter((snapshot) =>
+    snapshotReferencesMessage(snapshot, removedMessageIds)
+  );
+  const removedSnapshotIds = new Set(removedSnapshots.map((snapshot) => snapshot.id));
+  const retainedSnapshots = snapshots.filter(
+    (snapshot) => !removedSnapshotIds.has(snapshot.id)
+  );
+  const removedBytes = [...removedMessages, ...removedSnapshots].reduce(
+    (total, entry) => total + entry.byteSize,
+    0
+  );
+
+  return {
+    retainedMessages,
+    removedMessages,
+    retainedSnapshots,
+    removedSnapshots,
+    removedBytes
+  };
+}
+
 function normalizeCreateThreadRequest(
   request: unknown
 ): {
   title: string;
   agentId: string;
+  projectId: string | null;
 } {
   const candidate = objectRequest(request);
   const agentId = normalizeShortText(candidate.agentId, "agent_id", 160);
@@ -536,7 +953,11 @@ function normalizeCreateThreadRequest(
 
   return {
     title,
-    agentId
+    agentId,
+    projectId:
+      candidate.projectId === null || candidate.projectId === undefined
+        ? null
+        : normalizeShortText(candidate.projectId, "project_id", 160)
   };
 }
 
@@ -549,6 +970,20 @@ function normalizeUpdateThreadRequest(
   if ("title" in candidate) {
     update.title = normalizeTitle(candidate.title);
   }
+  if ("projectId" in candidate) {
+    update.projectId = candidate.projectId === null
+      ? null
+      : normalizeShortText(candidate.projectId, "project_id", 160);
+  }
+  if ("pinned" in candidate) {
+    if (typeof candidate.pinned !== "boolean") {
+      throw new SessionStateError(
+        "invalid_session_pinned",
+        "Pinned must be a boolean"
+      );
+    }
+    update.pinned = candidate.pinned;
+  }
 
   if (Object.keys(update).length === 0) {
     throw new SessionStateError(
@@ -558,6 +993,87 @@ function normalizeUpdateThreadRequest(
   }
 
   return update;
+}
+
+function normalizeCreateProjectRequest(request: unknown): CreateProjectRequest {
+  const candidate = objectRequest(request);
+  return { name: normalizeShortText(candidate.name, "project_name", 120) };
+}
+
+function normalizeUpdateProjectRequest(request: unknown): UpdateProjectRequest {
+  const candidate = objectRequest(request);
+  const update: UpdateProjectRequest = {};
+
+  if ("name" in candidate) {
+    update.name = normalizeShortText(candidate.name, "project_name", 120);
+  }
+  if ("instructions" in candidate) {
+    update.instructions = normalizeLongText(
+      candidate.instructions,
+      "project_instructions",
+      16 * 1024
+    );
+  }
+  if ("memory" in candidate) {
+    update.memory = normalizeLongText(
+      candidate.memory,
+      "project_memory",
+      32 * 1024
+    );
+  }
+  if ("pinned" in candidate) {
+    if (typeof candidate.pinned !== "boolean") {
+      throw new SessionStateError(
+        "invalid_project_pinned",
+        "Pinned must be a boolean"
+      );
+    }
+    update.pinned = candidate.pinned;
+  }
+
+  if (Object.keys(update).length === 0) {
+    throw new SessionStateError(
+      "invalid_project_update",
+      "At least one project field is required"
+    );
+  }
+  return update;
+}
+
+function normalizeProjectContextRequest(
+  request: unknown
+): AddProjectContextRequest & { byteSize: number } {
+  const candidate = objectRequest(request);
+  const filename = normalizeShortText(
+    candidate.filename,
+    "project_context_filename",
+    255
+  );
+  const mediaType = normalizeShortText(
+    candidate.mediaType,
+    "project_context_media_type",
+    127
+  );
+  const content = normalizeLongText(
+    candidate.content,
+    "project_context_content",
+    sessionSizeLimits.maxProjectContextItemBytes
+  );
+  if (!content) {
+    throw new SessionStateError(
+      "invalid_project_context_content",
+      "Project context content is required"
+    );
+  }
+  const byteSize = byteLength(content);
+
+  if (byteSize > sessionSizeLimits.maxProjectContextItemBytes) {
+    throw new SessionStateError(
+      "project_context_item_too_large",
+      "Project context item exceeds the maximum size"
+    );
+  }
+  return { filename, mediaType, content, byteSize };
 }
 
 function normalizeAppendMessageRequest(
@@ -635,6 +1151,24 @@ function normalizeAppendStateRequest(
   };
 }
 
+function normalizeTruncateSessionRequest(
+  request: unknown
+): TruncateSessionRequest {
+  const candidate = objectRequest(request);
+  if (!("afterMessageId" in candidate)) {
+    throw new SessionStateError(
+      "invalid_truncate_boundary",
+      "A session message boundary is required"
+    );
+  }
+
+  return {
+    afterMessageId: candidate.afterMessageId === null
+      ? null
+      : normalizeShortText(candidate.afterMessageId, "message_id", 160)
+  };
+}
+
 function normalizeUpdateSettingsRequest(
   request: unknown
 ): UpdateSessionSettingsRequest {
@@ -692,6 +1226,17 @@ function normalizeShortText(value: unknown, code: string, maxLength: number) {
   return text;
 }
 
+function normalizeLongText(value: unknown, code: string, maxBytes: number) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (byteLength(text) > maxBytes) {
+    throw new SessionStateError(
+      `invalid_${code}`,
+      `Value must be ${maxBytes} bytes or fewer`
+    );
+  }
+  return text;
+}
+
 function objectRequest(request: unknown) {
   if (!request || typeof request !== "object") {
     throw new SessionStateError("invalid_request", "Invalid session request");
@@ -727,6 +1272,15 @@ function assertThreadCanAcceptWrite(thread: SessionThreadRow) {
   }
 }
 
+function snapshotReferencesMessage(
+  snapshot: { state: unknown },
+  messageIds: ReadonlySet<string>
+) {
+  if (!snapshot.state || typeof snapshot.state !== "object") return false;
+  const messageId = (snapshot.state as { messageId?: unknown }).messageId;
+  return typeof messageId === "string" && messageIds.has(messageId);
+}
+
 async function loadOwnedThread(
   db: Kysely<Database> | Transaction<Database>,
   principal: SessionPrincipal,
@@ -740,6 +1294,20 @@ async function loadOwnedThread(
     .where("ownerUserId", "=", principal.userId)
     .where("deleted", "=", false)
     .where("archivedAt", "is", null)
+    .executeTakeFirst();
+}
+
+async function loadOwnedProject(
+  db: Kysely<Database> | Transaction<Database>,
+  principal: SessionPrincipal,
+  projectId: string
+) {
+  return db
+    .selectFrom("projects")
+    .selectAll()
+    .where("id", "=", projectId)
+    .where("organizationId", "=", principal.organizationId)
+    .where("ownerUserId", "=", principal.userId)
     .executeTakeFirst();
 }
 
@@ -830,11 +1398,39 @@ function toThreadSummary(thread: SessionThreadRow): SessionSummary {
     ownerUserId: thread.ownerUserId,
     title: thread.title,
     agentId: thread.agentId,
+    projectId: thread.projectId,
+    pinnedAt: thread.pinnedAt?.toISOString() ?? null,
     stateBytes: thread.stateBytes,
     version: thread.version,
     createdAt: thread.createdAt.toISOString(),
     updatedAt: thread.updatedAt.toISOString(),
     archivedAt: thread.archivedAt?.toISOString() ?? null
+  };
+}
+
+function toProjectSummary(project: ProjectRow): ProjectSummary {
+  return {
+    id: project.id,
+    organizationId: project.organizationId,
+    ownerUserId: project.ownerUserId,
+    name: project.name,
+    instructions: project.instructions,
+    memory: project.memory,
+    pinnedAt: project.pinnedAt?.toISOString() ?? null,
+    createdAt: project.createdAt.toISOString(),
+    updatedAt: project.updatedAt.toISOString()
+  };
+}
+
+function toProjectContextItem(item: ProjectContextItemRow): ProjectContextItem {
+  return {
+    id: item.id,
+    projectId: item.projectId,
+    filename: item.filename,
+    mediaType: item.mediaType,
+    content: item.content,
+    byteSize: item.byteSize,
+    createdAt: item.createdAt.toISOString()
   };
 }
 

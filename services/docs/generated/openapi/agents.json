@@ -1243,7 +1243,7 @@
       "SessionStateSnapshot": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Append-only session state snapshot.",
+        "description": "Versioned session state snapshot.",
         "properties": {
           "id": {
             "type": "string",
@@ -1410,6 +1410,28 @@
         "required": [
           "kind",
           "state"
+        ]
+      },
+      "TruncateSessionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Truncates a session at a message boundary.",
+        "properties": {
+          "afterMessageId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Final message to retain, or null to remove all messages."
+          }
+        },
+        "required": [
+          "afterMessageId"
         ]
       },
       "ArchiveSessionRequest": {

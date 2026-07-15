@@ -361,7 +361,7 @@ const schemas: Record<string, JsonSchema> = {
     state: describeSchema({}, "JSON state snapshot."),
     byteSize: describeSchema({ type: "integer", minimum: 0 }, "Bytes counted against the session limit."),
     createdAt: describeSchema(stringSchema("date-time"), "Snapshot creation timestamp.")
-  }, ["id", "sessionId", "kind", "state", "byteSize", "createdAt"], "Append-only session state snapshot."),
+  }, ["id", "sessionId", "kind", "state", "byteSize", "createdAt"], "Versioned session state snapshot."),
   Session: {
     allOf: [
       ref("SessionSummary"),
@@ -392,6 +392,12 @@ const schemas: Record<string, JsonSchema> = {
     kind: describeSchema(stringSchema(), "Application-defined state kind."),
     state: describeSchema({}, "JSON state payload.")
   }, ["kind", "state"], "Appends a state snapshot to a session."),
+  TruncateSessionRequest: objectSchema({
+    afterMessageId: describeSchema(
+      nullableSchema(stringSchema("uuid")),
+      "Final message to retain, or null to remove all messages."
+    )
+  }, ["afterMessageId"], "Truncates a session at a message boundary."),
   ArchiveSessionRequest: emptyObjectSchema("Archive-session request body. Send an empty JSON object."),
   SessionSettings: objectSchema({
     organizationId: describeSchema(stringSchema("uuid"), "Organization that owns the settings."),
@@ -603,6 +609,46 @@ const operationDocs: Record<
     requestDescription: "Workspace mode and model selection.",
     successDescription: "Updated inference configuration."
   },
+  listProjects: {
+    summary: "List projects",
+    description: "Lists projects owned by the current user in the active organization.",
+    successDescription: "Owned project summaries."
+  },
+  createProject: {
+    summary: "Create project",
+    description: "Creates a project for shared instructions, context, and sessions.",
+    requestDescription: "Project name.",
+    successDescription: "Created project."
+  },
+  fetchProjectById: {
+    summary: "Get project",
+    description: "Returns an owned project with its persisted context items.",
+    successDescription: "Project details."
+  },
+  updateProject: {
+    summary: "Update project",
+    description: "Updates project identity, instructions, memory, or pin state.",
+    requestDescription: "Project fields to update.",
+    successDescription: "Updated project."
+  },
+  deleteProject: {
+    summary: "Delete project",
+    description: "Deletes a project and detaches its sessions.",
+    requestDescription: "Empty JSON body.",
+    successDescription: "Deleted project summary."
+  },
+  addProjectContext: {
+    summary: "Add project context",
+    description: "Persists a bounded text context item for a project.",
+    requestDescription: "Filename, media type, and extracted text content.",
+    successDescription: "Created context item."
+  },
+  deleteProjectContext: {
+    summary: "Remove project context",
+    description: "Removes a persisted context item from an owned project.",
+    requestDescription: "Empty JSON body.",
+    successDescription: "Updated project."
+  },
   listSessions: {
     summary: "List sessions",
     description:
@@ -619,7 +665,7 @@ const operationDocs: Record<
   fetchSessionById: {
     summary: "Get session",
     description:
-      "Returns an owned session with messages and append-only state snapshots.",
+      "Returns an owned session with messages and versioned state snapshots.",
     successDescription: "Session details."
   },
   updateSession: {
@@ -642,6 +688,14 @@ const operationDocs: Record<
       "Appends a JSON state snapshot to an owned session and enforces server-side byte limits.",
     requestDescription: "Snapshot kind and JSON state payload.",
     successDescription: "Created state snapshot."
+  },
+  truncateSession: {
+    summary: "Truncate session",
+    description:
+      "Atomically removes messages after a boundary and removes state snapshots that reference deleted messages.",
+    requestDescription:
+      "Message ID to retain as the final message, or null to remove all messages.",
+    successDescription: "Truncated session details."
   },
   archiveSession: {
     summary: "Archive session",

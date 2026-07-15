@@ -12,7 +12,7 @@ import {
 } from "./runtime";
 import {
   SessionContextError,
-  loadLushSessionMessages,
+  loadLushSessionContext,
   mergeSessionMessages
 } from "./session-context";
 import { normalizeAgentChatMessages } from "./chat-request";
@@ -127,16 +127,18 @@ async function streamSessionChat(request: Request, principal: Principal) {
   const sessionId = typeof body?.sessionId === "string" ? body.sessionId : "";
   const clientMessages = normalizeAgentChatMessages(inputMessages);
   let messages: AgentChatMessage[];
+  let project: Awaited<ReturnType<typeof loadLushSessionContext>>["project"];
 
   try {
-    const persistedMessages = await loadLushSessionMessages(
+    const sessionContext = await loadLushSessionContext(
       {
         userId: principal.userId,
         organizationId
       },
       sessionId
     );
-    messages = mergeSessionMessages(persistedMessages, clientMessages);
+    messages = mergeSessionMessages(sessionContext.messages, clientMessages);
+    project = sessionContext.project;
   } catch (error) {
     if (error instanceof SessionContextError) {
       return Response.json(
@@ -155,7 +157,13 @@ async function streamSessionChat(request: Request, principal: Principal) {
     );
   }
 
-  return streamMessages(request, organizationId, modelSelection, messages);
+  return streamMessages(
+    request,
+    organizationId,
+    modelSelection,
+    messages,
+    project
+  );
 }
 
 async function streamPrompt(request: Request, principal: Principal) {
@@ -190,7 +198,8 @@ async function streamMessages(
   request: Request,
   organizationId: string,
   modelSelection: string | undefined,
-  messages: AgentChatMessage[]
+  messages: AgentChatMessage[],
+  project?: Awaited<ReturnType<typeof loadLushSessionContext>>["project"]
 ) {
   const controller = new AbortController();
   request.signal.addEventListener("abort", () => controller.abort(), {
@@ -201,6 +210,7 @@ async function streamMessages(
     organizationId,
     modelSelection,
     messages,
+    project,
     signal: controller.signal
   });
   let firstChunk: IteratorResult<string>;

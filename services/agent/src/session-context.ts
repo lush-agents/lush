@@ -1,4 +1,5 @@
 import {
+  fetchProject,
   fetchSession,
   SessionStateError
 } from "@lush/sessions/runtime";
@@ -13,6 +14,9 @@ export type SessionPrincipal = {
   organizationId: string;
 };
 
+const maxProjectPromptContextBytes = 48 * 1024;
+const textEncoder = new TextEncoder();
+
 export class SessionContextError extends Error {
   constructor(
     readonly code: string,
@@ -24,6 +28,13 @@ export class SessionContextError extends Error {
 }
 
 export async function loadLushSessionMessages(
+  principal: SessionPrincipal,
+  sessionId: string
+) {
+  return (await loadLushSessionContext(principal, sessionId)).messages;
+}
+
+export async function loadLushSessionContext(
   principal: SessionPrincipal,
   sessionId: string
 ) {
@@ -55,7 +66,7 @@ export async function loadLushSessionMessages(
     );
   }
 
-  return session.messages
+  const messages = session.messages
     .filter((message): message is typeof message & AgentChatMessage =>
       message.role === "user" || message.role === "assistant"
     )
@@ -64,6 +75,59 @@ export async function loadLushSessionMessages(
       content,
       attachments: attachmentsFromMetadata(metadata)
     }));
+
+  const project = session.projectId
+    ? await fetchProject(principal, session.projectId).catch((error) => {
+        if (error instanceof SessionStateError && error.status === 404) {
+          return undefined;
+        }
+        throw error;
+      })
+    : undefined;
+
+  return {
+    messages,
+    project: project
+      ? {
+          id: project.id,
+          name: project.name,
+          instructions: project.instructions,
+          memory: project.memory,
+          contextItems: projectContextForPrompt(project.contextItems)
+        }
+      : undefined
+  };
+}
+
+export function projectContextForPrompt(
+  items: Array<{ filename: string; mediaType: string; content: string }>,
+  maxBytes = maxProjectPromptContextBytes
+) {
+  const context: Array<{ filename: string; mediaType: string; content: string }> = [];
+  let remaining = maxBytes;
+
+  for (const item of items) {
+    if (remaining <= 0) break;
+    const content = truncateUtf8(item.content, remaining);
+    if (!content) continue;
+    context.push({ ...item, content });
+    remaining -= textEncoder.encode(content).byteLength;
+  }
+
+  return context;
+}
+
+function truncateUtf8(value: string, maxBytes: number) {
+  if (textEncoder.encode(value).byteLength <= maxBytes) return value;
+  let result = "";
+  let bytes = 0;
+  for (const character of value) {
+    const characterBytes = textEncoder.encode(character).byteLength;
+    if (bytes + characterBytes > maxBytes) break;
+    result += character;
+    bytes += characterBytes;
+  }
+  return result;
 }
 
 function attachmentsFromMetadata(metadata: unknown) {

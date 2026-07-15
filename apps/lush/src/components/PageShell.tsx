@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 export function PageShell(props: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   body: string;
   children?: ReactNode;
@@ -22,10 +22,12 @@ export function PageShell(props: {
             {props.back.label}
           </Link>
         ) : null}
-        <p className="text-sm font-medium uppercase tracking-wide text-[var(--color-muted)]">
-          {props.eyebrow}
-        </p>
-        <h1 className="mt-2 text-2xl font-semibold text-[var(--color-text)]">
+        {props.eyebrow ? (
+          <p className="text-sm font-medium uppercase tracking-wide text-[var(--color-muted)]">
+            {props.eyebrow}
+          </p>
+        ) : null}
+        <h1 className={`${props.eyebrow ? "mt-2 " : ""}text-2xl font-semibold text-[var(--color-text)]`}>
           {props.title}
         </h1>
         <p className="mt-3 text-sm leading-6 text-[var(--color-muted)]">

@@ -1,22 +1,52 @@
+import {
+  BotIcon,
+  BriefcaseIcon,
+  CodeXmlIcon,
+  HomeIcon,
+  MessageCircleIcon,
+  PackageOpenIcon
+} from "lucide-react";
 import { routes } from "../../lib/app-data";
 import { NavLink } from "react-router-dom";
 
 export function PrimaryNav() {
+  const items = [
+    { href: "/sessions", label: "Home", icon: HomeIcon },
+    ...routes.map((route) => ({
+      href: route.href,
+      label: route.label,
+      icon:
+        route.href === "/chat"
+          ? MessageCircleIcon
+          : route.href === "/code"
+            ? CodeXmlIcon
+            : route.href === "/work"
+              ? BriefcaseIcon
+              : route.href === "/agents"
+                ? BotIcon
+                : PackageOpenIcon
+    }))
+  ];
+
   return (
-    <>
-      {routes.map((route) => (
+    <div className="space-y-0.5">
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
         <NavLink
-          key={route.href}
-          to={route.href}
-          className={({ isActive }) => `block rounded-md px-3 py-1.5 text-[0.625rem] font-medium transition ${
+          key={item.href}
+          to={item.href}
+          className={({ isActive }) => `flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
             isActive
-              ? "bg-[var(--color-brand-strong)] text-white"
+              ? "bg-[var(--color-panel-hover)] text-[var(--color-text)]"
               : "text-[var(--color-subtle)] hover:bg-[var(--color-panel-hover)] hover:text-[var(--color-text)]"
           }`}
         >
-          {route.label}
+          <Icon className="size-4" />
+          {item.label}
         </NavLink>
-      ))}
-    </>
+        );
+      })}
+    </div>
   );
 }

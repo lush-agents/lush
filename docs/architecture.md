@@ -53,7 +53,10 @@ service owns the state behind that UI.
 
 **Sessions (`services/sessions`).** Durable sessions, conversation messages,
 and active work contexts. It owns conversational state that must be shared
-across clients and collaboration channels.
+across clients and collaboration channels. Chat is the universal front door;
+specialized Code, Work, and custom-agent execution is represented as delegated
+child sessions without breaking the parent conversation. See
+[Session Orchestration](./session-orchestration.md).
 
 **Events (`services/events`).** Durable append-only event log for system
 activity. It feeds audit trails, usage reporting, and operational workflows.

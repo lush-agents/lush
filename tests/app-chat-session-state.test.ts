@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   appendSessionMessageSnapshot,
+  appendSessionStateSnapshot,
   preferNewestSessionSnapshot
 } from "../apps/lush/src/lib/chat-session-state";
 import type {
   Session,
-  SessionMessage
+  SessionMessage,
+  SessionStateSnapshot
 } from "../packages/api-client/src/generated";
 
 function session(id: string, messages: SessionMessage[]): Session {
@@ -79,5 +81,33 @@ describe("app chat session state", () => {
 
     expect(withMessage?.messages).toEqual([userMessage]);
     expect(duplicate?.messages).toEqual([userMessage]);
+  });
+
+  test("appends persisted feedback state to the active session once", () => {
+    const active = session("session-1", []);
+    const feedback: SessionStateSnapshot = {
+      id: "state-1",
+      sessionId: "session-1",
+      kind: "message_feedback",
+      state: { messageId: "message-1", sentiment: "up" },
+      byteSize: 48,
+      createdAt: "2026-06-30T00:00:03.000Z"
+    };
+
+    const withFeedback = appendSessionStateSnapshot(
+      active,
+      "session-1",
+      feedback
+    );
+    const duplicate = appendSessionStateSnapshot(
+      withFeedback,
+      "session-1",
+      feedback
+    );
+
+    expect(withFeedback?.stateSnapshots).toEqual([feedback]);
+    expect(withFeedback?.stateBytes).toBe(48);
+    expect(duplicate?.stateSnapshots).toEqual([feedback]);
+    expect(duplicate?.stateBytes).toBe(48);
   });
 });

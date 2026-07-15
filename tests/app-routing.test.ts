@@ -1,11 +1,40 @@
 import { expect, test } from "bun:test";
 import {
+  accountRoutes,
   createComposerFocusState,
+  createProjectChatState,
   matchWorkspaceSessionPath,
   readComposerFocusRequest,
+  readProjectChatState,
   routes,
   sessionRouteHref
 } from "../apps/lush/src/lib/app-data";
+
+test("help replaces concepts in the account navigation before sign out", () => {
+  expect(accountRoutes.slice(-2).map((route) => [route.label, route.href])).toEqual([
+    ["Help", "/concepts"],
+    ["Sign out", "/sign-out"]
+  ]);
+});
+
+test("project chat navigation carries its project and initial prompt", () => {
+  const state = createProjectChatState("project-1", "  Draft a launch plan  ");
+
+  expect(readProjectChatState(state)).toEqual({
+    projectId: "project-1",
+    prompt: "Draft a launch plan",
+    requestId: state.projectPromptRequest
+  });
+  expect(readProjectChatState({ projectId: "project-1" })).toBeUndefined();
+});
+
+test("artifacts follows Agents and is not a session workspace", () => {
+  expect(routes.slice(-2).map((route) => route.label)).toEqual([
+    "Agents",
+    "Artifacts"
+  ]);
+  expect(routes.at(-1)?.sessionAgentId).toBeUndefined();
+});
 
 test("workspace session routes include the session id", () => {
   const chatRoute = routes.find((route) => route.href === "/chat");

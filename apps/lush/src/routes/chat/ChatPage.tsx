@@ -34,8 +34,13 @@ import {
   PromptInputTools,
   usePromptInputAttachments
 } from "../../components/ai-elements/prompt-input";
-import { Settings2Icon } from "lucide-react";
-import { createId, getFirstName, readComposerFocusRequest } from "../../lib/app-data";
+import { Settings2Icon, XIcon } from "lucide-react";
+import {
+  createId,
+  getFirstName,
+  readComposerFocusRequest,
+  readProjectChatState
+} from "../../lib/app-data";
 import {
   appendAgentStreamEvent,
   chatMessageFromSession,
@@ -52,10 +57,19 @@ import {
   postSessionChat,
   titleFromContent
 } from "../../lib/chat-stream";
-import type { ChatMessage, ChatMessagePart } from "../../lib/types";
+import type {
+  ChatAttachmentPart,
+  ChatMessage,
+  ChatMessagePart
+} from "../../lib/types";
 import { Message } from "../../ui/Message";
 import { MessageScroller, MessageScrollerItem } from "../../ui/MessageScroller";
 import { agentChatDeltaMessages } from "../../lib/agent-chat-request";
+import {
+  chatModelSelectionFromSession,
+  modelSelectionName,
+  resolveChatModelSelection
+} from "../../lib/chat-model-selection";
 
 function getGreeting(date: Date) {
   const hour = date.getHours();
@@ -80,7 +94,10 @@ export function ChatPage(props: {
   session?: Session;
   sessionKey: number;
   ensureSession: (force?: boolean) => Promise<string | undefined>;
-  onCreateSession: (request: { title: string }) => Promise<string>;
+  onCreateSession: (request: {
+    title: string;
+    projectId?: string | null;
+  }) => Promise<string>;
   onAppendSessionMessage: (
     sessionId: string,
     message: {
@@ -88,58 +105,89 @@ export function ChatPage(props: {
       content: string;
       metadata?: unknown;
     }
-  ) => Promise<void>;
+  ) => Promise<string>;
+  onTruncateSession: (
+    sessionId: string,
+    afterMessageId: string | null
+  ) => Promise<Session>;
   onSessionTitleChange: (sessionId: string, title: string) => Promise<void>;
   onMessageFeedback: (
     sessionId: string,
     messageId: string,
     sentiment: "up" | "down"
   ) => Promise<void>;
+  onModelSelectionChange: (
+    sessionId: string,
+    modelSelection: string
+  ) => Promise<void>;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
   const abortControllerRef = useRef<AbortController | undefined>(undefined);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerContainerRef = useRef<HTMLDivElement>(null);
   const syncedSessionKeyRef = useRef<number | undefined>(undefined);
+  const modelSelectionSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const modelSelectionRevisionRef = useRef(0);
+  const projectPromptHandledRef = useRef<string | undefined>(undefined);
 
   const [now, setNow] = useState(new Date());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isRewriting, setIsRewriting] = useState(false);
   const [error, setError] = useState("");
-  const [selectedModelSelection, setSelectedModelSelection] = useState("");
+  const initialSessionModelSelection = chatModelSelectionFromSession(
+    props.session
+  );
+  const [selectedModelSelection, setSelectedModelSelection] = useState(
+    initialSessionModelSelection ?? props.defaultModelSelection
+  );
+  const [hasThreadModelSelection, setHasThreadModelSelection] = useState(
+    Boolean(initialSessionModelSelection)
+  );
+  const [modelSelectionSaveError, setModelSelectionSaveError] = useState("");
   const [activeSessionId, setActiveSessionId] = useState<string>();
+  const [composerHeight, setComposerHeight] = useState(0);
+  const [scrollerResetKey, setScrollerResetKey] = useState(
+    props.session?.id ?? "new"
+  );
+  const [pendingEdit, setPendingEdit] = useState<{
+    sessionId: string;
+    afterMessageId: string | null;
+    attachments: ChatAttachmentPart[];
+  }>();
   const greeting = `${getGreeting(now)}, ${getFirstName(props.displayName)}`;
   const composerFocusRequest = readComposerFocusRequest(location.state);
+  const projectChatState = readProjectChatState(location.state);
   const hasMessages = messages.length > 0;
   const enabledModelSelections =
     props.providers.flatMap((provider) =>
       provider.models.map((model) => `${provider.id}:${model.id}`)
     );
-  const activeModelSelection = (() => {
-    const selected = selectedModelSelection;
-    if (selected && enabledModelSelections.includes(selected)) {
-      return selected;
-    }
-
-    if (
-      props.defaultModelSelection &&
-      enabledModelSelections.includes(props.defaultModelSelection)
-    ) {
-      return props.defaultModelSelection;
-    }
-
-    return enabledModelSelections[0] ?? "";
-  })();
+  const modelSelectionResolution = resolveChatModelSelection({
+    requestedModelSelection: selectedModelSelection,
+    defaultModelSelection: props.defaultModelSelection,
+    enabledModelSelections
+  });
+  const activeModelSelection = modelSelectionResolution.modelSelection;
   const activeModelLabel =
-    getModelLabel(props.providers, activeModelSelection)
-  ;
+    getModelLabel(props.providers, activeModelSelection) ||
+    modelSelectionName(activeModelSelection);
+  const unavailableThreadModelSelection = hasThreadModelSelection
+    ? modelSelectionResolution.unavailableModelSelection
+    : undefined;
+  const unavailableModelNotice = unavailableThreadModelSelection
+    ? activeModelSelection
+      ? `Saved model “${modelSelectionName(unavailableThreadModelSelection)}” is unavailable. Using “${activeModelLabel}”.`
+      : `Saved model “${modelSelectionName(unavailableThreadModelSelection)}” is unavailable. Configure an enabled model to continue.`
+    : "";
 
   useEffect(() => {
-    if (!selectedModelSelection && props.defaultModelSelection) {
+    if (!hasThreadModelSelection) {
       setSelectedModelSelection(props.defaultModelSelection);
     }
-  }, [selectedModelSelection, props.defaultModelSelection]);
+  }, [hasThreadModelSelection, props.defaultModelSelection]);
 
   useEffect(() => {
     const session = props.session;
@@ -149,14 +197,26 @@ export function ChatPage(props: {
     }
 
     syncedSessionKeyRef.current = sessionKey;
+    // Writes from this chat update the persisted session while the local
+    // transcript already contains the same turn. Replacing it would change
+    // every optimistic message ID and make the scroller treat the turn as new.
+    if (session?.id && session.id === activeSessionId) {
+      return;
+    }
+
     setActiveSessionId(session?.id);
-    setMessages(
-      (session?.messages ?? [])
-        .map(chatMessageFromSession)
-        .filter((message): message is ChatMessage => Boolean(message))
+    setScrollerResetKey(session?.id ?? `new:${sessionKey}`);
+    setMessages(sessionChatMessages(session));
+    const restoredModelSelection = chatModelSelectionFromSession(session);
+    setSelectedModelSelection(
+      restoredModelSelection ?? props.defaultModelSelection
     );
+    setHasThreadModelSelection(Boolean(restoredModelSelection));
+    modelSelectionRevisionRef.current += 1;
+    setModelSelectionSaveError("");
+    setPendingEdit(undefined);
     setError("");
-  }, [props.session, props.sessionKey, isStreaming]);
+  }, [props.session, props.sessionKey, isStreaming, activeSessionId]);
 
   useEffect(() => {
     const clockInterval = window.setInterval(() => setNow(new Date()), 60_000);
@@ -171,6 +231,19 @@ export function ChatPage(props: {
     return () => window.cancelAnimationFrame(frame);
   }, [composerFocusRequest]);
 
+  useEffect(() => {
+    const composer = composerContainerRef.current;
+    if (!composer) return;
+
+    const updateComposerHeight = () => {
+      setComposerHeight(Math.ceil(composer.getBoundingClientRect().height));
+    };
+    updateComposerHeight();
+    const observer = new ResizeObserver(updateComposerHeight);
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, []);
+
   const updateAssistantMessage = (
     id: string,
     updater: (message: ChatMessage) => ChatMessage
@@ -181,54 +254,118 @@ export function ChatPage(props: {
 
   };
 
-  const submit = async (prompt: PromptInputMessage) => {
-    const content = prompt.text.trim();
-    if ((!content && prompt.files.length === 0) || isStreaming) {
-      return;
-    }
+  const persistModelSelection = (
+    sessionId: string,
+    modelSelection: string
+  ) => {
+    const save = modelSelectionSaveQueueRef.current
+      .catch(() => undefined)
+      .then(() => props.onModelSelectionChange(sessionId, modelSelection));
+    modelSelectionSaveQueueRef.current = save;
+    return save;
+  };
 
-    const attachments = await promptAttachments(prompt.files);
+  const reportModelSelectionSaveError = (
+    caught: unknown,
+    revision: number
+  ) => {
+    if (revision !== modelSelectionRevisionRef.current) return;
+    const message =
+      caught instanceof Error
+        ? caught.message
+        : "Unable to save model selection";
+    setModelSelectionSaveError(`Model selection was not saved. ${message}`);
+  };
 
-    const shouldGenerateSessionTitle = !activeSessionId && messages.length === 0;
+  const selectModel = (modelSelection: string) => {
+    if (!modelSelection) return;
+    const revision = ++modelSelectionRevisionRef.current;
+    setSelectedModelSelection(modelSelection);
+    setHasThreadModelSelection(true);
+    setModelSelectionSaveError("");
+    if (!activeSessionId) return;
+
+    void persistModelSelection(activeSessionId, modelSelection).catch((caught) =>
+      reportModelSelectionSaveError(caught, revision)
+    );
+  };
+
+  const sendTurn = async (
+    parts: ChatMessagePart[],
+    options: {
+      sessionId?: string;
+      retainedUser?: ChatMessage;
+      baseMessages?: ChatMessage[];
+    } = {}
+  ) => {
+    const content = chatMessageText({ parts }).trim();
+    const attachments = parts.filter(
+      (part): part is Extract<ChatMessagePart, { type: "attachment" }> =>
+        part.type === "attachment"
+    );
+    if ((!content && attachments.length === 0) || isStreaming) return;
+
+    const createdAt = new Date().toISOString();
+    const shouldGenerateSessionTitle =
+      !options.retainedUser && !options.sessionId && !activeSessionId && messages.length === 0;
     const modelSelection = activeModelSelection;
-    const userMessage: ChatMessage = {
+    const userMessage: ChatMessage = options.retainedUser ?? {
       id: createId(),
+      createdAt,
+      animateEntrance: true,
       role: "user",
-      parts: [
-        ...(content ? [{ type: "text" as const, text: content }] : []),
-        ...attachments
-      ],
+      parts,
       status: "complete"
     };
     const assistantMessage: ChatMessage = {
       id: createId(),
+      createdAt,
       role: "assistant",
       parts: [],
       status: "streaming"
     };
     const requestMessages = agentChatDeltaMessages(userMessage);
     setError("");
-    setInput("");
+    if (!options.retainedUser) setInput("");
     setIsStreaming(true);
-    setMessages((current) => [...current, userMessage, assistantMessage]);
+    setMessages((current) => [
+      ...(options.baseMessages ?? current),
+      ...(options.retainedUser ? [] : [userMessage]),
+      assistantMessage
+    ]);
 
     abortControllerRef.current = new AbortController();
-    let sessionId = activeSessionId;
+    let sessionId = options.sessionId ?? activeSessionId;
     let assistantParts: ChatMessagePart[] = [];
 
     try {
       if (!sessionId) {
         sessionId = await props.onCreateSession({
-          title: titleFromContent(content || attachments[0]?.filename || "")
+          title: titleFromContent(content || attachments[0]?.filename || ""),
+          projectId: projectChatState?.projectId
         });
         setActiveSessionId(sessionId);
+        setHasThreadModelSelection(true);
+        const revision = ++modelSelectionRevisionRef.current;
+        await persistModelSelection(sessionId, modelSelection).catch((caught) =>
+          reportModelSelectionSaveError(caught, revision)
+        );
       }
 
-      await props.onAppendSessionMessage(sessionId, {
-        role: "user",
-        content: chatMessageRequestText(userMessage),
-        metadata: chatMessageMetadata(userMessage.parts)
-      });
+      if (!options.retainedUser) {
+        const userServerId = await props.onAppendSessionMessage(sessionId, {
+          role: "user",
+          content: chatMessageRequestText(userMessage),
+          metadata: chatMessageMetadata(userMessage.parts)
+        });
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === userMessage.id
+              ? { ...message, serverId: userServerId }
+              : message
+          )
+        );
+      }
 
       let token = await props.ensureSession();
       let response = await postSessionChat(
@@ -272,16 +409,16 @@ export function ChatPage(props: {
       });
       const assistantContent = chatMessageText({ parts: assistantParts });
 
-      updateAssistantMessage(assistantMessage.id, (message) => ({
-        ...message,
-        status: "complete"
-      }));
-
-      await props.onAppendSessionMessage(sessionId, {
+      const assistantServerId = await props.onAppendSessionMessage(sessionId, {
         role: "assistant",
         content: assistantContent,
         metadata: chatMessageMetadata(assistantParts)
       });
+      updateAssistantMessage(assistantMessage.id, (message) => ({
+        ...message,
+        serverId: assistantServerId,
+        status: "complete"
+      }));
 
       if (shouldGenerateSessionTitle && assistantContent.trim()) {
         void generateAndPersistSessionTitle({
@@ -298,22 +435,23 @@ export function ChatPage(props: {
       }
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") {
-        updateAssistantMessage(assistantMessage.id, (current) => ({
-          ...current,
-          parts: assistantParts,
-          status: "complete"
-        }));
+        let assistantServerId: string | undefined;
         if (sessionId && chatMessageText({ parts: assistantParts }).trim()) {
-          await props.onAppendSessionMessage(sessionId, {
+          assistantServerId = await props.onAppendSessionMessage(sessionId, {
             role: "assistant",
             content: chatMessageText({ parts: assistantParts }),
             metadata: chatMessageMetadata(assistantParts)
           }).catch(() => undefined);
         }
+        updateAssistantMessage(assistantMessage.id, (current) => ({
+          ...current,
+          parts: assistantParts,
+          serverId: assistantServerId,
+          status: "complete"
+        }));
       } else {
         const message =
           caught instanceof Error ? caught.message : "Unable to reach agent";
-        setError(message);
         updateAssistantMessage(assistantMessage.id, (current) => ({
           ...current,
           status: "error",
@@ -328,8 +466,142 @@ export function ChatPage(props: {
     }
   };
 
+  useEffect(() => {
+    if (
+      !projectChatState ||
+      projectPromptHandledRef.current === projectChatState.requestId ||
+      activeSessionId ||
+      messages.length > 0 ||
+      isStreaming
+    ) {
+      return;
+    }
+
+    projectPromptHandledRef.current = projectChatState.requestId;
+    void sendTurn([{ type: "text", text: projectChatState.prompt }]);
+  }, [
+    activeSessionId,
+    isStreaming,
+    messages.length,
+    projectChatState?.projectId,
+    projectChatState?.prompt,
+    projectChatState?.requestId
+  ]);
+
+  const submit = async (prompt: PromptInputMessage) => {
+    const content = prompt.text.trim();
+    if ((!content && prompt.files.length === 0) || isStreaming || isRewriting) return;
+
+    const attachments = await promptAttachments(prompt.files);
+    const parts: ChatMessagePart[] = [
+      ...(content ? [{ type: "text" as const, text: content }] : []),
+      ...(pendingEdit?.attachments ?? []),
+      ...attachments
+    ];
+
+    if (!pendingEdit) {
+      await sendTurn(parts);
+      return;
+    }
+
+    setIsRewriting(true);
+    setError("");
+    try {
+      const truncated = await props.onTruncateSession(
+        pendingEdit.sessionId,
+        pendingEdit.afterMessageId
+      );
+      setScrollerResetKey(
+        `${pendingEdit.sessionId}:edit:${createId()}`
+      );
+      const edit = pendingEdit;
+      setPendingEdit(undefined);
+      await sendTurn(parts, {
+        sessionId: edit.sessionId,
+        baseMessages: sessionChatMessages(truncated)
+      });
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Unable to edit message"
+      );
+    } finally {
+      setIsRewriting(false);
+    }
+  };
+
+  const editMessage = (message: ChatMessage) => {
+    if (!activeSessionId || !message.serverId || isStreaming || isRewriting) {
+      return;
+    }
+    const content = chatMessageText(message);
+    if (!content) return;
+    const messageIndex = messages.findIndex((item) => item.id === message.id);
+    if (messageIndex < 0) return;
+    const precedingMessages = messages.slice(0, messageIndex);
+    const afterMessageId = [...precedingMessages]
+      .reverse()
+      .find((item) => item.serverId)?.serverId ?? null;
+    setPendingEdit({
+      sessionId: activeSessionId,
+      afterMessageId,
+      attachments: message.parts.filter(
+        (part): part is ChatAttachmentPart => part.type === "attachment"
+      )
+    });
+    setInput(content);
+    window.requestAnimationFrame(() => {
+      const composer = composerRef.current;
+      composer?.focus();
+      composer?.setSelectionRange(content.length, content.length);
+    });
+  };
+
+  const retryMessage = async (message: ChatMessage) => {
+    if (!activeSessionId || !message.serverId || isStreaming || isRewriting) {
+      return;
+    }
+    const messageIndex = messages.findIndex((item) => item.id === message.id);
+    if (messageIndex < 0) return;
+
+    setIsRewriting(true);
+    setPendingEdit(undefined);
+    setInput("");
+    setError("");
+    try {
+      const truncated = await props.onTruncateSession(
+        activeSessionId,
+        message.serverId
+      );
+      const retainedMessages = sessionChatMessages(truncated);
+      const retainedUser = retainedMessages.find(
+        (item) => item.serverId === message.serverId
+      );
+      if (!retainedUser || retainedUser.role !== "user") {
+        throw new Error("Unable to locate the retried message");
+      }
+      setScrollerResetKey(`${activeSessionId}:retry:${createId()}`);
+      await sendTurn(retainedUser.parts, {
+        sessionId: activeSessionId,
+        retainedUser,
+        baseMessages: retainedMessages
+      });
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Unable to retry message"
+      );
+    } finally {
+      setIsRewriting(false);
+    }
+  };
+
   const stop = () => {
     abortControllerRef.current?.abort();
+  };
+
+  const cancelEdit = () => {
+    setPendingEdit(undefined);
+    setInput("");
+    window.requestAnimationFrame(() => composerRef.current?.focus());
   };
 
   const useSuggestion = (prompt: string) => {
@@ -337,33 +609,52 @@ export function ChatPage(props: {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative h-full min-h-0 overflow-hidden">
       <MessageScroller
-        resetKey={activeSessionId ?? props.session?.id ?? "new"}
+        resetKey={scrollerResetKey}
         busy={isStreaming}
+        bottomInset={composerHeight}
       >
         {hasMessages ? (
           messages.map((message) => (
-              <MessageScrollerItem
-                key={message.id}
-                messageId={message.id}
-                scrollAnchor={message.role === "user"}
-              >
-                <Message
-                  message={message}
-                  initialFeedback={feedbackForMessage(props.session, message.id)}
-                  onFeedback={
-                    activeSessionId
-                      ? (messageId, sentiment) =>
-                          props.onMessageFeedback(
-                            activeSessionId,
-                            messageId,
-                            sentiment
-                          )
-                      : undefined
-                  }
-                />
-              </MessageScrollerItem>
+            <MessageScrollerItem
+              key={message.id}
+              messageId={message.id}
+              scrollAnchor={message.role === "user"}
+              animateEntrance={message.animateEntrance}
+            >
+              <Message
+                message={message}
+                initialFeedback={feedbackForMessage(
+                  props.session,
+                  message.serverId ?? message.id
+                )}
+                onFeedback={
+                  activeSessionId && message.serverId
+                    ? (messageId, sentiment) =>
+                        props.onMessageFeedback(
+                          activeSessionId,
+                          messageId,
+                          sentiment
+                        )
+                    : undefined
+                }
+                onRetry={
+                  message.role === "user" && activeSessionId && message.serverId
+                    ? () => retryMessage(message)
+                    : undefined
+                }
+                onEdit={
+                  message.role === "user" &&
+                  activeSessionId &&
+                  message.serverId &&
+                  chatMessageText(message)
+                    ? () => editMessage(message)
+                    : undefined
+                }
+                actionsDisabled={isStreaming || isRewriting}
+              />
+            </MessageScrollerItem>
           ))
         ) : (
           <EmptyChatState
@@ -373,95 +664,124 @@ export function ChatPage(props: {
         )}
       </MessageScroller>
 
-      <div className="mx-auto mt-2 w-full max-w-3xl shrink-0">
-        <PromptInput
-          onSubmit={submit}
-          accept="text/*,application/json,application/xml,application/yaml,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.yaml,.yml,.toml,.sql"
-          multiple
-          maxFiles={4}
-          maxFileSize={32 * 1024}
-          onError={(promptError) => setError(promptError.message)}
-          className="w-full"
-        >
-          <PendingAttachments />
-          <PromptInputBody>
-            <PromptInputTextarea
-              ref={composerRef}
-              value={input}
-              onChange={(event) => setInput(event.currentTarget.value)}
-              placeholder={
-                hasMessages ? "Write a message..." : "How can I help you today?"
-              }
-              className="px-4 text-base md:text-base"
-            />
-          </PromptInputBody>
-          <PromptInputFooter>
-            <PromptInputTools className="w-full">
-              <PromptInputActionMenu>
-                <PromptInputActionMenuTrigger tooltip="Add context" />
-                <PromptInputActionMenuContent>
-                  <PromptInputActionAddAttachments label="Add text files" />
-                </PromptInputActionMenuContent>
-              </PromptInputActionMenu>
-
-              <div className="ml-auto min-w-0">
-                {props.providers.length > 0 ? (
-                  <PromptInputSelect
-                    value={activeModelSelection}
-                    onValueChange={(value) =>
-                      setSelectedModelSelection(value ?? "")
-                    }
-                    disabled={isStreaming}
-                  >
-                    <PromptInputSelectTrigger className="max-w-52">
-                      <PromptInputSelectValue placeholder="Select model">
-                        {activeModelLabel}
-                      </PromptInputSelectValue>
-                    </PromptInputSelectTrigger>
-                    <PromptInputSelectContent>
-                      {props.providers.flatMap((provider) =>
-                        provider.models.map((model) => {
-                          const selection = `${provider.id}:${model.id}`;
-                          return (
-                            <PromptInputSelectItem
-                              key={selection}
-                              value={selection}
-                            >
-                              {provider.label} / {model.label}
-                            </PromptInputSelectItem>
-                          );
-                        })
-                      )}
-                    </PromptInputSelectContent>
-                  </PromptInputSelect>
-                ) : props.currentRole === "admin" ? (
-                  <PromptInputButton
-                    tooltip="Configure inference"
-                    onClick={() => navigate("/settings/inference")}
-                  >
-                    <Settings2Icon />
-                    Configure model
-                  </PromptInputButton>
+      <div ref={composerContainerRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[var(--color-bg)] from-70% to-transparent px-1 pt-6">
+        <div className="pointer-events-auto mx-auto w-full max-w-3xl">
+          <PromptInput
+            onSubmit={submit}
+            accept="text/*,application/json,application/xml,application/yaml,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.yaml,.yml,.toml,.sql"
+            multiple
+            maxFiles={4}
+            maxFileSize={32 * 1024}
+            onError={(promptError) => setError(promptError.message)}
+            className="w-full"
+          >
+            {pendingEdit ? (
+              <PromptInputHeader className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>Editing message</span>
+                {pendingEdit.attachments.length > 0 ? (
+                  <span className="min-w-0 truncate">
+                    · retaining {pendingEdit.attachments.map((part) => part.filename).join(", ")}
+                  </span>
                 ) : null}
-              </div>
-            </PromptInputTools>
-            <ChatSubmit
-              input={input}
-              error={error}
-              isStreaming={isStreaming}
-              modelSelection={activeModelSelection}
-              onStop={stop}
-            />
-          </PromptInputFooter>
+                <PromptInputButton
+                  tooltip="Cancel edit"
+                  className="ml-auto"
+                  onClick={cancelEdit}
+                >
+                  <XIcon />
+                </PromptInputButton>
+              </PromptInputHeader>
+            ) : null}
+            <PendingAttachments />
+            <PromptInputBody>
+              <PromptInputTextarea
+                ref={composerRef}
+                value={input}
+                onChange={(event) => {
+                  setInput(event.currentTarget.value);
+                  if (error) setError("");
+                }}
+                placeholder={
+                  hasMessages ? "Write a message..." : "How can I help you today?"
+                }
+                className="min-h-9 px-4 py-1.5 text-base md:text-base"
+              />
+            </PromptInputBody>
+            <PromptInputFooter>
+              <PromptInputTools className="w-full">
+                <PromptInputActionMenu>
+                  <PromptInputActionMenuTrigger tooltip="Add context" />
+                  <PromptInputActionMenuContent>
+                    <PromptInputActionAddAttachments label="Add text files" />
+                  </PromptInputActionMenuContent>
+                </PromptInputActionMenu>
+
+                <div className="ml-auto min-w-0">
+                  {props.providers.length > 0 ? (
+                    <PromptInputSelect
+                      value={activeModelSelection}
+                      onValueChange={(value) => selectModel(value ?? "")}
+                      disabled={isStreaming}
+                    >
+                      <PromptInputSelectTrigger className="max-w-52">
+                        <PromptInputSelectValue placeholder="Select model">
+                          {activeModelLabel}
+                        </PromptInputSelectValue>
+                      </PromptInputSelectTrigger>
+                      <PromptInputSelectContent>
+                        {props.providers.flatMap((provider) =>
+                          provider.models.map((model) => {
+                            const selection = `${provider.id}:${model.id}`;
+                            return (
+                              <PromptInputSelectItem
+                                key={selection}
+                                value={selection}
+                              >
+                                {provider.label} / {model.label}
+                              </PromptInputSelectItem>
+                            );
+                          })
+                        )}
+                      </PromptInputSelectContent>
+                    </PromptInputSelect>
+                  ) : props.currentRole === "admin" ? (
+                    <PromptInputButton
+                      tooltip="Configure inference"
+                      onClick={() => navigate("/settings/inference")}
+                    >
+                      <Settings2Icon />
+                      Configure model
+                    </PromptInputButton>
+                  ) : null}
+                </div>
+              </PromptInputTools>
+              <ChatSubmit
+                input={input}
+                error={error}
+                isStreaming={isStreaming}
+                disabled={isRewriting}
+                modelSelection={activeModelSelection}
+                onStop={stop}
+              />
+            </PromptInputFooter>
+          </PromptInput>
           {error ? (
-            <p className="px-3 pb-2 text-xs text-destructive" role="alert">
+            <p className="mt-2 px-1 text-xs text-destructive" role="alert">
               {error}
             </p>
           ) : null}
-        </PromptInput>
-        <p className="mt-2 text-center text-[0.6875rem] text-[var(--color-muted)]">
-          Lush can make mistakes. Verify important information.
-        </p>
+          {unavailableModelNotice || modelSelectionSaveError ? (
+            <p
+              className="mt-2 px-1 text-xs text-amber-700 dark:text-amber-400"
+              role={modelSelectionSaveError ? "alert" : "status"}
+            >
+              {modelSelectionSaveError || unavailableModelNotice}
+            </p>
+          ) : null}
+          <p className="mt-2 text-center text-[0.6875rem] text-[var(--color-muted)]">
+            Lush can make mistakes. Verify important information.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -484,6 +804,12 @@ function feedbackForMessage(
     }
   }
   return undefined;
+}
+
+function sessionChatMessages(session: Session | undefined) {
+  return (session?.messages ?? [])
+    .map(chatMessageFromSession)
+    .filter((message): message is ChatMessage => Boolean(message));
 }
 
 function PendingAttachments() {
@@ -513,6 +839,7 @@ function ChatSubmit(props: {
   input: string;
   error: string;
   isStreaming: boolean;
+  disabled: boolean;
   modelSelection: string;
   onStop: () => void;
 }) {
@@ -522,6 +849,7 @@ function ChatSubmit(props: {
       status={props.isStreaming ? "streaming" : props.error ? "error" : "ready"}
       onStop={props.onStop}
       disabled={
+        props.disabled ||
         !props.isStreaming &&
         (!props.modelSelection ||
           (!props.input.trim() && attachments.files.length === 0))

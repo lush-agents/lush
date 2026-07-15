@@ -16,6 +16,8 @@ export function chatMessageFromSession(message: SessionMessage): ChatMessage | u
   if (message.role !== "user" && message.role !== "assistant") return undefined;
   return {
     id: message.id,
+    serverId: message.id,
+    createdAt: message.createdAt,
     role: message.role,
     parts: partsFromMetadata(message.metadata, message.content) ?? [{ type: "text", text: message.content }],
     status: "complete"

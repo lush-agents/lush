@@ -25,13 +25,13 @@ export function EmptyChatState(props: {
 
       <div className="grid gap-8 md:grid-cols-2">
         <section>
-          <h2 className="text-sm font-medium text-[var(--color-muted)]">Active tasks</h2>
+          <h2 className="text-sm font-medium text-[var(--color-muted)]">Parallel work</h2>
           <p className="mt-3 max-w-sm text-sm leading-6 text-[var(--color-muted)]">
-            Kick off a few agent tasks at once. They can run in parallel and updates will appear here.
+            Kick off a few agent runs at once. They can run in parallel and updates will appear here.
           </p>
           <button
             type="button"
-            onClick={() => props.onUseSuggestion("Help me plan a work task")}
+            onClick={() => props.onUseSuggestion("Help me plan a work project")}
             className="mt-3 text-sm font-medium text-[var(--color-subtle)] underline decoration-[var(--color-border-strong)] underline-offset-4 hover:text-[var(--color-text)]"
           >
             Try it with Work
