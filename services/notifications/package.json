@@ -2,5 +2,19 @@
   "name": "@lush/notifications",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@lush/config": "workspace:*",
+    "@lush/logging": "workspace:*",
+    "nodemailer": "^7.0.5"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^7.0.1"
+  },
+  "exports": {
+    "./email": "./src/email.ts"
+  }
 }

@@ -22,6 +22,21 @@ export type LoginRequest = {
   organizationId?: string;
 };
 
+export type VerifyEmailRequest = {
+  token: string;
+};
+
+export type RequestPasswordResetRequest = {
+  email: string;
+};
+
+export type ResetPasswordRequest = {
+  token: string;
+  password: string;
+};
+
+export type AuthActionResponse = { ok: true };
+
 export type LogoutRequest = Record<string, never>;
 export type RefreshSessionRequest = Record<string, never>;
 export type LogoutAllSessionsRequest = Record<string, never>;
@@ -426,6 +441,33 @@ export const apiRoutes = [
     "kind": "json"
   },
   {
+    "id": "verifyEmail",
+    "method": "POST",
+    "path": "/v1beta/auth/verify-email",
+    "requestType": "VerifyEmailRequest",
+    "responseType": "AuthActionResponse",
+    "auth": false,
+    "kind": "json"
+  },
+  {
+    "id": "requestPasswordReset",
+    "method": "POST",
+    "path": "/v1beta/auth/password-reset/request",
+    "requestType": "RequestPasswordResetRequest",
+    "responseType": "AuthActionResponse",
+    "auth": false,
+    "kind": "json"
+  },
+  {
+    "id": "resetPassword",
+    "method": "POST",
+    "path": "/v1beta/auth/password-reset",
+    "requestType": "ResetPasswordRequest",
+    "responseType": "AuthActionResponse",
+    "auth": false,
+    "kind": "json"
+  },
+  {
     "id": "refreshSession",
     "method": "POST",
     "path": "/v1beta/auth/refresh",
@@ -787,6 +829,9 @@ export const apiRoutes = [
 
 const REGISTER_ACCOUNT_ROUTE = apiRoutes.find((route) => route.id === "registerAccount")!;
 const LOGIN_ROUTE = apiRoutes.find((route) => route.id === "login")!;
+const VERIFY_EMAIL_ROUTE = apiRoutes.find((route) => route.id === "verifyEmail")!;
+const REQUEST_PASSWORD_RESET_ROUTE = apiRoutes.find((route) => route.id === "requestPasswordReset")!;
+const RESET_PASSWORD_ROUTE = apiRoutes.find((route) => route.id === "resetPassword")!;
 const REFRESH_SESSION_ROUTE = apiRoutes.find((route) => route.id === "refreshSession")!;
 const LOGOUT_ROUTE = apiRoutes.find((route) => route.id === "logout")!;
 const LOGOUT_ALL_SESSIONS_ROUTE = apiRoutes.find((route) => route.id === "logoutAllSessions")!;
@@ -933,6 +978,66 @@ export async function login(
   }
 
   return response.json() as Promise<AccessSession>;
+}
+
+export async function verifyEmail(
+  apiBaseUrl: string,
+  body: VerifyEmailRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, VERIFY_EMAIL_ROUTE.path), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("verifyEmail", response);
+  }
+
+  return response.json() as Promise<AuthActionResponse>;
+}
+
+export async function requestPasswordReset(
+  apiBaseUrl: string,
+  body: RequestPasswordResetRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, REQUEST_PASSWORD_RESET_ROUTE.path), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("requestPasswordReset", response);
+  }
+
+  return response.json() as Promise<AuthActionResponse>;
+}
+
+export async function resetPassword(
+  apiBaseUrl: string,
+  body: ResetPasswordRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, RESET_PASSWORD_ROUTE.path), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("resetPassword", response);
+  }
+
+  return response.json() as Promise<AuthActionResponse>;
 }
 
 export async function refreshSession(

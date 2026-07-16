@@ -151,6 +151,22 @@ const schemas: Record<string, JsonSchema> = {
       "Optional organization to enter when the user belongs to more than one organization."
     )
   }, ["email", "password"], "Email/password login payload."),
+  VerifyEmailRequest: objectSchema({
+    token: describeSchema(stringSchema(), "Single-use email verification token.")
+  }, ["token"], "Completes email verification using the token delivered to the mailbox."),
+  RequestPasswordResetRequest: objectSchema({
+    email: describeSchema(stringSchema("email"), "Account email address.")
+  }, ["email"], "Requests a password-reset email without revealing whether the account exists."),
+  ResetPasswordRequest: objectSchema({
+    token: describeSchema(stringSchema(), "Single-use password-reset token."),
+    password: describeSchema(
+      stringSchema(undefined, 8),
+      "Replacement password. Must be at least 8 characters."
+    )
+  }, ["token", "password"], "Replaces the password and revokes every active session."),
+  AuthActionResponse: objectSchema({
+    ok: { type: "boolean", const: true }
+  }, ["ok"], "Authentication action acknowledgement."),
   LogoutRequest: emptyObjectSchema("Logout request body. Send an empty JSON object."),
   RefreshSessionRequest: emptyObjectSchema("Refresh request body. Send an empty JSON object; the refresh cookie supplies the session."),
   LogoutAllSessionsRequest: emptyObjectSchema("Logout-all request body. Send an empty JSON object."),
@@ -460,6 +476,27 @@ const operationDocs: Record<
       "Authenticates a verified email/password account, sets the refresh-session cookie, and returns a short-lived access JWT plus the active session profile.",
     requestDescription: "Email/password credentials and optional organization selection.",
     successDescription: "Access token and current session profile."
+  },
+  verifyEmail: {
+    summary: "Verify email",
+    description:
+      "Consumes a single-use, expiring email token and marks the associated account verified.",
+    requestDescription: "Verification token delivered to the account email.",
+    successDescription: "Email verification acknowledgement."
+  },
+  requestPasswordReset: {
+    summary: "Request password reset",
+    description:
+      "Delivers a single-use, expiring reset token when a verified password account exists. The response does not disclose account existence.",
+    requestDescription: "Account email address.",
+    successDescription: "Password-reset request acknowledgement."
+  },
+  resetPassword: {
+    summary: "Reset password",
+    description:
+      "Consumes a single-use, expiring reset token, replaces the password, and revokes all sessions for the account.",
+    requestDescription: "Reset token and replacement password.",
+    successDescription: "Password-reset acknowledgement."
   },
   refreshSession: {
     summary: "Refresh access",

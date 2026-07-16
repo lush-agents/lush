@@ -15,6 +15,7 @@ import { CodeProvider } from "../features/code/CodeProvider";
 import { routes } from "../lib/app-data";
 import { AppShell } from "./AppShell";
 import { AuthPage } from "../routes/AuthPage";
+import { AccountRecoveryPage } from "../routes/AccountRecoveryPage";
 import { CreateOrganizationPage } from "../routes/CreateOrganizationPage";
 import { NotFoundPage } from "../routes/NotFoundPage";
 import { RoutePlaceholderPage } from "../routes/RoutePlaceholderPage";
@@ -60,7 +61,10 @@ const router = createBrowserRouter([
         element: <PublicOnlyRoute />,
         children: [
           { path: "sign-in", element: <AuthPage mode="login" /> },
-          { path: "register", element: <AuthPage mode="register" /> }
+          { path: "register", element: <AuthPage mode="register" /> },
+          { path: "verify-email", element: <AccountRecoveryPage mode="verify" /> },
+          { path: "forgot-password", element: <AccountRecoveryPage mode="forgot" /> },
+          { path: "reset-password", element: <AccountRecoveryPage mode="reset" /> }
         ]
       },
       {

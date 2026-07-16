@@ -318,6 +318,69 @@
           "password"
         ]
       },
+      "VerifyEmailRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Completes email verification using the token delivered to the mailbox.",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Single-use email verification token."
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "RequestPasswordResetRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Requests a password-reset email without revealing whether the account exists.",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Account email address."
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "ResetPasswordRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Replaces the password and revokes every active session.",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Single-use password-reset token."
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "description": "Replacement password. Must be at least 8 characters."
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ]
+      },
+      "AuthActionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Authentication action acknowledgement.",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
       "LogoutRequest": {
         "type": "object",
         "additionalProperties": false,

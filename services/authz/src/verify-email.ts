@@ -1,7 +1,7 @@
 import { config as loadEnv } from "dotenv";
 import { getDb } from "@lush/db/client";
 import { createLogger } from "@lush/logging/logger";
-import { AuthError, verifyEmailAddress } from "./runtime";
+import { AuthError, verifyEmailAddressByOperator } from "./runtime";
 
 loadEnv({ path: "../../.env.development", override: false, quiet: true });
 
@@ -17,7 +17,7 @@ if (!email) {
 }
 
 try {
-  const result = await verifyEmailAddress(email);
+  const result = await verifyEmailAddressByOperator(email);
   logger.info({ email: result.email }, "email verified");
 } catch (error) {
   if (error instanceof AuthError) {

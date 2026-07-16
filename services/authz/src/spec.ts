@@ -20,6 +20,21 @@ export type LoginRequest = {
   organizationId?: string;
 };
 
+export type VerifyEmailRequest = {
+  token: string;
+};
+
+export type RequestPasswordResetRequest = {
+  email: string;
+};
+
+export type ResetPasswordRequest = {
+  token: string;
+  password: string;
+};
+
+export type AuthActionResponse = { ok: true };
+
 export type LogoutRequest = Record<string, never>;
 export type RefreshSessionRequest = Record<string, never>;
 export type LogoutAllSessionsRequest = Record<string, never>;
@@ -164,6 +179,33 @@ export const authzRoutes = [
     path: "/auth/login",
     requestType: "LoginRequest",
     responseType: "AccessSession",
+    auth: false,
+    kind: "json"
+  },
+  {
+    id: "verifyEmail",
+    method: "POST",
+    path: "/auth/verify-email",
+    requestType: "VerifyEmailRequest",
+    responseType: "AuthActionResponse",
+    auth: false,
+    kind: "json"
+  },
+  {
+    id: "requestPasswordReset",
+    method: "POST",
+    path: "/auth/password-reset/request",
+    requestType: "RequestPasswordResetRequest",
+    responseType: "AuthActionResponse",
+    auth: false,
+    kind: "json"
+  },
+  {
+    id: "resetPassword",
+    method: "POST",
+    path: "/auth/password-reset",
+    requestType: "ResetPasswordRequest",
+    responseType: "AuthActionResponse",
     auth: false,
     kind: "json"
   },

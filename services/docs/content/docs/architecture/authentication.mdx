@@ -12,12 +12,21 @@ The current implementation supports email/password accounts backed by
 PostgreSQL. Registration creates a user identity and password credential, then
 requires email verification before the account can sign in.
 
-Email verification is required before issuing app sessions. Local development
-uses a database-backed verification command:
+Email verification is required before issuing app sessions. Verification and
+password-reset links contain random, single-use, expiring tokens; only token
+hashes are stored. A successful password reset revokes all sessions for the
+account.
+
+The HTTP verification route accepts only a token. Local operators retain an
+explicit database-backed override command:
 
 ```sh
 bun run auth:verify-email -- user@example.com
 ```
+
+Auth email is delivered through the notifications service's `EmailDelivery`
+interface. SMTP and development log delivery are included; managed deployments
+can inject another provider.
 
 ## Refresh Sessions
 

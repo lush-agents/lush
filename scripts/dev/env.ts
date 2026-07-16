@@ -7,6 +7,10 @@ export const devEnvTemplatePath = ".env.template";
 const privateKeyPlaceholder = "__GENERATED_LUSH_AUTH_JWT_PRIVATE_KEY__";
 const publicKeyPlaceholder = "__GENERATED_LUSH_AUTH_JWT_PUBLIC_KEY__";
 const secretKeyPlaceholder = "__GENERATED_LUSH_SECRET_KEY__";
+const devEmailDefaults = {
+  LUSH_EMAIL_DELIVERY: "log",
+  LUSH_PUBLIC_APP_URL: "http://localhost:5874"
+} as const;
 
 export type DevEnvSecrets = {
   privateKeyPem: string;
@@ -22,20 +26,38 @@ export async function ensureDevEnvFile(options: {
   const templatePath = options.templatePath ?? devEnvTemplatePath;
 
   if (await fileExists(envPath)) {
+    const contents = await Bun.file(envPath).text();
+    const updatedContents = withDevEmailDefaults(contents);
+    if (updatedContents !== contents) {
+      await Bun.write(envPath, updatedContents);
+    }
     return {
       created: false as const,
+      updated: updatedContents !== contents,
       path: envPath
     };
   }
 
   const template = await Bun.file(templatePath).text();
-  const contents = fillDevEnvTemplate(template, await generateDevEnvSecrets());
+  const contents = withDevEmailDefaults(
+    fillDevEnvTemplate(template, await generateDevEnvSecrets())
+  );
   await Bun.write(envPath, contents);
 
   return {
     created: true as const,
+    updated: false,
     path: envPath
   };
+}
+
+function withDevEmailDefaults(contents: string) {
+  const additions = Object.entries(devEmailDefaults)
+    .filter(([name]) => !new RegExp(`^${name}=`, "m").test(contents))
+    .map(([name, value]) => `${name}=${value}`);
+  return additions.length > 0
+    ? `${contents.trimEnd()}\n${additions.join("\n")}\n`
+    : contents;
 }
 
 export function fillDevEnvTemplate(template: string, secrets: DevEnvSecrets) {

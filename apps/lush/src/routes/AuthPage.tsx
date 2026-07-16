@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../App";
 import logoUrl from "../assets/lush-logo.svg?url";
 
@@ -98,6 +98,15 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
             required
           />
         </label>
+
+        {mode === "login" ? (
+          <Link
+            to="/forgot-password"
+            className="text-right text-sm text-[var(--color-muted)] hover:text-[var(--color-text)]"
+          >
+            Forgot password?
+          </Link>
+        ) : null}
 
         {typeof notice === "string" ? (
           <p className="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-muted)]">
