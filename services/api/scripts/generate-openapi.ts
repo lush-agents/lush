@@ -238,7 +238,7 @@ const schemas: Record<string, JsonSchema> = {
     email: describeSchema(stringSchema("email"), "Email address to invite."),
     role: describeSchema(ref("UserRole"), "Role to grant when the invite is accepted."),
     expiresInDays: describeSchema(
-      { type: "integer", minimum: 1, maximum: 90 },
+      { type: "integer", minimum: 1, maximum: 30 },
       "Optional expiration window in days. Defaults to 14."
     )
   }, ["email", "role"], "Creates a pending organization invite."),

@@ -51,7 +51,7 @@ if (!databaseUrl) {
 
       const created = await createOrganizationInvite(
         admin,
-        { email: invitee.email, role: "user" },
+        { email: invitee.email, role: "user", expiresInDays: 365 },
         { db, emailDelivery: delivery, appBaseUrl, now }
       );
       const token = deliveredToken(delivery.messages[0]);
@@ -65,6 +65,12 @@ if (!databaseUrl) {
         to: invitee.email,
         subject: `You're invited to ${organization.name} on Lush`
       });
+      expect(delivery.messages[0]?.text).toContain(
+        "Sign in, or create an account with this email address, then open this link again:"
+      );
+      expect(created.invite.expiresAt).toBe(
+        new Date(now.getTime() + 30 * 86_400_000).toISOString()
+      );
       expect(stored.tokenHash).toBe(await hashSecret(token));
       expect(stored.tokenHash).not.toBe(token);
       expect(stored.status).toBe("pending");

@@ -1458,7 +1458,7 @@ export async function createOrganizationInvite(
     {
       to: result.invite.email,
       subject: `You're invited to ${result.organizationName} on Lush`,
-      text: `Respond to your invitation: ${authLink(appBaseUrl, "/organization-invites/respond", token)}`
+      text: `Sign in, or create an account with this email address, then open this link again: ${authLink(appBaseUrl, "/organization-invites/respond", token)}`
     },
     "organization_invite"
   );
@@ -2167,7 +2167,7 @@ function normalizeCreateOrganizationInviteRequest(
   const expiresInDays =
     typeof candidate.expiresInDays === "number" &&
     Number.isFinite(candidate.expiresInDays)
-      ? Math.max(1, Math.min(Math.floor(candidate.expiresInDays), 90))
+      ? Math.max(1, Math.min(Math.floor(candidate.expiresInDays), 30))
       : 14;
 
   if (!email) {
