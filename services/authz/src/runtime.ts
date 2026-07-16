@@ -630,11 +630,9 @@ export async function login(
     body.password,
     user?.passwordHash ?? dummyPasswordHash
   );
-  if (!user || !passwordMatches) {
+  if (!user || !passwordMatches || !user.emailVerified) {
     throw new AuthError("invalid_credentials", "Invalid email or password", 401);
   }
-
-  assertEmailVerifiedForAccess(user.emailVerified);
 
   const membershipQuery = db
     .selectFrom("organizationMemberships")
