@@ -82,6 +82,20 @@ export function isTrustedProxyAddress(
   return parsed ? isTrusted(parsed, trustedProxies) : false;
 }
 
+export function rateLimitNetworkKey(address: string | null | undefined) {
+  const parsed = parseIp(address ?? "");
+  if (!parsed) {
+    return "unknown";
+  }
+  if (parsed.family === 4) {
+    return `ipv4:${parsed.canonical}`;
+  }
+
+  const networkBytes = parsed.bytes.slice();
+  networkBytes.fill(0, 8);
+  return `ipv6:${canonicalIpv6(networkBytes)}/64`;
+}
+
 function isTrusted(address: ParsedIp, trustedProxies: TrustedProxySet) {
   return trustedProxies.some((proxy) => {
     if (proxy.address.family !== address.family) {
@@ -137,11 +151,15 @@ function parseIp(rawValue: string): ParsedIp | undefined {
     };
   }
 
+  return { family, bytes, canonical: canonicalIpv6(bytes) };
+}
+
+function canonicalIpv6(bytes: Uint8Array) {
   const groups = [];
   for (let index = 0; index < bytes.length; index += 2) {
     groups.push(((bytes[index]! << 8) | bytes[index + 1]!).toString(16));
   }
-  return { family, bytes, canonical: groups.join(":") };
+  return groups.join(":");
 }
 
 function stripAddressPort(value: string) {

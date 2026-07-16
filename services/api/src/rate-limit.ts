@@ -72,24 +72,25 @@ export class SlidingWindowRateLimiter {
 export const authRateLimitPolicies = {
   registerIp: { limit: 5, windowMs: 60 * 60_000 },
   registerEmail: { limit: 3, windowMs: 60 * 60_000 },
-  loginIp: { limit: 20, windowMs: 15 * 60_000 },
-  loginEmail: { limit: 5, windowMs: 15 * 60_000 },
-  refreshIp: { limit: 120, windowMs: 5 * 60_000 },
-  passwordResetIp: { limit: 5, windowMs: 60 * 60_000 },
+  loginIp: { limit: 300, windowMs: 15 * 60_000 },
+  loginEmailIp: { limit: 5, windowMs: 15 * 60_000 },
+  loginEmail: { limit: 40, windowMs: 15 * 60_000 },
+  refreshIp: { limit: 2_000, windowMs: 5 * 60_000 },
+  refreshSession: { limit: 20, windowMs: 5 * 60_000 },
+  passwordResetIp: { limit: 60, windowMs: 60 * 60_000 },
   passwordResetEmail: { limit: 3, windowMs: 60 * 60_000 }
 } as const;
 
-export function normalizeRateLimitEmail(body: unknown) {
-  if (!body || typeof body !== "object") {
-    return "invalid";
-  }
-  const value = (body as { email?: unknown }).email;
-  if (typeof value !== "string") {
-    return "invalid";
-  }
+export function compoundRateLimitKey(...parts: string[]) {
+  return JSON.stringify(parts);
+}
 
-  const email = value.trim().toLowerCase();
-  return email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-    ? email
-    : "invalid";
+export async function hashRateLimitKey(value: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value)
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }

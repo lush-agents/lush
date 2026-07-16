@@ -46,6 +46,8 @@ import {
   updateCurrentUser,
   verifyEmailAddress
 } from "@lush/authz/runtime";
+import { normalizeAuthEmail } from "@lush/authz/email";
+import { refreshTokenFamilySecret } from "@lush/authz/refresh-token";
 import {
   assertEmailDeliveryConfigured,
   configuredEmailDelivery
@@ -100,11 +102,13 @@ import {
 import {
   isTrustedProxyAddress,
   parseTrustedProxies,
+  rateLimitNetworkKey,
   resolveClientIp
 } from "./client-ip";
 import {
   authRateLimitPolicies,
-  normalizeRateLimitEmail,
+  compoundRateLimitKey,
+  hashRateLimitKey,
   SlidingWindowRateLimiter
 } from "./rate-limit";
 
@@ -158,12 +162,15 @@ const allowedOrigins = Array.from(
   new Set([...apiConfig.appOrigins, ...desktopAppOrigins])
 );
 const remoteAddresses = new WeakMap<Request, string>();
+// Separate maps keep source-key churn from evicting target-email state.
 const authRateLimiters = {
   registerIp: rateLimiter("registerIp"),
   registerEmail: rateLimiter("registerEmail"),
   loginIp: rateLimiter("loginIp"),
+  loginEmailIp: rateLimiter("loginEmailIp"),
   loginEmail: rateLimiter("loginEmail"),
   refreshIp: rateLimiter("refreshIp"),
+  refreshSession: rateLimiter("refreshSession"),
   passwordResetIp: rateLimiter("passwordResetIp"),
   passwordResetEmail: rateLimiter("passwordResetEmail")
 };
@@ -251,7 +258,7 @@ app.post(routePath("registerAccount"), async (c) => {
     const ipLimited = enforceRateLimit(
       c,
       authRateLimiters.registerIp,
-      clientIpAddress(c.req.raw) ?? "unknown"
+      requestNetworkKey(c.req.raw)
     );
     if (ipLimited) {
       return ipLimited;
@@ -261,7 +268,7 @@ app.post(routePath("registerAccount"), async (c) => {
     const emailLimited = enforceRateLimit(
       c,
       authRateLimiters.registerEmail,
-      normalizeRateLimitEmail(body)
+      requestEmailKey(body)
     );
     if (emailLimited) {
       return emailLimited;
@@ -292,7 +299,7 @@ app.post(routePath("requestPasswordReset"), async (c) => {
     const ipLimited = enforceRateLimit(
       c,
       authRateLimiters.passwordResetIp,
-      clientIpAddress(c.req.raw) ?? "unknown"
+      requestNetworkKey(c.req.raw)
     );
     if (ipLimited) {
       return ipLimited;
@@ -302,7 +309,7 @@ app.post(routePath("requestPasswordReset"), async (c) => {
     const emailLimited = enforceRateLimit(
       c,
       authRateLimiters.passwordResetEmail,
-      normalizeRateLimitEmail(body)
+      requestEmailKey(body)
     );
     if (emailLimited) {
       return emailLimited;
@@ -330,17 +337,32 @@ app.post(routePath("resetPassword"), async (c) => {
 
 app.post(routePath("login"), async (c) => {
   try {
+    // This broad source tier intentionally counts successes as bulk-abuse
+    // protection; successful logins clear the tighter target-specific tiers.
     const ipLimited = enforceRateLimit(
       c,
       authRateLimiters.loginIp,
-      clientIpAddress(c.req.raw) ?? "unknown"
+      requestNetworkKey(c.req.raw)
     );
     if (ipLimited) {
       return ipLimited;
     }
 
     const body = await c.req.json().catch(() => undefined);
-    const emailKey = normalizeRateLimitEmail(body);
+    const emailKey = requestEmailKey(body);
+    const emailIpKey = compoundRateLimitKey(
+      emailKey,
+      requestNetworkKey(c.req.raw)
+    );
+    const emailIpLimited = enforceRateLimit(
+      c,
+      authRateLimiters.loginEmailIp,
+      emailIpKey
+    );
+    if (emailIpLimited) {
+      return emailIpLimited;
+    }
+
     const emailLimited = enforceRateLimit(
       c,
       authRateLimiters.loginEmail,
@@ -351,6 +373,7 @@ app.post(routePath("login"), async (c) => {
     }
 
     const session = await login(body, requestMeta(c.req.raw));
+    authRateLimiters.loginEmailIp.clear(emailIpKey);
     authRateLimiters.loginEmail.clear(emailKey);
     const { refreshToken, ...response } = session;
     setSessionCookie(c, refreshToken, response.session.expiresAt, c.req.raw);
@@ -365,7 +388,7 @@ app.post(routePath("refreshSession"), async (c) => {
     const ipLimited = enforceRateLimit(
       c,
       authRateLimiters.refreshIp,
-      clientIpAddress(c.req.raw) ?? "unknown"
+      requestNetworkKey(c.req.raw)
     );
     if (ipLimited) {
       return ipLimited;
@@ -374,6 +397,15 @@ app.post(routePath("refreshSession"), async (c) => {
     const refreshToken = sessionCookie(c.req.raw);
     if (!refreshToken) {
       return unauthorized(c);
+    }
+
+    const sessionLimited = enforceRateLimit(
+      c,
+      authRateLimiters.refreshSession,
+      await hashRateLimitKey(refreshTokenFamilySecret(refreshToken))
+    );
+    if (sessionLimited) {
+      return sessionLimited;
     }
 
     const session = await refreshAccessSession(
@@ -1430,12 +1462,33 @@ function requestMeta(request: Request) {
 }
 
 function clientIpAddress(request: Request) {
-  return resolveClientIp({
+  const address = resolveClientIp({
     remoteAddress: remoteAddresses.get(request),
     forwardedFor: request.headers.get("x-forwarded-for"),
     realIp: request.headers.get("x-real-ip"),
     trustedProxies: apiConfig.trustedProxies
   });
+  if (!address && !missingRemoteAddressWarned) {
+    missingRemoteAddressWarned = true;
+    logger.warn(
+      "request peer address unavailable; auth rate limits share the unknown-source bucket"
+    );
+  }
+  return address;
+}
+
+let missingRemoteAddressWarned = false;
+
+function requestNetworkKey(request: Request) {
+  return rateLimitNetworkKey(clientIpAddress(request));
+}
+
+function requestEmailKey(body: unknown) {
+  if (!body || typeof body !== "object") {
+    return "invalid";
+  }
+
+  return normalizeAuthEmail((body as { email?: unknown }).email) || "invalid";
 }
 
 function rateLimiter(policy: keyof typeof authRateLimitPolicies) {

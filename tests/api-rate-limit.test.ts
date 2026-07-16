@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  normalizeRateLimitEmail,
+  compoundRateLimitKey,
+  hashRateLimitKey,
   SlidingWindowRateLimiter
 } from "../services/api/src/rate-limit";
+import { normalizeAuthEmail } from "../services/authz/src/email";
 
 describe("API sliding-window rate limiter", () => {
   test("rejects attempts over the limit and reports when to retry", () => {
@@ -27,10 +29,20 @@ describe("API sliding-window rate limiter", () => {
     expect(limiter.consume("first", 1_002).allowed).toBe(true);
   });
 
-  test("normalizes email keys independently of source IP", () => {
-    expect(normalizeRateLimitEmail({ email: " User@Example.com " }))
-      .toBe("user@example.com");
-    expect(normalizeRateLimitEmail({ email: "not-an-email" })).toBe("invalid");
-    expect(normalizeRateLimitEmail(undefined)).toBe("invalid");
+  test("builds unambiguous compound keys", () => {
+    expect(compoundRateLimitKey("a:b", "c"))
+      .not.toBe(compoundRateLimitKey("a", "b:c"));
+  });
+
+  test("uses the auth service's canonical email normalization", () => {
+    expect(normalizeAuthEmail(" User@Example.com ")).toBe("user@example.com");
+    expect(normalizeAuthEmail("not-an-email")).toBe("");
+  });
+
+  test("hashes sensitive rate-limit keys deterministically", async () => {
+    expect(await hashRateLimitKey("family-secret"))
+      .toBe(await hashRateLimitKey("family-secret"));
+    expect(await hashRateLimitKey("family-secret"))
+      .not.toBe(await hashRateLimitKey("other-family"));
   });
 });

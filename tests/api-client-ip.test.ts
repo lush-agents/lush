@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   parseTrustedProxies,
+  rateLimitNetworkKey,
   resolveClientIp
 } from "../services/api/src/client-ip";
 
@@ -62,5 +63,14 @@ describe("API client IP resolution", () => {
   test("rejects invalid trusted proxy entries", () => {
     expect(() => parseTrustedProxies(["10.0.0.0/99"])).toThrow();
     expect(() => parseTrustedProxies(["proxy.internal"])).toThrow();
+  });
+
+  test("groups IPv6 rate-limit keys by /64 without grouping IPv4 addresses", () => {
+    expect(rateLimitNetworkKey("2001:db8:abcd:1234::1"))
+      .toBe(rateLimitNetworkKey("2001:db8:abcd:1234:ffff::2"));
+    expect(rateLimitNetworkKey("2001:db8:abcd:1234::1"))
+      .not.toBe(rateLimitNetworkKey("2001:db8:abcd:1235::1"));
+    expect(rateLimitNetworkKey("203.0.113.10"))
+      .not.toBe(rateLimitNetworkKey("203.0.113.11"));
   });
 });

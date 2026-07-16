@@ -52,17 +52,31 @@ use credentialed auth. Wildcard origins are rejected.
 The API enforces in-process sliding-window limits before password hashing,
 session refresh, or email delivery:
 
-| Endpoint | Source-IP limit | Target-email limit |
+| Endpoint | Source-network limit | Target-specific limit |
 | --- | ---: | ---: |
-| Register | 5/hour | 3/hour |
-| Login | 20/15 minutes | 5/15 minutes |
-| Refresh | 120/5 minutes | - |
-| Request password reset | 5/hour | 3/hour |
+| Register | 5/hour | 3/email/hour |
+| Login | 300/15 minutes | 5/(email + network)/15 minutes; 40/email/15 minutes |
+| Refresh | 2,000/5 minutes | 20/session/5 minutes |
+| Request password reset | 60/hour | 3/email/hour |
 
-A successful login clears that email address's login-attempt window. Rejected
-requests return `429` with a `Retry-After` header. Limits apply independently
-in each API process, so multi-replica deployments should also enforce a
-shared limit at the edge.
+A successful login clears both target-specific login windows; the broader
+source-network tier intentionally counts successful requests as bulk-abuse
+protection. Refresh limits use a hash of the stable refresh-token family so
+token rotation does not reset the session window. IPv4 sources are keyed by
+address and IPv6 sources by `/64`, preventing privacy-address rotation from
+bypassing limits or churning limiter state. Rejected requests return `429`
+with a `Retry-After` header.
+
+Registration and password-reset target limits deliberately prioritize
+email-bombing protection: an attacker can suppress those emails to one address
+for the remainder of the window. Login uses a tight `(email, network)` tier
+and a much looser email-wide backstop to make targeted login lockout materially
+more expensive while still bounding distributed guessing.
+
+Limits apply independently in each API process, so multi-replica deployments
+should also enforce a shared limit at the edge. If the runtime cannot determine
+the socket peer, the request uses a shared `unknown` source bucket and the API
+logs a warning once so the deployment problem is visible to operators.
 
 With no reverse proxy, leave `LUSH_TRUSTED_PROXIES` empty. The API ignores
 `X-Forwarded-For`, `X-Real-IP`, and `X-Forwarded-Proto` from direct clients and
