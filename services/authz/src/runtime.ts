@@ -734,7 +734,9 @@ export async function rotateRefreshSession(
   const tokenHash = await hashSecret(refreshToken);
   const familySecret = refreshTokenFamilySecret(refreshToken);
   const familyHash = await hashSecret(familySecret);
-  const retainedIp = await retainedSessionIp(meta.ipAddress);
+  const retainedIp = await retainedSessionIp(meta.ipAddress, {
+    hmacKey: signingSecret
+  });
 
   const result = await db.transaction().execute(async (trx) => {
     const row = await trx

@@ -1,213 +1,606 @@
 ---
 title: Self Hosting
-description: Deployment requirements for a managed or self-hosted Lush install.
+description: Deploy, secure, operate, and extend a production Lush installation.
 ---
 
-Configure state, origins, and auth keys explicitly for self-hosted deployments.
-Runtime configuration is schema-validated at boot. Missing required values or
-invalid numbers, booleans, and origin lists stop the service with a clear config
-error before it begins accepting requests.
+Lush publishes the same API and web images for managed and self-hosted
+deployments. A managed-service repository may own infrastructure, secrets, and
+rollout policy, but it should not require a different application build.
 
-## Required state
+The reference deployment in `deploy/self-host` is a single-host Docker Compose
+application stack with PostgreSQL, a one-shot migration job, and the Lush API
+and web images. It deliberately does not provide a public ingress. A self-hosted
+operator owns TLS termination, reverse proxying, public DNS, and edge policy.
+The reference stack binds its application ports to host loopback for that edge
+to consume.
 
-- PostgreSQL for users, organizations, memberships, sessions, audit events, and
-  provider configuration.
-- Service-owned tables in the shared database by default.
-- Optional separate database URLs later if a service needs independent scaling.
+An optional Caddy overlay is provided only for local deployment rehearsal. It
+is not the recommended production ingress configuration.
 
-## Required auth configuration
+## Current support boundary
 
-- `DATABASE_URL`
-- `LUSH_SECRET_KEY`
-- `LUSH_APP_ORIGIN`
-- `LUSH_AUTH_JWT_KEY_ID`
-- `LUSH_AUTH_JWT_PRIVATE_KEY`
-- `LUSH_AUTH_JWT_PUBLIC_KEYS`
+| Capability | Status |
+| --- | --- |
+| PostgreSQL-backed application state | Supported |
+| Password registration, verification, login, and reset | Supported |
+| SMTP email delivery | Supported |
+| Same-origin web/API deployment | Supported and recommended |
+| Separate web and API origins | Supported when they remain same-site |
+| TLS termination and public reverse proxy | Operator responsibility |
+| OAuth, OIDC, SAML, or other external auth | Adapter types and schema exist; login orchestration is not wired yet |
+| Multi-replica auth rate limiting | Requires a shared edge limiter |
+| Email retry queue | Not implemented |
+| Automated database backup or restore | Operator responsibility |
 
-Generate an RS256 keypair and dotenv-ready configuration from the repository
-root:
+You cannot enable an external identity provider in the stock image using
+environment variables today. The extension boundary is documented below so an
+implementation does not create a second user or session model.
 
-```sh
-bun run auth:keygen
+## Production topology
+
+A production deployment places an operator-managed edge in front of both Lush
+services:
+
+```text
+                         /-> lush-web :8080
+browser -> edge/TLS :443
+                         \-> lush-api :7330 -> PostgreSQL
+                                             \-> SMTP provider
 ```
 
-New keys default to RSA-3072. Use
-`bun run auth:keygen -- --kid <key-id> --bits 3072` to assign an
-operator-controlled key ID or modulus size; `--bits` accepts `2048`, `3072`, or
-`4096`. Key IDs must be unique and use only letters, numbers, `.`, `_`, and
-`-`. The command writes the private key to stdout; redirect it only to a secret
-store or another appropriately protected destination.
+The edge sends `/v1beta`, `/v1beta/*`, and `/health` to the API and all other
+paths to the web service. This keeps browser traffic on one public origin while
+allowing the edge to own certificates, forwarding headers, limits, access
+logging, and network policy. PostgreSQL is never publicly exposed.
 
-`LUSH_AUTH_JWT_KEY_ID` selects the private signing key.
-`LUSH_AUTH_JWT_PUBLIC_KEYS` is a JSON object mapping every accepted key ID to
-its PEM public key. The signing key ID must be present in that map. Access JWTs
-carry the selected ID in their `kid` header, and verification remains pinned to
-`alg: RS256`.
+## Prerequisites
 
-For a zero-downtime rotation:
+- A Linux host with Docker Engine and Docker Compose v2.
+- A public DNS name whose `A` and/or `AAAA` record points to the host.
+- An existing ingress, load balancer, or reverse proxy that terminates TLS and
+  can reach the Lush web and API services.
+- An SMTP account and a verified sender domain when password auth is enabled.
+- Enough persistent storage for PostgreSQL and database backups.
 
-1. Generate the replacement keypair. Add its public key to
-   `LUSH_AUTH_JWT_PUBLIC_KEYS` on every verifier while leaving the old
-   `LUSH_AUTH_JWT_KEY_ID` and private key active, then deploy.
-2. Switch `LUSH_AUTH_JWT_KEY_ID` and `LUSH_AUTH_JWT_PRIVATE_KEY` to the new
-   signer while retaining both public keys, then deploy again.
-3. After the maximum `LUSH_ACCESS_TOKEN_TTL_MS` plus the deployment overlap has
-   elapsed, remove the old public key from the map.
+Release images support `linux/amd64` and `linux/arm64`. Pin one exact Lush
+version for both application images. Production operators should also pin the
+PostgreSQL image to a version or digest under their own update policy.
 
-Never remove the old public key before all old-signer instances have stopped
-and their access tokens have expired. The legacy `LUSH_AUTH_JWT_PUBLIC_KEY`
-variable remains accepted only as an upgrade bridge for single-key installs;
-it cannot provide rotation and new deployments should use the keyed set.
-When first moving a pre-`kid` deployment to the keyed set, keep the old key as
-the selected signer through step 1 for at least the maximum access-token TTL so
-tokens without a key ID expire before step 2.
+## Start the reference deployment
 
-`LUSH_SECRET_KEY` encrypts stored provider credentials and is also HMAC key
-material for deterministic refresh-token successors. Rotating it prevents the
-immediately previous refresh token from using its grace replay, but current
-refresh tokens remain valid.
+From a checkout of the repository:
 
-## Optional runtime configuration
+```sh
+cp deploy/self-host/.env.example deploy/self-host/.env
+chmod 600 deploy/self-host/.env
+```
 
-- `LUSH_API_HOST`, default `0.0.0.0`
-- `LUSH_API_PORT`, default `7330`
-- `LUSH_AGENT_PORT`, default `7331`
-- `LUSH_DB_POOL_SIZE`, default `10`
-- `LUSH_SESSION_TTL_MS`, default `2592000000`
-- `LUSH_REFRESH_TOKEN_GRACE_MS`, default `60000`
-- `LUSH_ACCESS_TOKEN_TTL_MS`, default `300000`
-- `LUSH_AUTH_JWT_ISSUER`, default `lush-authz`
-- `LUSH_AUTH_JWT_AUDIENCE`, default `lush-api`
-- `LUSH_AUTH_PUBLIC_SIGNUP`, default `true`
-- `LUSH_SESSION_IP_MODE`, default `hmac`
-- `LUSH_TRUSTED_PROXIES`, default empty
-- `LUSH_REQUIRE_HTTPS`, default `true`
+Edit `.env` and set the exact release version, PostgreSQL credentials, public
+URLs, and SMTP configuration. The bundled `LUSH_EDGE_SUBNET` and
+`LUSH_TRUSTED_PROXIES` defaults work together; change both if that subnet
+conflicts with the host or does not match the actual ingress topology. The
+password embedded in `DATABASE_URL` must be URL-encoded if it contains reserved
+URL characters. Keep the database hostname as `postgres` when using the bundled
+database.
 
-`LUSH_APP_ORIGIN` is a comma-separated list of browser app origins allowed to
-use credentialed auth. Wildcard origins are rejected.
+Generate a URL-safe PostgreSQL password if needed:
+
+```sh
+openssl rand -hex 32
+```
+
+Generate `LUSH_SECRET_KEY`:
+
+```sh
+openssl rand -hex 32
+```
+
+Generate the JWT signing key with the exact API image being deployed:
+
+```sh
+docker run --rm \
+  ghcr.io/lush-agents/lush-api:<version> \
+  bun run auth:keygen
+```
+
+Copy all three dotenv-ready lines into `.env`, replacing the corresponding
+placeholders. The private key is written to stdout; keep terminal capture and
+shell history under the same controls as other production secrets. The output
+uses quoted dotenv values with escaped newlines. Docker Compose parses this
+format; do not assume another runtime's `--env-file` parser has equivalent
+quoting semantics.
+
+Configure the production reverse proxy as described in
+[TLS termination and reverse proxy](#tls-termination-and-reverse-proxy) and
+SMTP as described in [Email delivery](#email-delivery), then start the
+application stack:
+
+```sh
+docker compose \
+  --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  pull
+
+docker compose \
+  --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  up -d
+```
+
+The migration container must finish successfully before the API starts. The
+web service starts only after the API health check passes. Inspect the result:
+
+```sh
+docker compose \
+  --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  ps
+
+curl --fail https://lush.example.com/healthz
+curl --fail https://lush.example.com/health
+```
+
+`/healthz` checks the web process. `/health` checks the API through the public
+edge. Neither endpoint currently proves database or SMTP reachability, so
+complete a registration and email-verification flow before opening the
+deployment to users.
+
+The `.env` file is ignored by this repository. Do not commit it, copy it into
+an image, or include it in support bundles.
+
+## Required configuration
+
+The API validates configuration before binding its port. Invalid origins,
+booleans, key sets, proxy ranges, and required values fail startup.
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string. |
+| `LUSH_SECRET_KEY` | HMAC key material and the root secret for encrypted inference-provider credentials. |
+| `LUSH_APP_ORIGIN` | Comma-separated browser origins allowed to make credentialed API requests. Wildcards are rejected. |
+| `LUSH_AUTH_JWT_KEY_ID` | Active RS256 signing-key ID. |
+| `LUSH_AUTH_JWT_PRIVATE_KEY` | Active RS256 private signing key. |
+| `LUSH_AUTH_JWT_PUBLIC_KEYS` | JSON object mapping every accepted key ID to its PEM public key. |
+| `LUSH_PUBLIC_APP_URL` | Browser origin used to build verification, reset, and invite links. Required with password auth. |
+
+Important optional values:
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `LUSH_DB_POOL_SIZE` | `10` | Per API process. Size the database for total replica count. |
+| `LUSH_AUTH_PASSWORD_ENABLED` | `true` | Disable only after another login path is fully implemented. |
+| `LUSH_AUTH_SIGNUP_ENABLED` | `true` | Controls new password registrations. |
+| `LUSH_AUTH_PUBLIC_SIGNUP` | `true` | Hides whether an address already has an account. |
+| `LUSH_SESSION_TTL_MS` | 30 days | Refresh-session lifetime. |
+| `LUSH_ACCESS_TOKEN_TTL_MS` | 5 minutes | Access JWT lifetime. |
+| `LUSH_REFRESH_TOKEN_GRACE_MS` | 60 seconds | Convergence window for concurrent refresh rotation. |
+| `LUSH_SESSION_IP_MODE` | `hmac` | `off`, `hmac`, or `plain`; see [Session IP retention](#session-ip-retention). |
+| `LUSH_TRUSTED_PROXIES` | empty | Exact IPs or CIDRs allowed to supply forwarding headers. |
+| `LUSH_REQUIRE_HTTPS` | `true` | Secure-cookie and HTTPS enforcement. |
+
+See `.env.template` for the complete runtime template.
+
+## PostgreSQL and migrations
+
+The default model is one PostgreSQL database with service-owned tables. The
+reference stack persists it in the `postgres-data` volume. For an external or
+managed PostgreSQL service:
+
+1. Set `DATABASE_URL` to the external connection string, including the
+   provider's TLS requirements.
+2. Remove the `postgres` service and its dependency from your Compose or
+   orchestrator definition.
+3. Run the migration command from the API image as a distinct release job.
+
+```sh
+docker run --rm \
+  --env DATABASE_URL \
+  ghcr.io/lush-agents/lush-api:<version> \
+  bun run db:migrate
+```
+
+Do not run migrations implicitly in every API replica. Migrations are
+forward-only and intended to complete before the matching application version
+starts. Take a tested database backup before each upgrade. A code rollback does
+not roll back schema changes.
+
+## TLS termination and reverse proxy
+
+The reference Compose file binds the web service to `127.0.0.1:8080` and the
+API to `127.0.0.1:7330`. It does not expose either service publicly or manage a
+certificate. Put the deployment behind the ingress already used by the
+self-hosted environment.
+
+For the recommended same-origin deployment, configure the edge routing table
+exactly as follows:
+
+| Public path | Upstream |
+| --- | --- |
+| `/v1beta` and `/v1beta/*` | Lush API on port `7330` |
+| `/health` | Lush API on port `7330` |
+| Every other path, including `/healthz` | Lush web on port `8080` |
+
+The edge must:
+
+- terminate TLS and redirect plaintext HTTP to HTTPS;
+- preserve the original `Host` header;
+- replace client-supplied forwarding headers at the public boundary;
+- send the effective client chain in `X-Forwarded-For` and the external scheme
+  in `X-Forwarded-Proto`;
+- disable response buffering and caching for `/v1beta/*`, including streaming
+  responses and the authenticated event stream;
+- allow long-lived streaming requests under an explicit timeout policy; and
+- keep ports `7330`, `8080`, and PostgreSQL unreachable from the public
+  internet.
+
+The reference stack separates PostgreSQL onto a `data` network and puts only the
+API, web service, host bridge, and an optional ingress container on a fixed
+`edge` network. Its defaults are:
+
+```dotenv
+LUSH_DATA_SUBNET=172.31.250.0/24
+LUSH_EDGE_SUBNET=172.31.251.0/24
+LUSH_TRUSTED_PROXIES=172.31.251.0/24
+```
+
+The trusted range must match the source IPs from which the API actually receives
+edge traffic. This is the socket peer as observed by the API, not necessarily
+the edge's public address. A host reverse proxy reaching the API through the
+loopback-published port normally appears as the edge-network bridge gateway. A
+containerized ingress should attach only to the `edge` network.
+
+When the ingress follows the production routing table, API traffic flows
+directly from ingress to API. If a topology instead sends `/v1beta/*` through
+the web image's internal Nginx proxy, the web container is an additional
+trusted hop. The bundled edge CIDR includes both cases. If either fixed subnet
+conflicts with the host, change the corresponding subnet; when changing
+`LUSH_EDGE_SUBNET`, change `LUSH_TRUSTED_PROXIES` with it. Trust only the
+required edge network and never use `0.0.0.0/0`.
+
+Leave the web container's `LUSH_API_URL` empty in same-origin mode. The browser
+then calls its page origin, and the operator-managed edge routes API paths. The
+web image retains an internal API proxy as a fallback for local and simple
+topologies, but production ingress should implement the explicit routing table
+above.
+
+For separate origins, set `LUSH_API_URL` on the web container to the public API
+origin, expose the API through a trusted HTTPS ingress, and set
+`LUSH_APP_ORIGIN` to the web origin. `LUSH_PUBLIC_APP_URL` remains the web
+origin. For example:
+
+```dotenv
+# web container
+LUSH_API_URL=https://api.example.com
+
+# API container
+LUSH_APP_ORIGIN=https://app.example.com
+LUSH_PUBLIC_APP_URL=https://app.example.com
+```
+
+The session cookie is host-only and `SameSite=Lax`. Keep separate web and API
+origins under the same registrable domain, such as `app.example.com` and
+`api.example.com`; an entirely cross-site API deployment will not receive the
+refresh cookie. The API client already sends credentialed requests.
+
+The Tauri app is a separate build artifact and still requires
+`VITE_LUSH_API_BASE_URL` at build time.
+
+## Local deployment rehearsal with Caddy
+
+Caddy is provided as the recommended local-only way to exercise the container
+images, HTTPS behavior, forwarding headers, and same-origin routing on a
+workstation. It is not part of the production self-hosting stack.
+
+Use the local overlay with a copy of `.env` containing generated database and
+JWT secrets. The overlay changes the public origin to `https://localhost`, uses
+log email delivery, and attaches Caddy to the fixed trusted edge network:
+
+```sh
+docker compose \
+  --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  -f deploy/self-host/compose.local.yml \
+  up -d
+```
+
+The local Caddy configuration uses its internal CA. Copy its root certificate
+for command-line checks:
+
+```sh
+docker compose \
+  --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  -f deploy/self-host/compose.local.yml \
+  cp caddy:/data/caddy/pki/authorities/local/root.crt /tmp/lush-local-root.crt
+
+curl --cacert /tmp/lush-local-root.crt https://localhost/healthz
+curl --cacert /tmp/lush-local-root.crt https://localhost/health
+```
+
+Install that root certificate into a browser trust store only on a development
+machine and remove it when no longer needed. Verification and reset links are
+written to API logs because the overlay sets `LUSH_EMAIL_DELIVERY=log`.
+
+## Email delivery
+
+Password auth requires working email because access is blocked until the
+address is verified. Startup fails closed if password auth is enabled and
+`LUSH_EMAIL_DELIVERY` is `none` or invalid.
+
+### Use an SMTP provider
+
+Any transactional-email provider that exposes SMTP can be used without a code
+change:
+
+```dotenv
+LUSH_EMAIL_DELIVERY=smtp
+LUSH_EMAIL_FROM="Lush <noreply@example.com>"
+LUSH_SMTP_URL=smtps://user:password@smtp.example.com:465
+LUSH_PUBLIC_APP_URL=https://lush.example.com
+```
+
+Use the hostname, port, and TLS mode specified by the provider. Use `smtp://`
+for providers that negotiate STARTTLS and `smtps://` for implicit TLS. Percent-
+encode the username and password before embedding them in the URL.
+
+At the provider, verify the sending domain and configure SPF, DKIM, and DMARC.
+Keep the visible sender aligned with that domain. Lush does not manage DNS or
+provider suppression lists.
+
+Before enabling public signup:
+
+1. Register a new address through the app.
+2. Confirm delivery and that the link points to `LUSH_PUBLIC_APP_URL`.
+3. Open the link and submit the verification form.
+4. Request a password reset and confirm that flow separately.
+5. Review provider events for rejection, bounce, and complaint handling.
+
+Verification and reset tokens are random, single-use, expiring, and stored only
+as hashes. Their default lifetimes are controlled by
+`LUSH_EMAIL_VERIFICATION_TTL_MS` (24 hours) and
+`LUSH_PASSWORD_RESET_TTL_MS` (one hour). Verification requires a form
+submission after opening the link so an email security scanner cannot consume
+the token with a GET request. A successful password reset revokes all sessions.
+
+Registration and invitation delivery is synchronous: delivery errors are
+logged and the API returns `503`. Password-reset delivery runs after the
+enumeration-resistant success response, so a provider failure appears only in
+API logs. There is no durable email retry queue yet; alert on
+`authentication email delivery failed`.
+
+`LUSH_EMAIL_DELIVERY=log` writes complete messages and bearer links to service
+logs. Use it only for local development. The operator override below exists for
+recovery, not as a production registration process:
+
+```sh
+bun run auth:verify-email -- user@example.com
+```
+
+Reverse-proxy logs may contain live tokens from verification and reset query
+strings. Redact those query parameters and apply an appropriately short log
+retention period.
+
+### Add a native email API adapter
+
+SMTP is the only production adapter selectable in the stock image. To use a
+provider's HTTP API, implement `EmailDelivery` in
+`services/notifications/src/email.ts` or a provider-specific module:
+
+```ts
+import type { EmailDelivery, EmailMessage } from "@lush/notifications/email";
+
+export class ProviderEmailDelivery implements EmailDelivery {
+  constructor(private readonly apiKey: string) {}
+
+  async send(message: EmailMessage): Promise<void> {
+    // Call the provider and throw if it did not accept the message.
+  }
+}
+```
+
+Then:
+
+1. Add an explicit mode and validated environment variables to
+   `configuredEmailDelivery()`.
+2. Construct the adapter only in the notifications package; auth code should
+   continue to depend on `EmailDelivery`.
+3. Map `to`, `subject`, `text`, and optional `html` without exposing auth tokens
+   in logs or analytics.
+4. Convert provider rejection and transport failures into thrown errors so the
+   existing auth behavior remains correct.
+5. Add configuration and delivery tests beside `tests/email-delivery.test.ts`.
+6. Build and publish a custom API image until the adapter is accepted upstream.
+
+The interface is deliberately small. Retry policy, idempotency, event webhooks,
+and suppression handling belong in the delivery implementation or a future
+durable notification worker, not in the auth service.
+
+## External authentication providers
+
+Only password auth is wired today. The database already separates global users
+from provider identities, and `services/authz/src/runtime.ts` defines:
+
+```ts
+type AuthProviderAdapter = {
+  kind: "password" | "oidc" | "oauth" | "saml";
+  beginLogin(request, provider): Promise<Response>;
+  completeLogin(request, provider): Promise<AuthAssertion>;
+};
+```
+
+An `AuthAssertion` carries the provider ID, stable provider subject, email and
+verification status, profile fields, groups, and raw claims. This is a design
+boundary, not a runtime plugin registry. The stock API does not yet expose
+external login start/callback routes or resolve assertions into Lush sessions.
+
+### Correct extension path
+
+A complete provider implementation should:
+
+1. Load an enabled `auth_providers` record and resolve its secret material from
+   a secret store or encrypted configuration.
+2. Implement `beginLogin` with cryptographically bound state and, where the
+   protocol uses them, PKCE and nonce.
+3. Implement `completeLogin` entirely server-side: exchange the authorization
+   code, validate issuer, audience, signature, expiry, nonce, and tenant policy,
+   then produce an `AuthAssertion`.
+4. Resolve an existing identity by `(providerId, subject)`. Provider subjects,
+   not email addresses, are the durable external identity key.
+5. Apply an explicit account-linking policy. Never link on an unverified email,
+   and do not silently link a verified matching email unless the deployment has
+   deliberately accepted that takeover boundary.
+6. Create or resolve the Lush user and memberships, persist the
+   `auth_identities` row, and mint the normal Lush refresh session and access
+   JWT. Provider access tokens should not become Lush session tokens.
+7. Add login start/callback API routes, CSRF and replay tests, provider-specific
+   failure mapping, audit events, and sign-in UI.
+8. Only after the external path works end to end, set
+   `LUSH_AUTH_PASSWORD_ENABLED=false` if password login is not desired.
+
+Do not create provider-specific user, organization, or session tables. A user
+may have multiple auth identities and memberships; provider organization or
+group claims require an explicit mapping policy rather than being treated as a
+Lush organization ID.
+
+### Managed-service provider adapters
+
+For a managed service, keep provider credentials, connection selection, and
+deployment-specific identity policy in the managed deployment. Normalize every
+validated OAuth, OIDC, or SAML result through the same `AuthAssertion` path and
+reuse Lush's users, memberships, sessions, JWTs, audit events, and authorization
+checks.
+
+The clean repository boundary is:
+
+- this open-source repository owns external-auth orchestration, assertion
+  resolution, session issuance, and a provider registry;
+- a generic OIDC/SAML adapter may also belong here when its configuration can be
+  portable;
+- the managed-service repository registers deployment-specific adapters and
+  supplies their credentials and organization policy.
+
+Until that registry and orchestration exist, the managed service must either
+upstream them here or build a composed API image. Deployment configuration
+alone cannot add an external provider to the current stock image.
+
+An external provider may set `emailVerified: true` only when its validated
+protocol result and configured trust policy guarantee control of that address.
+Otherwise, preserve the unverified state and run the normal Lush verification
+flow.
+
+## HTTPS, proxies, and rate limits
+
+With `LUSH_REQUIRE_HTTPS=true`, Lush uses a Secure, host-only
+`__Host-lush_session` cookie, sends HSTS, redirects credential-free safe
+requests to HTTPS, and rejects credentials or state changes over plaintext.
+Only a socket peer listed in `LUSH_TRUSTED_PROXIES` may establish HTTPS through
+`X-Forwarded-Proto` or supply the client address used for rate limiting.
+
+The public-facing proxy must replace client-supplied `X-Forwarded-For`,
+`X-Real-IP`, and `X-Forwarded-Proto`. List every trusted hop and no others. Do
+not use `0.0.0.0/0`.
+
+Auth endpoints have in-process source and target limits. They are independent
+per API process, so a multi-replica deployment must enforce an additional
+shared limit at the ingress. Rejected requests return `429` with
+`Retry-After`.
+
+Set `LUSH_REQUIRE_HTTPS=false` only for an intentional plain-HTTP deployment on
+a trusted LAN. It changes the cookie name, omits `Secure`, and ends existing
+browser sessions.
 
 ## Session IP retention
 
-`LUSH_SESSION_IP_MODE` controls values written to the session creation and
-last-seen IP fields and to refresh-token-reuse audit events:
+`LUSH_SESSION_IP_MODE` controls values stored for session creation, last-seen
+activity, and refresh-token-reuse audit events:
 
-| Mode | Retained value | Operational and privacy effect |
+| Mode | Stored value | Effect |
 | --- | --- | --- |
-| `off` | None | Disables new session IP retention and IP-based audit correlation. |
-| `hmac` | HMAC-SHA-256 of the address | Default. Supports equality checks without making IPv4 values enumerable from a database dump. This is pseudonymous personal data, not anonymous data. |
-| `plain` | Raw address | Preserves the address for incident response and carries the corresponding disclosure, access-request, and deletion obligations. |
+| `off` | None | No IP-based audit correlation. |
+| `hmac` | Domain-separated HMAC-SHA-256 | Default; supports equality without storing an enumerable raw IPv4 address. It remains pseudonymous personal data. |
+| `plain` | Raw address | Maximum incident-response value and corresponding privacy obligations. |
 
-The HMAC mode uses `LUSH_SECRET_KEY` with domain separation. Rotating that key
-changes future pseudonyms but does not rewrite existing rows. Changing modes
-controls new writes; it does not purge existing session or audit records, so
-operators must apply their own deletion schedule to those records. Session
-creation and last-seen values each store the mode that produced them, keeping
-mixed-mode history self-describing. The database migration introducing this
-setting clears legacy unkeyed SHA-256 session and audit IP digests because they
-cannot be converted safely to keyed pseudonyms.
+Changing the mode affects new writes only. Rotating `LUSH_SECRET_KEY` changes
+future HMAC pseudonyms but does not rewrite existing records. Apply an explicit
+retention and deletion policy to session and audit data.
 
-## Auth rate limits and reverse proxies
+## JWT key rotation
 
-The API enforces in-process sliding-window limits before password hashing,
-session refresh, or email delivery:
+`bun run auth:keygen` defaults to RSA-3072. Key IDs must be unique and may use
+letters, numbers, `.`, `_`, and `-`.
 
-| Endpoint | Source-network limit | Target-specific limit |
-| --- | ---: | ---: |
-| Register | 5/hour | 3/email/hour |
-| Login | 300/15 minutes | 5/(email + network)/15 minutes; 40/email/15 minutes |
-| Refresh | 2,000/5 minutes | 20/session/5 minutes |
-| Request password reset | 60/hour | 3/email/hour |
+For a zero-downtime rotation:
 
-A successful login clears both target-specific login windows; the broader
-source-network tier intentionally counts successful requests as bulk-abuse
-protection. Refresh limits use a hash of the stable refresh-token family so
-token rotation does not reset the session window. IPv4 sources are keyed by
-address and IPv6 sources by `/64`, preventing privacy-address rotation from
-bypassing limits or churning limiter state. Rejected requests return `429`
-with a `Retry-After` header.
+1. Generate a new pair. Add its public key to `LUSH_AUTH_JWT_PUBLIC_KEYS` on
+   every verifier while the old signer remains active, then deploy.
+2. Change `LUSH_AUTH_JWT_KEY_ID` and `LUSH_AUTH_JWT_PRIVATE_KEY` to the new
+   signer while retaining both public keys, then deploy.
+3. After every old-signer instance has stopped and the maximum access-token TTL
+   has elapsed, remove the old public key.
 
-Registration and password-reset target limits deliberately prioritize
-email-bombing protection: an attacker can suppress those emails to one address
-for the remainder of the window. Login uses a tight `(email, network)` tier
-and a much looser email-wide backstop to make targeted login lockout materially
-more expensive while still bounding distributed guessing.
+Rotating `LUSH_SECRET_KEY` is separate. Current refresh tokens remain valid,
+but an immediately previous refresh token can no longer converge through its
+grace replay. Plan that rotation independently from JWT signing keys.
 
-Limits apply independently in each API process, so multi-replica deployments
-should also enforce a shared limit at the edge. If the runtime cannot determine
-the socket peer, the request uses a shared `unknown` source bucket and the API
-logs a warning once so the deployment problem is visible to operators.
+## Upgrade and rollback
 
-With no reverse proxy, leave `LUSH_TRUSTED_PROXIES` empty. The API ignores
-`X-Forwarded-For`, `X-Real-IP`, and `X-Forwarded-Proto` from direct clients and
-keys limits on the socket peer address.
+For each release:
 
-Behind a reverse proxy, set `LUSH_TRUSTED_PROXIES` to the comma-separated IP
-addresses or CIDR ranges from which the API actually accepts proxy traffic.
-For example:
+1. Read the release notes and resolve both Lush images to one exact version or
+   recorded digest.
+2. Back up PostgreSQL and verify the restore procedure.
+3. Pull the new images.
+4. Run the migration job once and record its result.
+5. Roll out the API and wait for `/health`.
+6. Roll out the web image and verify public `/healthz` and `/health` routing.
+7. Exercise login, refresh, email verification, and one inference request.
 
-```dotenv
-LUSH_TRUSTED_PROXIES=10.20.0.0/16,2001:db8:1234::/48
-```
+Roll application code back only if the old version is compatible with the
+already-applied schema. Database rollback is a restore operation, not a reverse
+migration.
 
-The API walks `X-Forwarded-For` from the direct peer toward the client and
-stops at the first untrusted hop. Every proxy in the chain must be listed, and
-the public-facing proxy must replace client-supplied forwarding headers.
-Do not trust an internet-wide range such as `0.0.0.0/0`; that lets callers
-choose the address used for throttling.
+## Backup and observability checklist
 
-## HTTPS and session cookies
+- Back up PostgreSQL on a schedule and test restores on another database.
+- Send API and container logs to durable storage, with auth query tokens
+  redacted.
+- Alert on container health, migration failure, PostgreSQL capacity, SMTP
+  rejection, and `authentication email delivery failed`.
+- Monitor provider bounce and complaint rates outside Lush.
+- Record deployed image digests, database migration result, and configuration
+  revision for every release.
+- Keep `.env`, JWT private keys, SMTP credentials, database credentials, and
+  provider secrets out of images, logs, and source control.
 
-`LUSH_REQUIRE_HTTPS=true` uses a Secure, host-only `__Host-lush_session`
-cookie, emits HSTS, redirects credential-free safe requests from HTTP to HTTPS,
-and refuses credentials or state-changing requests over plaintext. HTTPS
-termination may be reported through `X-Forwarded-Proto` only by a socket peer
-listed in `LUSH_TRUSTED_PROXIES`; direct clients cannot spoof the header.
-Loopback URLs are treated as secure for local development only when the socket
-peer is also a loopback address. HSTS is emitted as `max-age=31536000;
-includeSubDomains`; every subdomain below the API host must support HTTPS before
-serving that directive.
+The reference Compose stack intentionally does not implement TLS termination,
+public reverse proxying, backup scheduling, secret management, shared rate
+limiting, log shipping, or high availability. Those are deployment
+responsibilities and belong in the managed-service or self-host infrastructure
+layer.
 
-Set `LUSH_REQUIRE_HTTPS=false` only when a deployment intentionally serves the
-API over plain HTTP on a trusted LAN. The cookie is then named `lush_session`
-and omits Secure, so any party able to intercept the network segment can steal
-the session. Changing the flag changes the cookie name and ends existing browser
-sessions. The API accepts the previous name during migration and expires it on
-the next request so it is not stranded in the browser.
+## Troubleshooting
 
-## Email verification
+**The migration container exits non-zero.** Inspect its logs before starting or
+restarting the API. Confirm `DATABASE_URL`, network reachability, TLS settings,
+and database permissions.
 
-Email verification is required before access is granted. When password
-authentication is enabled, startup fails unless `LUSH_EMAIL_DELIVERY` is
-`smtp` or `log` and `LUSH_PUBLIC_APP_URL` is set. Production SMTP requires:
+**The API refuses to start.** Read the first configuration error. Common causes
+are a missing JWT key, a signing key ID absent from the public-key set, an empty
+`LUSH_PUBLIC_APP_URL`, invalid proxy CIDR, or password auth without email
+delivery.
 
-- `LUSH_EMAIL_DELIVERY=smtp`
-- `LUSH_EMAIL_FROM`
-- `LUSH_SMTP_URL` (an `smtp://` or `smtps://` URL)
-- `LUSH_PUBLIC_APP_URL`, the browser origin used in verification/reset links
+**Login or registration redirects to HTTPS internally.** The API does not trust
+the proxy reporting the external scheme. Fix `LUSH_TRUSTED_PROXIES`; do not
+disable HTTPS enforcement to mask it.
 
-`LUSH_AUTH_SIGNUP_ENABLED` defaults to `true`. `LUSH_AUTH_PUBLIC_SIGNUP` also
-defaults to `true`: registration returns the same verification-required
-response for new and existing emails, and an existing address receives an
-account-exists notification. This prevents unauthenticated account enumeration.
-Small private deployments can set `LUSH_AUTH_PUBLIC_SIGNUP=false` to return the
-friendlier but enumerable `email_in_use` error. Login always performs a password
-KDF even when the email is unknown.
+**Verification links point to the wrong host.** Set `LUSH_PUBLIC_APP_URL` to the
+browser-facing application origin, without an API path.
 
-Token TTLs are controlled by `LUSH_EMAIL_VERIFICATION_TTL_MS` (24 hours) and
-`LUSH_PASSWORD_RESET_TTL_MS` (one hour). Tokens are random, single-use,
-expiring, and stored only as hashes. Successful password resets revoke every
-active session.
+**The web app calls the wrong API.** In same-origin mode, ensure
+`LUSH_API_URL` is empty and the public edge sends `/v1beta` and `/v1beta/*` to
+the API. In split-origin mode, inspect `/runtime-config.js`; it is generated at
+container startup and served with `Cache-Control: no-store`.
 
-Verification requires an explicit form submission after the link opens, so
-mail security scanners cannot consume the token or verify an account merely by
-loading the page. Reset-request responses do not wait for SMTP delivery;
-delivery failures are logged without revealing account existence to callers.
-
-Verification and reset tokens are present in link query strings. Lush sends a
-`no-referrer` browser policy, but operators should also treat reverse-proxy
-access logs as sensitive because they may contain live tokens until expiry.
-
-`LUSH_EMAIL_DELIVERY=log` writes full messages, including bearer links, to the
-service log and is for development only. The explicit `bun run
-auth:verify-email -- user@example.com` command remains available as an operator
-override when email delivery is intentionally unavailable.
+**Registration returns `503`.** Check API logs and the SMTP provider. The user
+and verification token may already exist; re-registering an unverified address
+issues a new token and invalidates the previous one.

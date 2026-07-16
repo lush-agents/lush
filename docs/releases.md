@@ -49,7 +49,11 @@ suppresses workflows caused by pull requests created with the repository
 Image publication uses the repository-scoped `GITHUB_TOKEN`, so no registry
 credential is required. Before publishing, the workflow confirms that the
 requested immutable tag resolves to the checked-out commit and reruns the repo
-checks and test suite against that exact source.
+checks and complete test suite against that exact source. Both pull-request CI
+and release validation provision PostgreSQL and set `LUSH_TEST_DATABASE_URL`,
+so database-backed auth and migration integration tests are part of the release
+gate. Integration suites fail during discovery when `CI=true` and that dedicated
+database URL is absent; they cannot silently degrade to skipped tests.
 
 Before the first public release:
 

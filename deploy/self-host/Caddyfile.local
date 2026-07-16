@@ -1,0 +1,18 @@
+https://localhost {
+	tls internal
+	encode zstd gzip
+	header {
+		Referrer-Policy "no-referrer"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+	}
+
+	@api path /health /v1beta /v1beta/*
+	handle @api {
+		reverse_proxy api:7330
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+}

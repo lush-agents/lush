@@ -6,6 +6,11 @@ configuration, secrets, rollout policy, and operational automation, but it
 should deploy the same images documented here. Self-hosted deployments consume
 those images directly.
 
+The [self-hosting guide](../services/docs/content/docs/setup/self-hosting.mdx)
+provides a runnable single-host Compose stack plus configuration, SMTP,
+security, upgrade, backup, and future external-auth guidance. This document is
+the lower-level image contract for deployment implementations.
+
 ## Images
 
 ### `lush-api`
@@ -35,9 +40,11 @@ must ship as an explicit expand/migrate/contract sequence across releases.
 ### `lush-web`
 
 `ghcr.io/lush-agents/lush-web:<version>` serves the browser app as an
-unprivileged user and reverse proxies its API traffic on port `8080`. The
-browser uses the page origin by default, so the same immutable bundle works
-across deployments without rebuilding environment-specific API URLs.
+unprivileged user on port `8080`. It includes a same-origin API proxy for local
+and simple topologies. Production self-hosted deployments should terminate TLS
+and route web/API traffic at their operator-managed ingress. The browser uses
+the page origin by default, so the same immutable bundle works across
+deployments without rebuilding environment-specific API URLs.
 
 Runtime environment:
 
@@ -59,6 +66,11 @@ preserves streaming responses, and serves its own liveness endpoint at
 web container, and configure `LUSH_TRUSTED_PROXIES` on the API to trust only the
 web/ingress network that supplies forwarded headers.
 
+For production same-origin ingress, route `/v1beta`, `/v1beta/*`, and `/health`
+directly to the API; route all remaining paths to the web image. The ingress
+owns TLS, forwarding-header normalization, streaming timeouts, response
+buffering policy, public exposure, and any shared rate limits.
+
 The Tauri app is intentionally different: it is not served from a browser
 origin and still requires an explicit `VITE_LUSH_API_BASE_URL` at build time.
 
@@ -69,7 +81,8 @@ For a single release:
 1. Resolve both images to the same exact version or recorded digests.
 2. Run the API image's migration command once with deployment-level locking.
 3. Roll out the API image and wait for `/health`.
-4. Roll out the web image and wait for `/healthz` and proxied `/health`.
+4. Roll out the web image and verify the ingress routes public `/healthz` and
+   `/health` to the intended services.
 5. Record the Git tag, image digests, and migration result in the deployment.
 
 Do not run migrations implicitly in every API replica. A distinct migration

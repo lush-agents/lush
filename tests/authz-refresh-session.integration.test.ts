@@ -6,9 +6,9 @@ import {
 } from "../services/authz/src/refresh-token";
 import { rotateRefreshSession } from "../services/authz/src/runtime";
 import { retainedSessionIp } from "../services/authz/src/session-ip";
+import { integrationDatabaseUrl } from "./integration-database";
 
-const databaseUrl =
-  process.env.LUSH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+const databaseUrl = integrationDatabaseUrl();
 const signingSecret = "integration-test-refresh-signing-secret";
 
 if (!databaseUrl) {
@@ -60,8 +60,12 @@ if (!databaseUrl) {
       );
       expect(afterConcurrentRefresh.revokedAt).toBeNull();
       expect(afterConcurrentRefresh.userAgent).toBe("created-agent");
-      const creationIp = await retainedSessionIp("192.0.2.1");
-      const refreshedIp = await retainedSessionIp("198.51.100.2");
+      const creationIp = await retainedSessionIp("192.0.2.1", {
+        hmacKey: signingSecret
+      });
+      const refreshedIp = await retainedSessionIp("198.51.100.2", {
+        hmacKey: signingSecret
+      });
       expect(afterConcurrentRefresh.ipValue).toBe(creationIp.value);
       expect(afterConcurrentRefresh.ipMode).toBe(creationIp.mode);
       expect(afterConcurrentRefresh.lastSeenUserAgent).toBe("refresh-agent");
@@ -96,7 +100,9 @@ if (!databaseUrl) {
         .where("sessionId", "=", sessionId)
         .executeTakeFirstOrThrow();
       expect(audit.action).toBe("auth.refresh_token_reused");
-      const reusedIp = await retainedSessionIp("203.0.113.99");
+      const reusedIp = await retainedSessionIp("203.0.113.99", {
+        hmacKey: signingSecret
+      });
       expect(audit.metadata).toEqual({
         ipValue: reusedIp.value,
         ipMode: reusedIp.mode,
@@ -254,7 +260,9 @@ async function insertSession(
     })
     .returning("id")
     .executeTakeFirstOrThrow();
-  const retainedIp = await retainedSessionIp(options.ipAddress);
+  const retainedIp = await retainedSessionIp(options.ipAddress, {
+    hmacKey: signingSecret
+  });
   const row = await db
     .insertInto("sessions")
     .values({
