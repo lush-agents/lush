@@ -48,9 +48,9 @@ use credentialed auth. Wildcard origins are rejected.
 
 ## Email verification
 
-Email verification is required before access is granted. When password signup
-is enabled, startup fails unless `LUSH_EMAIL_DELIVERY` is `smtp` or `log` and
-`LUSH_PUBLIC_APP_URL` is set. Production SMTP requires:
+Email verification is required before access is granted. When password
+authentication is enabled, startup fails unless `LUSH_EMAIL_DELIVERY` is
+`smtp` or `log` and `LUSH_PUBLIC_APP_URL` is set. Production SMTP requires:
 
 - `LUSH_EMAIL_DELIVERY=smtp`
 - `LUSH_EMAIL_FROM`
@@ -61,6 +61,15 @@ is enabled, startup fails unless `LUSH_EMAIL_DELIVERY` is `smtp` or `log` and
 `LUSH_EMAIL_VERIFICATION_TTL_MS` (24 hours) and `LUSH_PASSWORD_RESET_TTL_MS`
 (one hour). Tokens are random, single-use, expiring, and stored only as hashes.
 Successful password resets revoke every active session.
+
+Verification requires an explicit form submission after the link opens, so
+mail security scanners cannot consume the token or verify an account merely by
+loading the page. Reset-request responses do not wait for SMTP delivery;
+delivery failures are logged without revealing account existence to callers.
+
+Verification and reset tokens are present in link query strings. Lush sends a
+`no-referrer` browser policy, but operators should also treat reverse-proxy
+access logs as sensitive because they may contain live tokens until expiry.
 
 `LUSH_EMAIL_DELIVERY=log` writes full messages, including bearer links, to the
 service log and is for development only. The explicit `bun run

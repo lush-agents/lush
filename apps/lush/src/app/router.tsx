@@ -57,14 +57,14 @@ const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <IndexRoute /> },
+      { path: "verify-email", element: <AccountRecoveryPage mode="verify" /> },
+      { path: "forgot-password", element: <AccountRecoveryPage mode="forgot" /> },
+      { path: "reset-password", element: <AccountRecoveryPage mode="reset" /> },
       {
         element: <PublicOnlyRoute />,
         children: [
           { path: "sign-in", element: <AuthPage mode="login" /> },
-          { path: "register", element: <AuthPage mode="register" /> },
-          { path: "verify-email", element: <AccountRecoveryPage mode="verify" /> },
-          { path: "forgot-password", element: <AccountRecoveryPage mode="forgot" /> },
-          { path: "reset-password", element: <AccountRecoveryPage mode="reset" /> }
+          { path: "register", element: <AuthPage mode="register" /> }
         ]
       },
       {

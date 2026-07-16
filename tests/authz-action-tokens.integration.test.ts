@@ -133,6 +133,7 @@ if (!databaseUrl) {
         {},
         { db, emailDelivery: delivery, appBaseUrl }
       );
+      await waitForMessageCount(delivery, 2);
       const resetToken = deliveredToken(delivery.messages[1]);
       await resetPassword({ token: resetToken, password: "replacement-password" }, { db });
 
@@ -185,6 +186,61 @@ if (!databaseUrl) {
       ).resolves.toEqual({ ok: true });
       expect(delivery.messages).toHaveLength(0);
     });
+
+    test("password-reset responses do not await email delivery", async () => {
+      const setupDelivery = new CaptureEmailDelivery();
+      const email = uniqueEmail();
+      await registerAccount(
+        { email, password: "initial-password" },
+        {},
+        { db, emailDelivery: setupDelivery, appBaseUrl }
+      );
+      await verifyEmailAddress(
+        { token: deliveredToken(setupDelivery.messages[0]) },
+        { db }
+      );
+
+      const delivery = new DeferredEmailDelivery();
+      await expect(
+        requestPasswordReset(
+          { email },
+          {},
+          { db, emailDelivery: delivery, appBaseUrl }
+        )
+      ).resolves.toEqual({ ok: true });
+      await Promise.race([
+        delivery.started,
+        Bun.sleep(1_000).then(() => {
+          throw new Error("Background delivery did not start");
+        })
+      ]);
+      expect(delivery.completed).toBe(false);
+    });
+
+    test("password-reset delivery failures do not change the public response", async () => {
+      const setupDelivery = new CaptureEmailDelivery();
+      const email = uniqueEmail();
+      await registerAccount(
+        { email, password: "initial-password" },
+        {},
+        { db, emailDelivery: setupDelivery, appBaseUrl }
+      );
+      await verifyEmailAddress(
+        { token: deliveredToken(setupDelivery.messages[0]) },
+        { db }
+      );
+
+      const delivery = new FailingEmailDelivery();
+      await expect(
+        requestPasswordReset(
+          { email },
+          {},
+          { db, emailDelivery: delivery, appBaseUrl }
+        )
+      ).resolves.toEqual({ ok: true });
+      await delivery.attempted;
+      await Promise.resolve();
+    });
   });
 }
 
@@ -194,6 +250,43 @@ class CaptureEmailDelivery implements EmailDelivery {
   async send(message: EmailMessage) {
     this.messages.push(message);
   }
+}
+
+class DeferredEmailDelivery implements EmailDelivery {
+  completed = false;
+  private start!: () => void;
+  readonly started = new Promise<void>((resolve) => {
+    this.start = resolve;
+  });
+
+  async send() {
+    this.start();
+    await new Promise<void>(() => {});
+    this.completed = true;
+  }
+}
+
+class FailingEmailDelivery implements EmailDelivery {
+  private markAttempted!: () => void;
+  readonly attempted = new Promise<void>((resolve) => {
+    this.markAttempted = resolve;
+  });
+
+  async send() {
+    this.markAttempted();
+    throw new Error("simulated SMTP failure");
+  }
+}
+
+async function waitForMessageCount(
+  delivery: CaptureEmailDelivery,
+  count: number
+) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (delivery.messages.length >= count) return;
+    await Bun.sleep(1);
+  }
+  throw new Error(`Expected ${count} delivered messages`);
 }
 
 function deliveredToken(message: EmailMessage | undefined) {

@@ -79,16 +79,11 @@ export function configuredEmailDelivery(
 
 export function assertEmailDeliveryConfigured(options: {
   passwordAuthEnabled: boolean;
-  signupEnabled: boolean;
   delivery: EmailDelivery | undefined;
 }) {
-  if (
-    options.passwordAuthEnabled &&
-    options.signupEnabled &&
-    !options.delivery
-  ) {
+  if (options.passwordAuthEnabled && !options.delivery) {
     throw new ConfigError(
-      "Email delivery must be configured when password signup is enabled. Set LUSH_EMAIL_DELIVERY to smtp or log.",
+      "Email delivery must be configured when password authentication is enabled. Set LUSH_EMAIL_DELIVERY to smtp or log.",
       { missing: ["LUSH_EMAIL_DELIVERY"] }
     );
   }

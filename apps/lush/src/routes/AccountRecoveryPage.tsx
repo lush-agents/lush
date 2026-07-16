@@ -3,7 +3,7 @@ import {
   resetPassword,
   verifyEmail
 } from "@lush/api-client";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import logoUrl from "../assets/lush-logo.svg?url";
 import { resolveApiBaseUrl } from "../lib/app-data";
@@ -15,34 +15,11 @@ export function AccountRecoveryPage({ mode }: { mode: RecoveryMode }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") ?? "";
-  const verificationStarted = useRef(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">(
-    mode === "verify" ? "submitting" : "idle"
-  );
+  const [status, setStatus] =
+    useState<"idle" | "submitting" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    if (mode !== "verify" || verificationStarted.current) return;
-    verificationStarted.current = true;
-
-    if (!token) {
-      setStatus("error");
-      setMessage("This verification link is invalid or has expired.");
-      return;
-    }
-
-    void verifyEmail(apiBaseUrl, { token })
-      .then(() => {
-        setStatus("success");
-        setMessage("Email verified. You can now sign in.");
-      })
-      .catch((error: unknown) => {
-        setStatus("error");
-        setMessage(error instanceof Error ? error.message : "Unable to verify email");
-      });
-  }, [apiBaseUrl, mode, token]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -50,6 +27,16 @@ export function AccountRecoveryPage({ mode }: { mode: RecoveryMode }) {
     setMessage("");
 
     try {
+      if (mode === "verify") {
+        if (!token) {
+          throw new Error("This verification link is invalid or has expired.");
+        }
+        await verifyEmail(apiBaseUrl, { token });
+        setStatus("success");
+        setMessage("Email verified. You can now sign in.");
+        return;
+      }
+
       if (mode === "forgot") {
         await requestPasswordReset(apiBaseUrl, { email });
         setStatus("success");
@@ -129,7 +116,7 @@ export function AccountRecoveryPage({ mode }: { mode: RecoveryMode }) {
           </p>
         ) : null}
 
-        {mode !== "verify" && status !== "success" ? (
+        {status !== "success" ? (
           <button
             type="submit"
             disabled={status === "submitting"}
@@ -137,9 +124,11 @@ export function AccountRecoveryPage({ mode }: { mode: RecoveryMode }) {
           >
             {status === "submitting"
               ? "Submitting..."
-              : mode === "forgot"
-                ? "Send reset link"
-                : "Reset password"}
+              : mode === "verify"
+                ? "Verify my email"
+                : mode === "forgot"
+                  ? "Send reset link"
+                  : "Reset password"}
           </button>
         ) : null}
 

@@ -35,19 +35,17 @@ describe("email delivery configuration", () => {
     ).toThrow(ConfigError);
   });
 
-  test("fails closed when password signup has no delivery", () => {
+  test("fails closed whenever password authentication has no delivery", () => {
     expect(() =>
       assertEmailDeliveryConfigured({
         passwordAuthEnabled: true,
-        signupEnabled: true,
         delivery: undefined
       })
     ).toThrow(ConfigError);
 
     expect(() =>
       assertEmailDeliveryConfigured({
-        passwordAuthEnabled: true,
-        signupEnabled: false,
+        passwordAuthEnabled: false,
         delivery: undefined
       })
     ).not.toThrow();

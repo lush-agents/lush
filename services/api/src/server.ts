@@ -102,7 +102,6 @@ const apiConfig = readApiRuntimeConfig();
 const emailDelivery = configuredEmailDelivery();
 assertEmailDeliveryConfigured({
   passwordAuthEnabled: apiConfig.passwordAuthEnabled,
-  signupEnabled: apiConfig.signupEnabled,
   delivery: emailDelivery
 });
 const port = apiConfig.port;
@@ -1145,7 +1144,6 @@ function readApiRuntimeConfig() {
     LUSH_AUTH_JWT_PUBLIC_KEY: envSchema.string(),
     LUSH_SECRET_KEY: envSchema.string(),
     LUSH_AUTH_PASSWORD_ENABLED: envSchema.boolean(true),
-    LUSH_AUTH_SIGNUP_ENABLED: envSchema.boolean(true),
     LUSH_PUBLIC_APP_URL: envSchema.optionalString(""),
     LUSH_API_PORT: envSchema.number(7330),
     LUSH_API_HOST: envSchema.optionalString("0.0.0.0")
@@ -1159,12 +1157,10 @@ function readApiRuntimeConfig() {
   }
 
   if (
-    env.LUSH_AUTH_PASSWORD_ENABLED &&
-    env.LUSH_AUTH_SIGNUP_ENABLED &&
-    !env.LUSH_PUBLIC_APP_URL
+    env.LUSH_AUTH_PASSWORD_ENABLED && !env.LUSH_PUBLIC_APP_URL
   ) {
     throw new ConfigError(
-      "LUSH_PUBLIC_APP_URL is required when password signup is enabled.",
+      "LUSH_PUBLIC_APP_URL is required when password authentication is enabled.",
       { missing: ["LUSH_PUBLIC_APP_URL"] }
     );
   }
@@ -1190,7 +1186,6 @@ function readApiRuntimeConfig() {
     hostname: env.LUSH_API_HOST,
     appOrigins,
     passwordAuthEnabled: env.LUSH_AUTH_PASSWORD_ENABLED,
-    signupEnabled: env.LUSH_AUTH_SIGNUP_ENABLED,
     publicAppUrl: env.LUSH_PUBLIC_APP_URL
   };
 }

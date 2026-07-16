@@ -11,6 +11,7 @@ import type {
   Database,
   UserRole
 } from "@lush/db/schema";
+import { createLogger } from "@lush/logging/logger";
 import type { EmailDelivery } from "@lush/notifications/email";
 import {
   createRefreshToken,
@@ -175,6 +176,7 @@ const passwordAuthEnabled = authzConfig.LUSH_AUTH_PASSWORD_ENABLED;
 const signupEnabled = authzConfig.LUSH_AUTH_SIGNUP_ENABLED;
 const emailVerificationTtlMs = authzConfig.LUSH_EMAIL_VERIFICATION_TTL_MS;
 const passwordResetTtlMs = authzConfig.LUSH_PASSWORD_RESET_TTL_MS;
+const logger = createLogger("@lush/authz");
 
 export type CurrentSession = {
   sessionId: string;
@@ -543,11 +545,15 @@ export async function registerAccount(
     return { user, token };
   });
 
-  await deliverAuthEmail(delivery, {
-    to: pending.user.email,
-    subject: "Verify your Lush email",
-    text: `Verify your email address: ${authLink(appBaseUrl, "/verify-email", pending.token)}`
-  });
+  await deliverAuthEmail(
+    delivery,
+    {
+      to: pending.user.email,
+      subject: "Verify your Lush email",
+      text: `Verify your email address: ${authLink(appBaseUrl, "/verify-email", pending.token)}`
+    },
+    "verify_email"
+  );
 
   return {
     emailVerificationRequired: true,
@@ -1443,11 +1449,15 @@ export async function requestPasswordReset(
     return issued;
   });
 
-  await deliverAuthEmail(delivery, {
-    to: user.email,
-    subject: "Reset your Lush password",
-    text: `Reset your password: ${authLink(appBaseUrl, "/reset-password", token)}`
-  });
+  deliverAuthEmailInBackground(
+    delivery,
+    {
+      to: user.email,
+      subject: "Reset your Lush password",
+      text: `Reset your password: ${authLink(appBaseUrl, "/reset-password", token)}`
+    },
+    "reset_password"
+  );
   return { ok: true as const };
 }
 
@@ -1611,17 +1621,36 @@ function authLink(appBaseUrl: string, path: string, token: string) {
 
 async function deliverAuthEmail(
   delivery: EmailDelivery,
-  message: Parameters<EmailDelivery["send"]>[0]
+  message: Parameters<EmailDelivery["send"]>[0],
+  purpose: AuthActionTokenPurpose
 ) {
   try {
     await delivery.send(message);
-  } catch {
+  } catch (error) {
+    logEmailDeliveryFailure(error, purpose);
     throw new AuthError(
       "email_delivery_failed",
       "Unable to deliver the authentication email",
       503
     );
   }
+}
+
+function deliverAuthEmailInBackground(
+  delivery: EmailDelivery,
+  message: Parameters<EmailDelivery["send"]>[0],
+  purpose: AuthActionTokenPurpose
+) {
+  void Promise.resolve()
+    .then(() => delivery.send(message))
+    .catch((error) => logEmailDeliveryFailure(error, purpose));
+}
+
+function logEmailDeliveryFailure(
+  error: unknown,
+  purpose: AuthActionTokenPurpose
+) {
+  logger.error({ err: error, purpose }, "authentication email delivery failed");
 }
 
 async function issueAuthActionToken(

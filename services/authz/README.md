@@ -29,7 +29,9 @@ bun run auth:verify-email -- user@example.com
 Outbound auth email is injected through the `EmailDelivery` interface in
 `@lush/notifications/email`. The bundled implementations are SMTP and a
 development-only structured-log delivery. The API refuses to start with
-password signup enabled unless delivery and `LUSH_PUBLIC_APP_URL` are configured.
+password authentication enabled unless delivery and `LUSH_PUBLIC_APP_URL` are
+configured. Password-reset delivery runs outside the response path; failures
+are logged without changing the uniform public response.
 
 External auth providers normalize into the `AuthAssertion` adapter shape in
 `src/runtime.ts`, then reuse the same user, organization, membership, and
