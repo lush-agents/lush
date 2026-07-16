@@ -82,6 +82,19 @@ export function isTrustedProxyAddress(
   return parsed ? isTrusted(parsed, trustedProxies) : false;
 }
 
+export function isLoopbackAddress(address: string | null | undefined) {
+  const parsed = parseIp(address ?? "");
+  if (!parsed) {
+    return false;
+  }
+  if (parsed.family === 4) {
+    return parsed.bytes[0] === 127;
+  }
+
+  return parsed.bytes.slice(0, 15).every((byte) => byte === 0)
+    && parsed.bytes[15] === 1;
+}
+
 export function rateLimitNetworkKey(address: string | null | undefined) {
   const parsed = parseIp(address ?? "");
   if (!parsed) {

@@ -74,18 +74,35 @@ describe("API transport security", () => {
     })).toBe(true);
   });
 
-  test("allows secure transports and local development loopback origins", () => {
+  test("allows HTTPS and requires both a loopback origin and socket peer for HTTP", () => {
+    expect(isSecureRequest({
+      request: new Request("https://api.example.com"),
+      remoteAddress: "198.51.100.7",
+      trustedProxies: parseTrustedProxies([])
+    })).toBe(true);
+
     for (const url of [
-      "https://api.example.com",
       "http://localhost:7330",
       "http://127.0.0.1:7330",
       "http://[::1]:7330"
     ]) {
       expect(isSecureRequest({
         request: new Request(url),
+        remoteAddress: "127.0.0.1",
         trustedProxies: parseTrustedProxies([])
       })).toBe(true);
     }
+
+    expect(isSecureRequest({
+      request: new Request("http://localhost:7330"),
+      remoteAddress: "198.51.100.7",
+      trustedProxies: parseTrustedProxies([])
+    })).toBe(false);
+    expect(isSecureRequest({
+      request: new Request("http://api.example.com"),
+      remoteAddress: "127.0.0.1",
+      trustedProxies: parseTrustedProxies([])
+    })).toBe(false);
   });
 
   test("distinguishes redirectable requests from credential-bearing requests", () => {

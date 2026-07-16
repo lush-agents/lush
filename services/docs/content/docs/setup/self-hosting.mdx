@@ -105,7 +105,10 @@ cookie, emits HSTS, redirects credential-free safe requests from HTTP to HTTPS,
 and refuses credentials or state-changing requests over plaintext. HTTPS
 termination may be reported through `X-Forwarded-Proto` only by a socket peer
 listed in `LUSH_TRUSTED_PROXIES`; direct clients cannot spoof the header.
-Loopback URLs are treated as secure for local development.
+Loopback URLs are treated as secure for local development only when the socket
+peer is also a loopback address. HSTS is emitted as `max-age=31536000;
+includeSubDomains`; every subdomain below the API host must support HTTPS before
+serving that directive.
 
 Set `LUSH_REQUIRE_HTTPS=false` only when a deployment intentionally serves the
 API over plain HTTP on a trusted LAN. The cookie is then named `lush_session`

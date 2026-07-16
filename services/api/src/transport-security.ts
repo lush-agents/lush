@@ -1,4 +1,5 @@
 import {
+  isLoopbackAddress,
   isTrustedProxyAddress,
   type TrustedProxySet
 } from "./client-ip";
@@ -61,7 +62,13 @@ export function isSecureRequest(options: {
   trustedProxies: TrustedProxySet;
 }) {
   const url = new URL(options.request.url);
-  if (url.protocol === "https:" || isLoopbackHostname(url.hostname)) {
+  if (url.protocol === "https:") {
+    return true;
+  }
+  if (
+    isLoopbackHostname(url.hostname)
+    && isLoopbackAddress(options.remoteAddress)
+  ) {
     return true;
   }
 

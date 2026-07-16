@@ -45,6 +45,7 @@ HttpOnly cookie and cache only the short-lived access JWT in tab-scoped
 requests to HTTPS, and refuses credentials or state-changing requests over
 plaintext. `X-Forwarded-Proto` is honored only when the socket peer matches
 `LUSH_TRUSTED_PROXIES`. Loopback URLs remain available for local development.
+The loopback exception requires both a loopback URL and a loopback socket peer.
 
 Set `LUSH_REQUIRE_HTTPS=false` only for deliberate plain-HTTP LAN deployments.
 That mode uses `lush_session` without Secure; any device able to intercept that
