@@ -78,8 +78,12 @@ when no account exists, so response timing does not expose account existence.
 The app uses a refresh-token plus access-token split.
 
 Refresh sessions are stored in the `sessions` table. The raw refresh token is
-stored only in an HttpOnly `lush_session` cookie; the database stores a SHA-256
-hash. A successful refresh normally rotates the cookie and invalidates the
+stored only in an HttpOnly cookie; the database stores a SHA-256 hash.
+`LUSH_REQUIRE_HTTPS=true` (the default) names it `__Host-lush_session` and adds
+Secure. The explicit plain-HTTP opt-out uses `lush_session` without Secure.
+Changing the setting changes the cookie name and ends existing browser sessions;
+the old cookie name is accepted during migration and expired on the next
+request. A successful refresh normally rotates the cookie and invalidates the
 presented token. The immediately previous token has a short replay grace period
 (`LUSH_REFRESH_TOKEN_GRACE_MS`, default 60 seconds): repeated presentations
 receive the same deterministic successor so concurrent requests and lost

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isLoopbackAddress,
   parseTrustedProxies,
   rateLimitNetworkKey,
   resolveClientIp
@@ -63,6 +64,16 @@ describe("API client IP resolution", () => {
   test("rejects invalid trusted proxy entries", () => {
     expect(() => parseTrustedProxies(["10.0.0.0/99"])).toThrow();
     expect(() => parseTrustedProxies(["proxy.internal"])).toThrow();
+  });
+
+  test("recognizes only IP loopback ranges", () => {
+    expect(isLoopbackAddress("127.0.0.1")).toBe(true);
+    expect(isLoopbackAddress("127.20.30.40")).toBe(true);
+    expect(isLoopbackAddress("::1")).toBe(true);
+    expect(isLoopbackAddress("::ffff:127.0.0.1")).toBe(true);
+    expect(isLoopbackAddress("10.0.0.1")).toBe(false);
+    expect(isLoopbackAddress("::2")).toBe(false);
+    expect(isLoopbackAddress(undefined)).toBe(false);
   });
 
   test("groups IPv6 rate-limit keys by /64 without grouping IPv4 addresses", () => {
