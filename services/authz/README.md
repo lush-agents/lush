@@ -37,7 +37,13 @@ Registration is enumeration-resistant by default. With
 `LUSH_AUTH_PUBLIC_SIGNUP=true`, existing accounts receive a notification email
 while callers receive the same verification-required response as new accounts.
 Private deployments can set the value to `false` to return `email_in_use`.
-Unknown-email and wrong-password logins both perform one password KDF.
+Unknown-email, wrong-password, and unverified-account logins return the same
+`invalid_credentials` response; each performs one password KDF. This prevents a
+correct password for an unverified account from being confirmed without a
+session. The uniform response points all callers to the same recovery path:
+check for the original verification email or re-register for a new link.
+Unverified attempts consume the normal failed-login rate-limit budget and do
+not clear its target-specific counters, even when the password is correct.
 New and reset passwords are limited to 8–512 characters and hashed with
 Argon2id (64 MiB, two iterations). Legacy PBKDF2-SHA256 credentials remain
 verifiable and are replaced with Argon2id after the next successful login.

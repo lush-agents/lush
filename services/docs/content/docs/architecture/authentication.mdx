@@ -22,6 +22,14 @@ password-reset links contain random, single-use, expiring tokens; only token
 hashes are stored. A successful password reset revokes all sessions for the
 account.
 
+Login returns the same `invalid_credentials` response for an unknown email, an
+incorrect password, and an unverified account, even when the submitted password
+for that account is correct. This avoids exposing password validity without
+granting a session. The uniform response tells every caller to check for the
+original verification email or submit registration again for a new link. An
+unverified attempt still consumes the normal failed-login rate-limit budget and
+does not clear its target-specific counters, even when the password is correct.
+
 The HTTP verification route accepts only a token. Local operators retain an
 explicit database-backed override command:
 

@@ -155,7 +155,7 @@ if (!databaseUrl) {
       expect(delivery.messages).toHaveLength(1);
     });
 
-    test("unknown-email and wrong-password logins return the same error", async () => {
+    test("unknown-email, wrong-password, and unverified-account logins return the same error", async () => {
       const delivery = new CaptureEmailDelivery();
       const email = uniqueEmail();
       await registerAccount(
@@ -174,15 +174,28 @@ if (!databaseUrl) {
         {},
         { db }
       ).catch((error) => error);
+      const unverifiedAccount = login(
+        { email, password: "correct-password" },
+        {},
+        { db }
+      ).catch((error) => error);
 
       await expect(wrongPassword).resolves.toMatchObject({
         code: "invalid_credentials",
-        message: "Invalid email or password",
+        message:
+          "Invalid email or password. If you recently signed up, check your inbox for a verification link or register again to resend it.",
         status: 401
       });
       await expect(unknownEmail).resolves.toMatchObject({
         code: "invalid_credentials",
-        message: "Invalid email or password",
+        message:
+          "Invalid email or password. If you recently signed up, check your inbox for a verification link or register again to resend it.",
+        status: 401
+      });
+      await expect(unverifiedAccount).resolves.toMatchObject({
+        code: "invalid_credentials",
+        message:
+          "Invalid email or password. If you recently signed up, check your inbox for a verification link or register again to resend it.",
         status: 401
       });
     });
