@@ -22,7 +22,7 @@ export function readSessionIpMode(env?: EnvSource): SessionIpMode {
 
 export const sessionIpMode = readSessionIpMode();
 
-export async function retainedSessionIpAddress(
+export async function retainedSessionIp(
   ipAddress: string | null | undefined,
   options: {
     mode?: SessionIpMode;
@@ -30,15 +30,15 @@ export async function retainedSessionIpAddress(
   } = {}
 ) {
   if (!ipAddress) {
-    return null;
+    return { value: null, mode: null } as const;
   }
 
   const mode = options.mode ?? sessionIpMode;
   if (mode === "off") {
-    return null;
+    return { value: null, mode } as const;
   }
   if (mode === "plain") {
-    return ipAddress;
+    return { value: ipAddress, mode } as const;
   }
 
   const key = await crypto.subtle.importKey(
@@ -56,7 +56,10 @@ export async function retainedSessionIpAddress(
     new TextEncoder().encode(`lush:session-ip:v1\0${ipAddress}`)
   );
 
-  return bytesToHex(new Uint8Array(signature));
+  return {
+    value: bytesToHex(new Uint8Array(signature)),
+    mode
+  } as const;
 }
 
 function bytesToHex(bytes: Uint8Array) {

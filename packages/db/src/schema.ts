@@ -112,9 +112,11 @@ export type SessionsTable = {
   previousTokenHash: string | null;
   rotatedAt: Timestamp | null;
   userAgent: string | null;
-  ipHash: string | null;
+  ipValue: string | null;
+  ipMode: "off" | "hmac" | "plain" | null;
   lastSeenUserAgent: string | null;
-  lastSeenIpHash: string | null;
+  lastSeenIpValue: string | null;
+  lastSeenIpMode: "off" | "hmac" | "plain" | null;
   createdAt: Timestamp;
   lastUsedAt: Timestamp;
   expiresAt: Timestamp;

@@ -107,8 +107,10 @@ successor with the new key.
 `hmac` (the default) stores a domain-separated HMAC-SHA-256 keyed by
 `LUSH_SECRET_KEY`, and `plain` stores the address unchanged. Session rows
 preserve the user agent and configured IP representation captured at creation,
-while separate last-seen fields update during refresh. The self-hosting guide
-documents the privacy and retention implications of each mode.
+while separate last-seen fields update during refresh. Both values store their
+mode so rows remain self-describing after configuration changes. The
+self-hosting guide documents the privacy and retention implications of each
+mode.
 
 Access tokens are RS256 JWTs signed by `services/authz` with
 `LUSH_AUTH_JWT_PRIVATE_KEY` and verified with `LUSH_AUTH_JWT_PUBLIC_KEY`.

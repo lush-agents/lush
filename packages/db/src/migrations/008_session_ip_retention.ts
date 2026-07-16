@@ -21,5 +21,24 @@ export const sessionIpRetention: Migration = {
         action = 'auth.refresh_token_reused'
         and metadata ? 'ipHash'
     `.execute(db);
+
+    await sql`
+      alter table sessions
+      rename column ip_hash to ip_value
+    `.execute(db);
+    await sql`
+      alter table sessions
+      rename column last_seen_ip_hash to last_seen_ip_value
+    `.execute(db);
+    await sql`
+      alter table sessions
+      add column ip_mode text
+      check (ip_mode in ('off', 'hmac', 'plain'))
+    `.execute(db);
+    await sql`
+      alter table sessions
+      add column last_seen_ip_mode text
+      check (last_seen_ip_mode in ('off', 'hmac', 'plain'))
+    `.execute(db);
   }
 };

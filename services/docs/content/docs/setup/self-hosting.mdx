@@ -64,9 +64,11 @@ last-seen IP fields and to refresh-token-reuse audit events:
 The HMAC mode uses `LUSH_SECRET_KEY` with domain separation. Rotating that key
 changes future pseudonyms but does not rewrite existing rows. Changing modes
 controls new writes; it does not purge existing session or audit records, so
-operators must apply their own deletion schedule to those records. The database
-migration introducing this setting clears legacy unkeyed SHA-256 session and
-audit IP digests because they cannot be converted safely to keyed pseudonyms.
+operators must apply their own deletion schedule to those records. Session
+creation and last-seen values each store the mode that produced them, keeping
+mixed-mode history self-describing. The database migration introducing this
+setting clears legacy unkeyed SHA-256 session and audit IP digests because they
+cannot be converted safely to keyed pseudonyms.
 
 ## Auth rate limits and reverse proxies
 

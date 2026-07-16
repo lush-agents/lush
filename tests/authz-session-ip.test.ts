@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   readSessionIpMode,
-  retainedSessionIpAddress
+  retainedSessionIp
 } from "../services/authz/src/session-ip";
 
 describe("session IP retention", () => {
@@ -16,24 +16,28 @@ describe("session IP retention", () => {
 
   test("off retains no address and plain retains the address explicitly", async () => {
     expect(
-      await retainedSessionIpAddress("203.0.113.10", { mode: "off" })
-    ).toBeNull();
+      await retainedSessionIp("203.0.113.10", { mode: "off" })
+    ).toEqual({ value: null, mode: "off" });
     expect(
-      await retainedSessionIpAddress("203.0.113.10", { mode: "plain" })
-    ).toBe("203.0.113.10");
+      await retainedSessionIp("203.0.113.10", { mode: "plain" })
+    ).toEqual({ value: "203.0.113.10", mode: "plain" });
+    expect(await retainedSessionIp(null, { mode: "hmac" })).toEqual({
+      value: null,
+      mode: null
+    });
   });
 
   test("hmac is deterministic, keyed, and not the legacy SHA-256 digest", async () => {
     const ipAddress = "203.0.113.10";
-    const first = await retainedSessionIpAddress(ipAddress, {
+    const first = await retainedSessionIp(ipAddress, {
       mode: "hmac",
       hmacKey: "first-key"
     });
-    const repeated = await retainedSessionIpAddress(ipAddress, {
+    const repeated = await retainedSessionIp(ipAddress, {
       mode: "hmac",
       hmacKey: "first-key"
     });
-    const otherKey = await retainedSessionIpAddress(ipAddress, {
+    const otherKey = await retainedSessionIp(ipAddress, {
       mode: "hmac",
       hmacKey: "second-key"
     });
@@ -46,10 +50,11 @@ describe("session IP retention", () => {
       )
     );
 
-    expect(first).toMatch(/^[a-f0-9]{64}$/);
-    expect(first).toBe(repeated);
-    expect(first).not.toBe(otherKey);
-    expect(first).not.toBe(legacyDigest);
+    expect(first.mode).toBe("hmac");
+    expect(first.value).toMatch(/^[a-f0-9]{64}$/);
+    expect(first).toEqual(repeated);
+    expect(first.value).not.toBe(otherKey.value);
+    expect(first.value).not.toBe(legacyDigest);
   });
 });
 

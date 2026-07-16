@@ -64,4 +64,10 @@ test("session IP retention migration removes enumerable legacy digests", async (
   expect(migration).toContain("ip_hash = null");
   expect(migration).toContain("last_seen_ip_hash = null");
   expect(migration).toContain("metadata - 'ipHash'");
+  expect(migration).toContain("rename column ip_hash to ip_value");
+  expect(migration).toContain(
+    "rename column last_seen_ip_hash to last_seen_ip_value"
+  );
+  expect(migration).toContain("add column ip_mode text");
+  expect(migration).toContain("add column last_seen_ip_mode text");
 });
