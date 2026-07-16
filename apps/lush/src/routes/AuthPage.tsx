@@ -95,6 +95,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
             onChange={(event) => setPassword(event.currentTarget.value)}
             className="rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand)]"
             minLength={8}
+            maxLength={mode === "register" ? 512 : undefined}
             required
           />
         </label>
