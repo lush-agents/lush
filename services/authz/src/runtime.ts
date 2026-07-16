@@ -636,6 +636,8 @@ export async function rotateRefreshSession(
           session: toSessionResponse(row)
         };
       }
+
+      return { status: "invalid" as const };
     }
 
     if (row.tokenHash !== tokenHash) {

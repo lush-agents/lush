@@ -75,12 +75,21 @@ hash. A successful refresh normally rotates the cookie and invalidates the
 presented token. The immediately previous token has a short replay grace period
 (`LUSH_REFRESH_TOKEN_GRACE_MS`, default 60 seconds): repeated presentations
 receive the same deterministic successor so concurrent requests and lost
-responses converge without advancing the token chain. Reusing an older token,
-or the previous token after grace expires, revokes the entire session and
-records `auth.refresh_token_reused` in `audit_events` with the presenter's
-hashed IP and user agent. Refresh sessions expire after `LUSH_SESSION_TTL_MS`,
-defaulting to 30 days. `POST /v1beta/auth/logout-all` revokes every active
-session for the current user.
+responses converge without advancing the token chain. This deliberately keeps
+a rotated token exchangeable for its successor for up to the configured grace
+period, including if that token is stolen. Reusing an older token, or the
+previous token after grace expires, revokes the entire session and records
+`auth.refresh_token_reused` in `audit_events` with the presenter's hashed IP and
+user agent. Refresh sessions expire after `LUSH_SESSION_TTL_MS`, defaulting to
+30 days. `POST /v1beta/auth/logout-all` revokes every active session for the
+current user.
+
+`LUSH_SECRET_KEY` is HMAC key material for deriving deterministic refresh-token
+successors. The database stores only token hashes, so database access alone
+cannot derive the next token. Rotating the secret makes an in-grace replay of
+the previous token return `invalid_session` without revoking the session or
+emitting a theft audit; the current token remains usable and derives its next
+successor with the new key.
 
 Session rows preserve the user agent and hashed IP captured at creation, while
 separate last-seen fields update during refresh.

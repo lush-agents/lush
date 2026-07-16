@@ -26,6 +26,11 @@ error before it begins accepting requests.
 The JWT keys must be an asymmetric keypair. The API signs short-lived access
 JWTs; backing services verify them with the public key.
 
+`LUSH_SECRET_KEY` encrypts stored provider credentials and is also HMAC key
+material for deterministic refresh-token successors. Rotating it prevents the
+immediately previous refresh token from using its grace replay, but current
+refresh tokens remain valid.
+
 ## Optional runtime configuration
 
 - `LUSH_API_HOST`, default `0.0.0.0`

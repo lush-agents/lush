@@ -30,9 +30,16 @@ organization, membership, expiry, and revocation status.
 Each refresh normally rotates the cookie. Repeated presentation of the
 immediately previous token within a short grace period returns the same
 successor, allowing concurrent requests and lost responses to converge safely.
+The tradeoff is explicit: a rotated token remains exchangeable for its
+successor during that grace period, including if the rotated token is stolen.
 An older token, or a previous token outside the grace period, is treated as a
-theft signal: Lush revokes the entire session and records the presenter's
-hashed IP and user agent in an audit event.
+theft signal: Lush revokes the entire session and records the presenter's hashed
+IP and user agent in an audit event.
+
+`LUSH_SECRET_KEY` is the HMAC key used to derive deterministic successors; the
+database stores only token hashes. Rotating the key makes previous-token grace
+replay fail as an invalid session without revocation or a theft audit. A current
+token remains valid and derives its next generation with the new key.
 
 ## Access Tokens
 

@@ -126,6 +126,50 @@ if (!databaseUrl) {
       ).not.toBeNull();
     });
 
+    test("signing-secret rotation rejects grace replay without a theft signal", async () => {
+      const initial = await createRefreshToken(signingSecret);
+      const sessionId = await insertSession(db, initial);
+      const rotated = await rotateRefreshSession(
+        initial,
+        {},
+        { db, graceMs: 60_000, signingSecret }
+      );
+      expect(rotated?.refreshToken).toBeDefined();
+
+      expect(
+        await rotateRefreshSession(
+          initial,
+          {},
+          { db, graceMs: 60_000, signingSecret: "rotated-signing-secret" }
+        )
+      ).toBeUndefined();
+
+      expect(
+        (
+          await db
+            .selectFrom("sessions")
+            .select("revokedAt")
+            .where("id", "=", sessionId)
+            .executeTakeFirstOrThrow()
+        ).revokedAt
+      ).toBeNull();
+      expect(
+        await db
+          .selectFrom("auditEvents")
+          .select("id")
+          .where("sessionId", "=", sessionId)
+          .execute()
+      ).toHaveLength(0);
+
+      expect(
+        await rotateRefreshSession(
+          rotated!.refreshToken,
+          {},
+          { db, graceMs: 60_000, signingSecret: "rotated-signing-secret" }
+        )
+      ).toBeDefined();
+    });
+
     test("expired sessions are revoked without rotating", async () => {
       const initial = await createRefreshToken(signingSecret);
       const sessionId = await insertSession(db, initial, {
