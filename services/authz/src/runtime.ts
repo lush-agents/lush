@@ -2470,6 +2470,10 @@ async function verifyAccessToken(token: string): Promise<AccessTokenClaims> {
 
 let cachedJwtKeyStore: Promise<JwtKeyStore> | undefined;
 
+export async function initializeJwtKeyStore() {
+  await jwtKeyStore();
+}
+
 function jwtKeyStore() {
   cachedJwtKeyStore ??= loadJwtKeyStore();
   return cachedJwtKeyStore;
@@ -2480,22 +2484,22 @@ async function loadJwtKeyStore() {
     const privateKey = requiredEnvValue("LUSH_AUTH_JWT_PRIVATE_KEY");
     const publicKeySet = envValue("LUSH_AUTH_JWT_PUBLIC_KEYS");
     if (publicKeySet) {
-      return new JwtKeyStore(
+      return initializeAndLogJwtKeyStore(new JwtKeyStore(
         requiredEnvValue("LUSH_AUTH_JWT_KEY_ID"),
         privateKey,
         parseJwtPublicKeys(publicKeySet),
         true
-      );
+      ));
     }
 
     const legacyPublicKey = requiredEnvValue("LUSH_AUTH_JWT_PUBLIC_KEY");
     const keyId = await jwtKeyIdForPublicKey(legacyPublicKey);
-    return new JwtKeyStore(
+    return initializeAndLogJwtKeyStore(new JwtKeyStore(
       keyId,
       privateKey,
       { [keyId]: legacyPublicKey },
       true
-    );
+    ));
   } catch (error) {
     if (error instanceof ConfigError || error instanceof JwtKeyConfigError) {
       throw new AuthError(
@@ -2507,6 +2511,19 @@ async function loadJwtKeyStore() {
 
     throw error;
   }
+}
+
+async function initializeAndLogJwtKeyStore(keyStore: JwtKeyStore) {
+  await keyStore.initialize();
+  logger.info(
+    {
+      signingKid: keyStore.signingKeyId,
+      acceptedKids: [...keyStore.publicKeys.keys()].sort(),
+      acceptsMissingKid: true
+    },
+    "JWT key store loaded"
+  );
+  return keyStore;
 }
 
 function parseAccessClaims(value: Record<string, unknown>): AccessTokenClaims {

@@ -6,6 +6,7 @@ import {
   JwtKeyConfigError,
   JwtKeyStore,
   JwtTokenError,
+  parseJwtRsaModulusLength,
   parseJwtPublicKeys,
   type GeneratedJwtKeyPair
 } from "../services/authz/src/jwt-keys";
@@ -84,6 +85,16 @@ describe("JWT signing key rotation", () => {
       })
     ).toThrow(JwtKeyConfigError);
   });
+
+  test("rejects a private key that does not match the selected public key", async () => {
+    const store = new JwtKeyStore(
+      currentKey.keyId,
+      oldKey.privateKeyPem,
+      { [currentKey.keyId]: currentKey.publicKeyPem }
+    );
+
+    await expect(store.initialize()).rejects.toBeInstanceOf(JwtKeyConfigError);
+  });
 });
 
 test("key generation formats a complete, parseable dotenv configuration", async () => {
@@ -106,6 +117,23 @@ test("key generation formats a complete, parseable dotenv configuration", async 
   );
   const token = await store.sign({ sub: "generated-config" });
   expect(await store.verify(token)).toEqual({ sub: "generated-config" });
+});
+
+test("key generation defaults to RSA-3072 and validates CLI bit sizes", async () => {
+  const publicKey = await crypto.subtle.importKey(
+    "spki",
+    decodePem(currentKey.publicKeyPem),
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+
+  expect((publicKey.algorithm as RsaHashedKeyAlgorithm).modulusLength).toBe(
+    3072
+  );
+  expect(parseJwtRsaModulusLength("2048")).toBe(2048);
+  expect(parseJwtRsaModulusLength("4096")).toBe(4096);
+  expect(() => parseJwtRsaModulusLength("1024")).toThrow(JwtKeyConfigError);
 });
 
 test("public key sets reject malformed or empty maps", () => {

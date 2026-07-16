@@ -31,8 +31,10 @@ root:
 bun run auth:keygen
 ```
 
-Use `bun run auth:keygen -- --kid <key-id>` to assign an operator-controlled
-key ID. Key IDs must be unique and use only letters, numbers, `.`, `_`, and
+New keys default to RSA-3072. Use
+`bun run auth:keygen -- --kid <key-id> --bits 3072` to assign an
+operator-controlled key ID or modulus size; `--bits` accepts `2048`, `3072`, or
+`4096`. Key IDs must be unique and use only letters, numbers, `.`, `_`, and
 `-`. The command writes the private key to stdout; redirect it only to a secret
 store or another appropriately protected destination.
 

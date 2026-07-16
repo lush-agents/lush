@@ -26,6 +26,7 @@ import {
   createOrganization,
   createOrganizationInvite,
   deleteCurrentOrganization,
+  initializeJwtKeyStore,
   listOrganizationInvites,
   listOrganizationMembers,
   listOrganizations,
@@ -129,6 +130,7 @@ import {
 } from "./transport-security";
 
 const apiConfig = readApiRuntimeConfig();
+await initializeJwtKeyStore();
 const emailDelivery = configuredEmailDelivery();
 assertEmailDeliveryConfigured({
   passwordAuthEnabled: apiConfig.passwordAuthEnabled,

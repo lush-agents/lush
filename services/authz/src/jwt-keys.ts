@@ -24,6 +24,8 @@ const rsaAlgorithm = {
 } as const;
 
 const keyIdPattern = /^[A-Za-z0-9._-]{1,128}$/;
+export const jwtRsaModulusLengths = [2048, 3072, 4096] as const;
+export type JwtRsaModulusLength = (typeof jwtRsaModulusLengths)[number];
 
 export class JwtKeyStore {
   readonly publicKeys: ReadonlyMap<string, string>;
@@ -41,6 +43,32 @@ export class JwtKeyStore {
     if (!this.publicKeys.has(signingKeyId)) {
       throw new JwtKeyConfigError(
         `LUSH_AUTH_JWT_PUBLIC_KEYS does not contain signing key ${signingKeyId}`
+      );
+    }
+  }
+
+  async initialize() {
+    const keyIds = [...this.publicKeys.keys()];
+    const [privateKey, ...publicKeys] = await Promise.all([
+      this.privateKey(),
+      ...keyIds.map((keyId) => this.publicKey(keyId))
+    ]);
+    const signingPublicKey = publicKeys[keyIds.indexOf(this.signingKeyId)];
+    const challenge = new TextEncoder().encode("lush-jwt-signing-key-check");
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      privateKey,
+      challenge
+    );
+    const matches = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      signingPublicKey!,
+      signature,
+      challenge
+    );
+    if (!matches) {
+      throw new JwtKeyConfigError(
+        `JWT private key does not match signing key ${this.signingKeyId}`
       );
     }
   }
@@ -187,13 +215,14 @@ export async function jwtKeyIdForPublicKey(publicKeyPem: string) {
 }
 
 export async function generateJwtKeyPair(
-  keyId: string = crypto.randomUUID()
+  keyId: string = crypto.randomUUID(),
+  modulusLength: JwtRsaModulusLength = 3072
 ): Promise<GeneratedJwtKeyPair> {
   validateKeyId(keyId);
   const keyPair = await crypto.subtle.generateKey(
     {
       ...rsaAlgorithm,
-      modulusLength: 2048,
+      modulusLength,
       publicExponent: new Uint8Array([1, 0, 1])
     },
     true,
@@ -209,6 +238,18 @@ export async function generateJwtKeyPair(
     privateKeyPem: pem("PRIVATE KEY", privateKey),
     publicKeyPem: pem("PUBLIC KEY", publicKey)
   };
+}
+
+export function parseJwtRsaModulusLength(value: string) {
+  const modulusLength = jwtRsaModulusLengths.find(
+    (candidate) => String(candidate) === value
+  );
+  if (!modulusLength) {
+    throw new JwtKeyConfigError(
+      `JWT RSA bits must be one of ${jwtRsaModulusLengths.join(", ")}`
+    );
+  }
+  return modulusLength;
 }
 
 export function formatJwtKeyEnv(keyPair: GeneratedJwtKeyPair) {
