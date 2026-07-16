@@ -560,7 +560,7 @@ export async function registerAccount(
       {
         to: pending.email,
         subject: "A Lush account already exists for this email",
-        text: `Someone tried to register a Lush account with this email address, but an account already exists. Sign in instead: ${authLink(appBaseUrl, "/login")}`
+        text: `Someone tried to register a Lush account with this email address, but an account already exists. Sign in instead: ${authLink(appBaseUrl, "/sign-in")}`
       },
       "existing_account"
     );

@@ -127,7 +127,7 @@ if (!databaseUrl) {
         to: email,
         subject: "A Lush account already exists for this email"
       });
-      expect(delivery.messages[1]?.text).toContain("https://app.example.com/login");
+      expect(delivery.messages[1]?.text).toContain("https://app.example.com/sign-in");
       expect(delivery.messages[1]?.text).not.toContain("token=");
     });
 
