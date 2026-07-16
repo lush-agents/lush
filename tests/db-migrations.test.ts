@@ -19,8 +19,22 @@ test("database migration ids match their ordinal prefix", () => {
     "006_refresh_token_grace",
     "007_auth_action_tokens",
     "008_session_ip_retention",
-    "009_session_ip_columns"
+    "009_session_ip_columns",
+    "010_organization_invite_tokens"
   ]);
+});
+
+test("organization invite tokens are hashed, required, and unique", async () => {
+  const migration = await Bun.file(
+    "packages/db/src/migrations/010_organization_invite_tokens.ts"
+  ).text();
+
+  expect(migration).toContain("add column if not exists token_hash text");
+  expect(migration).toContain("alter column token_hash set not null");
+  expect(migration).toContain("organization_invites_token_hash_idx");
+  expect(migration).toContain(
+    "md5(gen_random_uuid()::text) || md5(gen_random_uuid()::text)"
+  );
 });
 
 test("auth action tokens are hashed, expiring, and single-use", async () => {

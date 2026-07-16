@@ -226,11 +226,17 @@ Admins can create and list organization invites. An invite stores:
 - expiration,
 - timestamps.
 
-Invite acceptance and invite emails are not implemented yet. Creating an invite
-writes an `audit_events` row with action `auth.organization_invite_created` and
-metadata containing `inviteId`, `email`, `role`, and `expiresAt`. That audit
-event is the current integration point for a future email worker or managed
-deployment event stream.
+Creating an invite generates a random 32-byte token, stores only its SHA-256
+hash, and sends the token-bearing response link through the notifications
+service's `EmailDelivery` interface. The token is required to accept or decline
+the invite, expires with the invite, and becomes unusable after either response.
+The authenticated user's normalized email must also match the invited email.
+
+Acceptance creates the organization membership transactionally. Both acceptance
+and decline set `responded_at` and write `auth.organization_invite_accepted` or
+`auth.organization_invite_declined` to `audit_events`. Invite creation continues
+to write `auth.organization_invite_created` with `inviteId`, `email`, `role`, and
+`expiresAt` metadata.
 
 ## Inference State
 
@@ -301,8 +307,6 @@ bun run typecheck
 - Only email/password auth is wired today.
 - OAuth/OIDC, SAML, SCIM, managed SSO policy, and provider-specific account
   linking are adapter-level future work.
-- Invite acceptance, invite decline, and invite email delivery are not
-  implemented.
 - Roles are hardcoded to `admin` and `user`; custom roles and resource-level
   ACLs are not implemented.
 - Conversation/session workspace state is still mostly placeholder state.

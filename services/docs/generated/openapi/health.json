@@ -592,7 +592,7 @@
           "expiresInDays": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 90,
+            "maximum": 30,
             "description": "Optional expiration window in days. Defaults to 14."
           }
         },
@@ -699,6 +699,64 @@
         },
         "required": [
           "invites"
+        ]
+      },
+      "RespondToOrganizationInviteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Accepts or declines an organization invitation.",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Secret token from the invitation email."
+          },
+          "response": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "declined"
+            ],
+            "description": "Invitation response."
+          }
+        },
+        "required": [
+          "token",
+          "response"
+        ]
+      },
+      "RespondToOrganizationInviteResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Organization invitation response.",
+        "properties": {
+          "invite": {
+            "$ref": "#/components/schemas/OrganizationInvite",
+            "description": "Updated invitation."
+          },
+          "organization": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Inviting organization.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Organization identifier."
+              },
+              "name": {
+                "type": "string",
+                "description": "Organization name."
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          }
+        },
+        "required": [
+          "invite",
+          "organization"
         ]
       },
       "CurrentSession": {

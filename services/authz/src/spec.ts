@@ -134,6 +134,19 @@ export type ListOrganizationInvitesResponse = {
   invites: OrganizationInvite[];
 };
 
+export type RespondToOrganizationInviteRequest = {
+  token: string;
+  response: "accepted" | "declined";
+};
+
+export type RespondToOrganizationInviteResponse = {
+  invite: OrganizationInvite;
+  organization: {
+    id: string;
+    name: string;
+  };
+};
+
 export type CurrentSession = {
   sessionId: string;
   user: {
@@ -345,6 +358,15 @@ export const authzRoutes = [
     method: "GET",
     path: "/session/organization/invites",
     responseType: "ListOrganizationInvitesResponse",
+    auth: true,
+    kind: "json"
+  },
+  {
+    id: "respondToOrganizationInvite",
+    method: "POST",
+    path: "/session/organization/invites/respond",
+    requestType: "RespondToOrganizationInviteRequest",
+    responseType: "RespondToOrganizationInviteResponse",
     auth: true,
     kind: "json"
   }
