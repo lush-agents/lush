@@ -24,6 +24,7 @@ export type NormalizedAccessSession = {
 
 const accessSessionCacheKey = "lush:access-session";
 const accessTokenExpirySkewMs = 60_000;
+const inFlightRefreshes = new Map<string, Promise<AccessSession>>();
 
 type BrowserSessionStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -94,11 +95,40 @@ export function clearCachedAccessSession(
 
 export async function refreshAccessSession(
   apiBaseUrl: string,
-  applySession: (accessSession: AccessSession) => void | Promise<void>
+  applySession: (accessSession: AccessSession) => void | Promise<void>,
+  requestRefresh: typeof refreshSession = refreshSession
 ) {
-  const accessSession = await refreshSession(apiBaseUrl, {});
+  let refresh = inFlightRefreshes.get(apiBaseUrl);
+  if (!refresh) {
+    refresh = withBrowserRefreshLock(apiBaseUrl, () =>
+      requestRefresh(apiBaseUrl, {})
+    );
+    inFlightRefreshes.set(apiBaseUrl, refresh);
+    const clear = () => {
+      if (inFlightRefreshes.get(apiBaseUrl) === refresh) {
+        inFlightRefreshes.delete(apiBaseUrl);
+      }
+    };
+    refresh.then(clear, clear);
+  }
+
+  const accessSession = await refresh;
   await applySession(accessSession);
   return accessSession;
+}
+
+async function withBrowserRefreshLock<T>(
+  apiBaseUrl: string,
+  operation: () => Promise<T>
+) {
+  if (typeof navigator === "undefined" || !navigator.locks) {
+    return operation();
+  }
+
+  return navigator.locks.request(
+    `lush:auth-refresh:${apiBaseUrl}`,
+    operation
+  );
 }
 
 export async function withTokenRefresh<T>(

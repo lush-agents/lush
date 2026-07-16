@@ -27,9 +27,12 @@ HttpOnly cookie. The refresh token is not readable by application JavaScript.
 The refresh session is backed by database state and is scoped to the user,
 organization, membership, expiry, and revocation status.
 
-Each refresh rotates the cookie. If an earlier token from the same token family
-is presented again, Lush treats it as a theft signal, revokes the entire
-session, and records an audit event.
+Each refresh normally rotates the cookie. Repeated presentation of the
+immediately previous token within a short grace period returns the same
+successor, allowing concurrent requests and lost responses to converge safely.
+An older token, or a previous token outside the grace period, is treated as a
+theft signal: Lush revokes the entire session and records the presenter's
+hashed IP and user agent in an audit event.
 
 ## Access Tokens
 

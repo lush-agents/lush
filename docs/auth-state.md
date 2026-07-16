@@ -71,11 +71,19 @@ The app uses a refresh-token plus access-token split.
 
 Refresh sessions are stored in the `sessions` table. The raw refresh token is
 stored only in an HttpOnly `lush_session` cookie; the database stores a SHA-256
-hash. Every successful refresh rotates the cookie and invalidates the presented
-token. Reusing a rotated token revokes the entire session and records
-`auth.refresh_token_reused` in `audit_events`. Refresh sessions expire after
-`LUSH_SESSION_TTL_MS`, defaulting to 30 days. `POST /v1beta/auth/logout-all`
-revokes every active session for the current user.
+hash. A successful refresh normally rotates the cookie and invalidates the
+presented token. The immediately previous token has a short replay grace period
+(`LUSH_REFRESH_TOKEN_GRACE_MS`, default 60 seconds): repeated presentations
+receive the same deterministic successor so concurrent requests and lost
+responses converge without advancing the token chain. Reusing an older token,
+or the previous token after grace expires, revokes the entire session and
+records `auth.refresh_token_reused` in `audit_events` with the presenter's
+hashed IP and user agent. Refresh sessions expire after `LUSH_SESSION_TTL_MS`,
+defaulting to 30 days. `POST /v1beta/auth/logout-all` revokes every active
+session for the current user.
+
+Session rows preserve the user agent and hashed IP captured at creation, while
+separate last-seen fields update during refresh.
 
 Access tokens are RS256 JWTs signed by `services/authz` with
 `LUSH_AUTH_JWT_PRIVATE_KEY` and verified with `LUSH_AUTH_JWT_PUBLIC_KEY`.

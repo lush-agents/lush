@@ -25,6 +25,10 @@ test("refresh-token rotation migration adds a unique token-family lookup", async
   ).text();
 
   expect(migration).toContain("add column if not exists refresh_family_hash text");
+  expect(migration).toContain("add column if not exists previous_token_hash text");
+  expect(migration).toContain("add column if not exists rotated_at timestamptz");
+  expect(migration).toContain("add column if not exists last_seen_user_agent text");
+  expect(migration).toContain("add column if not exists last_seen_ip_hash text");
   expect(migration).toContain("sessions_refresh_family_hash_idx");
   expect(migration).toContain("where refresh_family_hash is not null");
 });

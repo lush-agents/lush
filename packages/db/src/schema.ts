@@ -97,8 +97,12 @@ export type SessionsTable = {
   membershipId: string | null;
   tokenHash: string;
   refreshFamilyHash: string | null;
+  previousTokenHash: string | null;
+  rotatedAt: Timestamp | null;
   userAgent: string | null;
   ipHash: string | null;
+  lastSeenUserAgent: string | null;
+  lastSeenIpHash: string | null;
   createdAt: Timestamp;
   lastUsedAt: Timestamp;
   expiresAt: Timestamp;
