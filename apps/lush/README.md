@@ -34,14 +34,17 @@ The Tauri shell requires Rust 1.88 or newer.
 
 ## API Base URL
 
-The app reads its API gateway from `VITE_LUSH_API_BASE_URL`. This is build-time
-deployment config, not user-editable state. Desktop builds resolve `localhost`
-API URLs to `127.0.0.1` at runtime so the Tauri webview reaches the IPv4 Bun
-dev server reliably.
+Browser builds read `LUSH_API_URL` from the production container's generated
+runtime config, then fall back to build-time `VITE_LUSH_API_BASE_URL`, then the
+page origin. This lets one immutable web image call an environment-specific
+public API URL. When neither URL is set, the production web image reverse
+proxies same-origin API routes. This is deployment config, not user-editable
+state.
+
+Tauri builds still require `VITE_LUSH_API_BASE_URL`. Desktop builds resolve
+`localhost` API URLs to `127.0.0.1` at runtime so the Tauri webview reaches the
+IPv4 Bun dev server reliably.
 
 Vite loads environment files from the repository root. Tauri's local release
 bundle uses Vite's `development` mode so `.env.development` is included; an
 exported `VITE_LUSH_API_BASE_URL` takes precedence for other packaged targets.
-
-For hosted builds, point `VITE_LUSH_API_BASE_URL` at the DNS/SSL-backed API
-gateway, for example `https://api.lush.dev`.

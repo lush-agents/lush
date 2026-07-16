@@ -6,6 +6,7 @@ import {
   matchWorkspaceSessionPath,
   readComposerFocusRequest,
   readProjectChatState,
+  resolveRuntimeApiBaseUrl,
   routes,
   sessionRouteHref
 } from "../apps/lush/src/lib/app-data";
@@ -67,4 +68,41 @@ test("new session navigation carries a unique composer focus request", () => {
   expect(first.focusComposerRequest).not.toBe(second.focusComposerRequest);
   expect(readComposerFocusRequest({ focusComposerRequest: 42 })).toBeUndefined();
   expect(readComposerFocusRequest(undefined)).toBeUndefined();
+});
+
+test("the browser app defaults to a same-origin API", () => {
+  expect(
+    resolveRuntimeApiBaseUrl({
+      browserOrigin: "https://lush.example.com/",
+      tauriRuntime: false
+    })
+  ).toBe("https://lush.example.com");
+});
+
+test("runtime API configuration overrides build-time configuration", () => {
+  expect(
+    resolveRuntimeApiBaseUrl({
+      runtimeApiBaseUrl: "https://api.runtime.example.com/",
+      configuredApiBaseUrl: "https://api.build.example.com",
+      browserOrigin: "https://app.example.com",
+      tauriRuntime: false
+    })
+  ).toBe("https://api.runtime.example.com");
+});
+
+test("Tauri requires an explicit API and normalizes localhost", () => {
+  expect(() =>
+    resolveRuntimeApiBaseUrl({
+      browserOrigin: "tauri://localhost",
+      tauriRuntime: true
+    })
+  ).toThrow("VITE_LUSH_API_BASE_URL is required in Tauri.");
+
+  expect(
+    resolveRuntimeApiBaseUrl({
+      configuredApiBaseUrl: "http://localhost:7330/",
+      browserOrigin: "tauri://localhost",
+      tauriRuntime: true
+    })
+  ).toBe("http://127.0.0.1:7330");
 });
