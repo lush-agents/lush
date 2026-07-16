@@ -46,6 +46,8 @@ import {
   updateCurrentUser,
   verifyEmailAddress
 } from "@lush/authz/runtime";
+import { normalizeAuthEmail } from "@lush/authz/email";
+import { refreshTokenFamilySecret } from "@lush/authz/refresh-token";
 import {
   assertEmailDeliveryConfigured,
   configuredEmailDelivery
@@ -97,6 +99,18 @@ import {
   compileRequestLogRoutes,
   type RequestLogRoute
 } from "./request-log";
+import {
+  isTrustedProxyAddress,
+  parseTrustedProxies,
+  rateLimitNetworkKey,
+  resolveClientIp
+} from "./client-ip";
+import {
+  authRateLimitPolicies,
+  compoundRateLimitKey,
+  hashRateLimitKey,
+  SlidingWindowRateLimiter
+} from "./rate-limit";
 
 const apiConfig = readApiRuntimeConfig();
 const emailDelivery = configuredEmailDelivery();
@@ -147,6 +161,19 @@ const desktopAppOrigins = [
 const allowedOrigins = Array.from(
   new Set([...apiConfig.appOrigins, ...desktopAppOrigins])
 );
+const remoteAddresses = new WeakMap<Request, string>();
+// Separate maps keep source-key churn from evicting target-email state.
+const authRateLimiters = {
+  registerIp: rateLimiter("registerIp"),
+  registerEmail: rateLimiter("registerEmail"),
+  loginIp: rateLimiter("loginIp"),
+  loginEmailIp: rateLimiter("loginEmailIp"),
+  loginEmail: rateLimiter("loginEmail"),
+  refreshIp: rateLimiter("refreshIp"),
+  refreshSession: rateLimiter("refreshSession"),
+  passwordResetIp: rateLimiter("passwordResetIp"),
+  passwordResetEmail: rateLimiter("passwordResetEmail")
+};
 
 app.use("*", async (c, next) => {
   const start = performance.now();
@@ -166,6 +193,7 @@ app.use("*", async (c, next) => {
       statusCode: thrownError ? 500 : c.res.status,
       durationMs: Number((performance.now() - start).toFixed(2)),
       requestId,
+      ipAddress: clientIpAddress(c.req.raw),
       response: thrownError ? undefined : c.res
     });
 
@@ -227,7 +255,25 @@ function contextIdParam(c: Context) {
 
 app.post(routePath("registerAccount"), async (c) => {
   try {
+    const ipLimited = enforceRateLimit(
+      c,
+      authRateLimiters.registerIp,
+      requestNetworkKey(c.req.raw)
+    );
+    if (ipLimited) {
+      return ipLimited;
+    }
+
     const body = await c.req.json().catch(() => undefined);
+    const emailLimited = enforceRateLimit(
+      c,
+      authRateLimiters.registerEmail,
+      requestEmailKey(body)
+    );
+    if (emailLimited) {
+      return emailLimited;
+    }
+
     return c.json(
       await registerAccount(body, requestMeta(c.req.raw), {
         emailDelivery,
@@ -250,7 +296,25 @@ app.post(routePath("verifyEmail"), async (c) => {
 
 app.post(routePath("requestPasswordReset"), async (c) => {
   try {
+    const ipLimited = enforceRateLimit(
+      c,
+      authRateLimiters.passwordResetIp,
+      requestNetworkKey(c.req.raw)
+    );
+    if (ipLimited) {
+      return ipLimited;
+    }
+
     const body = await c.req.json().catch(() => undefined);
+    const emailLimited = enforceRateLimit(
+      c,
+      authRateLimiters.passwordResetEmail,
+      requestEmailKey(body)
+    );
+    if (emailLimited) {
+      return emailLimited;
+    }
+
     return c.json(
       await requestPasswordReset(body, requestMeta(c.req.raw), {
         emailDelivery,
@@ -273,8 +337,44 @@ app.post(routePath("resetPassword"), async (c) => {
 
 app.post(routePath("login"), async (c) => {
   try {
+    // This broad source tier intentionally counts successes as bulk-abuse
+    // protection; successful logins clear the tighter target-specific tiers.
+    const ipLimited = enforceRateLimit(
+      c,
+      authRateLimiters.loginIp,
+      requestNetworkKey(c.req.raw)
+    );
+    if (ipLimited) {
+      return ipLimited;
+    }
+
     const body = await c.req.json().catch(() => undefined);
+    const emailKey = requestEmailKey(body);
+    const emailIpKey = compoundRateLimitKey(
+      emailKey,
+      requestNetworkKey(c.req.raw)
+    );
+    const emailIpLimited = enforceRateLimit(
+      c,
+      authRateLimiters.loginEmailIp,
+      emailIpKey
+    );
+    if (emailIpLimited) {
+      return emailIpLimited;
+    }
+
+    const emailLimited = enforceRateLimit(
+      c,
+      authRateLimiters.loginEmail,
+      emailKey
+    );
+    if (emailLimited) {
+      return emailLimited;
+    }
+
     const session = await login(body, requestMeta(c.req.raw));
+    authRateLimiters.loginEmailIp.clear(emailIpKey);
+    authRateLimiters.loginEmail.clear(emailKey);
     const { refreshToken, ...response } = session;
     setSessionCookie(c, refreshToken, response.session.expiresAt, c.req.raw);
     return c.json(response);
@@ -285,9 +385,27 @@ app.post(routePath("login"), async (c) => {
 
 app.post(routePath("refreshSession"), async (c) => {
   try {
+    const ipLimited = enforceRateLimit(
+      c,
+      authRateLimiters.refreshIp,
+      requestNetworkKey(c.req.raw)
+    );
+    if (ipLimited) {
+      return ipLimited;
+    }
+
     const refreshToken = sessionCookie(c.req.raw);
     if (!refreshToken) {
       return unauthorized(c);
+    }
+
+    const sessionLimited = enforceRateLimit(
+      c,
+      authRateLimiters.refreshSession,
+      await hashRateLimitKey(refreshTokenFamilySecret(refreshToken))
+    );
+    if (sessionLimited) {
+      return sessionLimited;
     }
 
     const session = await refreshAccessSession(
@@ -1049,7 +1167,13 @@ const server = Bun.serve({
   port,
   hostname,
   ...({ idleTimeout: 255 } as { idleTimeout: number }),
-  fetch: app.fetch
+  fetch(request, bunServer) {
+    const remoteAddress = bunServer.requestIP(request)?.address;
+    if (remoteAddress) {
+      remoteAddresses.set(request, remoteAddress);
+    }
+    return app.fetch(request);
+  }
 });
 
 logger.info(
@@ -1145,6 +1269,7 @@ function readApiRuntimeConfig() {
     LUSH_SECRET_KEY: envSchema.string(),
     LUSH_AUTH_PASSWORD_ENABLED: envSchema.boolean(true),
     LUSH_PUBLIC_APP_URL: envSchema.optionalString(""),
+    LUSH_TRUSTED_PROXIES: envSchema.commaList(),
     LUSH_API_PORT: envSchema.number(7330),
     LUSH_API_HOST: envSchema.optionalString("0.0.0.0")
   });
@@ -1181,12 +1306,23 @@ function readApiRuntimeConfig() {
     }
   }
 
+  let trustedProxies;
+  try {
+    trustedProxies = parseTrustedProxies(env.LUSH_TRUSTED_PROXIES);
+  } catch {
+    throw new ConfigError(
+      "LUSH_TRUSTED_PROXIES must contain valid IP addresses or CIDR ranges.",
+      { invalid: ["LUSH_TRUSTED_PROXIES"] }
+    );
+  }
+
   return {
     port: env.LUSH_API_PORT,
     hostname: env.LUSH_API_HOST,
     appOrigins,
     passwordAuthEnabled: env.LUSH_AUTH_PASSWORD_ENABLED,
-    publicAppUrl: env.LUSH_PUBLIC_APP_URL
+    publicAppUrl: env.LUSH_PUBLIC_APP_URL,
+    trustedProxies
   };
 }
 
@@ -1300,21 +1436,85 @@ function secureCookieAttributes(request: Request) {
 }
 
 function isSecureRequest(request: Request) {
+  if (new URL(request.url).protocol === "https:") {
+    return true;
+  }
+
   const forwardedProto = request.headers.get("x-forwarded-proto");
-  if (forwardedProto) {
+  if (
+    forwardedProto &&
+    isTrustedProxyAddress(
+      remoteAddresses.get(request),
+      apiConfig.trustedProxies
+    )
+  ) {
     return forwardedProto.split(",")[0]?.trim() === "https";
   }
 
-  return new URL(request.url).protocol === "https:";
+  return false;
 }
 
 function requestMeta(request: Request) {
   return {
     userAgent: request.headers.get("user-agent"),
-    ipAddress:
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip")
+    ipAddress: clientIpAddress(request)
   };
+}
+
+function clientIpAddress(request: Request) {
+  const address = resolveClientIp({
+    remoteAddress: remoteAddresses.get(request),
+    forwardedFor: request.headers.get("x-forwarded-for"),
+    realIp: request.headers.get("x-real-ip"),
+    trustedProxies: apiConfig.trustedProxies
+  });
+  if (!address && !missingRemoteAddressWarned) {
+    missingRemoteAddressWarned = true;
+    logger.warn(
+      "request peer address unavailable; auth rate limits share the unknown-source bucket"
+    );
+  }
+  return address;
+}
+
+let missingRemoteAddressWarned = false;
+
+function requestNetworkKey(request: Request) {
+  return rateLimitNetworkKey(clientIpAddress(request));
+}
+
+function requestEmailKey(body: unknown) {
+  if (!body || typeof body !== "object") {
+    return "invalid";
+  }
+
+  return normalizeAuthEmail((body as { email?: unknown }).email) || "invalid";
+}
+
+function rateLimiter(policy: keyof typeof authRateLimitPolicies) {
+  const { limit, windowMs } = authRateLimitPolicies[policy];
+  return new SlidingWindowRateLimiter(limit, windowMs);
+}
+
+function enforceRateLimit(
+  c: Context,
+  limiter: SlidingWindowRateLimiter,
+  key: string
+) {
+  const result = limiter.consume(key);
+  if (result.allowed) {
+    return undefined;
+  }
+
+  c.header("retry-after", String(result.retryAfterSeconds));
+  c.header("cache-control", "no-store");
+  return c.json(
+    {
+      error: "rate_limited",
+      message: "Too many requests. Try again later."
+    },
+    429
+  );
 }
 
 async function streamChat(

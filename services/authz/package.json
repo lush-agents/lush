@@ -16,6 +16,8 @@
     "kysely": "^0.28.7"
   },
   "exports": {
+    "./email": "./src/email.ts",
+    "./refresh-token": "./src/refresh-token.ts",
     "./runtime": "./src/runtime.ts",
     "./spec": "./src/spec.ts"
   }

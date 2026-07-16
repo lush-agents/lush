@@ -42,9 +42,59 @@ refresh tokens remain valid.
 - `LUSH_ACCESS_TOKEN_TTL_MS`, default `300000`
 - `LUSH_AUTH_JWT_ISSUER`, default `lush-authz`
 - `LUSH_AUTH_JWT_AUDIENCE`, default `lush-api`
+- `LUSH_TRUSTED_PROXIES`, default empty
 
 `LUSH_APP_ORIGIN` is a comma-separated list of browser app origins allowed to
 use credentialed auth. Wildcard origins are rejected.
+
+## Auth rate limits and reverse proxies
+
+The API enforces in-process sliding-window limits before password hashing,
+session refresh, or email delivery:
+
+| Endpoint | Source-network limit | Target-specific limit |
+| --- | ---: | ---: |
+| Register | 5/hour | 3/email/hour |
+| Login | 300/15 minutes | 5/(email + network)/15 minutes; 40/email/15 minutes |
+| Refresh | 2,000/5 minutes | 20/session/5 minutes |
+| Request password reset | 60/hour | 3/email/hour |
+
+A successful login clears both target-specific login windows; the broader
+source-network tier intentionally counts successful requests as bulk-abuse
+protection. Refresh limits use a hash of the stable refresh-token family so
+token rotation does not reset the session window. IPv4 sources are keyed by
+address and IPv6 sources by `/64`, preventing privacy-address rotation from
+bypassing limits or churning limiter state. Rejected requests return `429`
+with a `Retry-After` header.
+
+Registration and password-reset target limits deliberately prioritize
+email-bombing protection: an attacker can suppress those emails to one address
+for the remainder of the window. Login uses a tight `(email, network)` tier
+and a much looser email-wide backstop to make targeted login lockout materially
+more expensive while still bounding distributed guessing.
+
+Limits apply independently in each API process, so multi-replica deployments
+should also enforce a shared limit at the edge. If the runtime cannot determine
+the socket peer, the request uses a shared `unknown` source bucket and the API
+logs a warning once so the deployment problem is visible to operators.
+
+With no reverse proxy, leave `LUSH_TRUSTED_PROXIES` empty. The API ignores
+`X-Forwarded-For`, `X-Real-IP`, and `X-Forwarded-Proto` from direct clients and
+keys limits on the socket peer address.
+
+Behind a reverse proxy, set `LUSH_TRUSTED_PROXIES` to the comma-separated IP
+addresses or CIDR ranges from which the API actually accepts proxy traffic.
+For example:
+
+```dotenv
+LUSH_TRUSTED_PROXIES=10.20.0.0/16,2001:db8:1234::/48
+```
+
+The API walks `X-Forwarded-For` from the direct peer toward the client and
+stops at the first untrusted hop. Every proxy in the chain must be listed, and
+the public-facing proxy must replace client-supplied forwarding headers.
+Do not trust an internet-wide range such as `0.0.0.0/0`; that lets callers
+choose the address used for throttling.
 
 ## Email verification
 

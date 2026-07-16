@@ -18,6 +18,7 @@ import {
   refreshTokenFamilySecret,
   rotateRefreshToken
 } from "./refresh-token";
+import { normalizeAuthEmail } from "./email";
 
 export type Principal = {
   userId: string;
@@ -1409,7 +1410,7 @@ export async function requestPasswordReset(
   options: AuthEmailOptions = {}
 ) {
   ensurePasswordAuthEnabled();
-  const email = normalizeEmail(objectRequest(request).email);
+  const email = normalizeAuthEmail(objectRequest(request).email);
   if (!email) {
     throw new AuthError("invalid_email", "A valid email is required");
   }
@@ -1523,7 +1524,7 @@ export async function resetPassword(
 }
 
 export async function verifyEmailAddressByOperator(email: string) {
-  const normalizedEmail = normalizeEmail(email);
+  const normalizedEmail = normalizeAuthEmail(email);
   if (!normalizedEmail) {
     throw new AuthError("invalid_email", "A valid email is required");
   }
@@ -1782,7 +1783,7 @@ export function authAssertionEmailVerified(assertion: AuthAssertion) {
 
 function normalizeRegisterRequest(request: unknown): NormalizedRegisterAccountRequest {
   const candidate = objectRequest(request);
-  const email = normalizeEmail(candidate.email);
+  const email = normalizeAuthEmail(candidate.email);
   const password = normalizePassword(candidate.password);
   const displayName =
     typeof candidate.displayName === "string" && candidate.displayName.trim()
@@ -1906,7 +1907,7 @@ function normalizeCreateOrganizationInviteRequest(
   request: unknown
 ): Required<CreateOrganizationInviteRequest> {
   const candidate = objectRequest(request);
-  const email = normalizeEmail(candidate.email);
+  const email = normalizeAuthEmail(candidate.email);
   const role = normalizeUserRole(candidate.role);
   const expiresInDays =
     typeof candidate.expiresInDays === "number" &&
@@ -1952,7 +1953,7 @@ function normalizeUserRole(value: unknown): UserRole {
 
 function normalizeLoginRequest(request: unknown): LoginRequest {
   const candidate = objectRequest(request);
-  const email = normalizeEmail(candidate.email);
+  const email = normalizeAuthEmail(candidate.email);
   const password = typeof candidate.password === "string" ? candidate.password : "";
   const organizationId =
     typeof candidate.organizationId === "string" && candidate.organizationId
@@ -1976,15 +1977,6 @@ function objectRequest(request: unknown) {
   }
 
   return request as Record<string, unknown>;
-}
-
-function normalizeEmail(value: unknown) {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  const email = value.trim().toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
 }
 
 async function nextOrganizationSlug(
