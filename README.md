@@ -90,6 +90,8 @@ volume.
 - `bun run db:down` - stop local PostgreSQL and remove compose resources.
 - `bun run db:logs` - follow local PostgreSQL logs.
 - `bun run db:migrate` - apply PostgreSQL migrations.
+- `bun run auth:keygen` - generate a dotenv-ready JWT signing key and keyed
+  verification set.
 - `bun run auth:verify-email -- user@example.com` - mark a local development
   account email as verified.
 

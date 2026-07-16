@@ -2,6 +2,7 @@ import { sql, type Kysely, type Transaction } from "kysely";
 import {
   ConfigError,
   envSchema,
+  envValue,
   readEnvSchema,
   requiredEnvValue
 } from "@lush/config/env";
@@ -29,6 +30,13 @@ import {
 import {
   retainedSessionIp
 } from "./session-ip";
+import {
+  JwtKeyConfigError,
+  JwtKeyStore,
+  JwtTokenError,
+  jwtKeyIdForPublicKey,
+  parseJwtPublicKeys
+} from "./jwt-keys";
 
 export type Principal = {
   userId: string;
@@ -2427,46 +2435,31 @@ function sessionIdFromRefreshSession(session: CurrentSession) {
 }
 
 async function signAccessToken(claims: AccessTokenClaims) {
-  const header = {
-    alg: "RS256",
-    typ: "JWT"
-  };
-  const signingInput = [
-    base64UrlEncode(JSON.stringify(header)),
-    base64UrlEncode(JSON.stringify(claims))
-  ].join(".");
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    await jwtPrivateKey(),
-    new TextEncoder().encode(signingInput)
-  );
-
-  return `${signingInput}.${base64UrlEncode(new Uint8Array(signature))}`;
+  try {
+    return await (await jwtKeyStore()).sign(claims);
+  } catch (error) {
+    if (error instanceof JwtKeyConfigError) {
+      throw new AuthError("auth_key_invalid", error.message, 500);
+    }
+    throw error;
+  }
 }
 
 async function verifyAccessToken(token: string): Promise<AccessTokenClaims> {
-  const [encodedHeader, encodedClaims, encodedSignature] = token.split(".");
-  if (!encodedHeader || !encodedClaims || !encodedSignature) {
-    throw new AuthError("invalid_access_token", "Invalid access token", 401);
+  let payload: Record<string, unknown>;
+  try {
+    payload = await (await jwtKeyStore()).verify(token);
+  } catch (error) {
+    if (error instanceof JwtTokenError) {
+      throw new AuthError("invalid_access_token", "Invalid access token", 401);
+    }
+    if (error instanceof JwtKeyConfigError) {
+      throw new AuthError("auth_key_invalid", error.message, 500);
+    }
+    throw error;
   }
 
-  const header = parseJson(base64UrlDecode(encodedHeader));
-  if (header.alg !== "RS256" || header.typ !== "JWT") {
-    throw new AuthError("invalid_access_token", "Invalid access token", 401);
-  }
-
-  const signingInput = `${encodedHeader}.${encodedClaims}`;
-  const verified = await crypto.subtle.verify(
-    "RSASSA-PKCS1-v1_5",
-    await jwtPublicKey(),
-    base64UrlDecodeBytes(encodedSignature),
-    new TextEncoder().encode(signingInput)
-  );
-  if (!verified) {
-    throw new AuthError("invalid_access_token", "Invalid access token", 401);
-  }
-
-  const claims = parseAccessClaims(parseJson(base64UrlDecode(encodedClaims)));
+  const claims = parseAccessClaims(payload);
   const now = Math.floor(Date.now() / 1000);
   if (claims.iss !== jwtIssuer || claims.aud !== jwtAudience || claims.exp <= now) {
     throw new AuthError("invalid_access_token", "Invalid access token", 401);
@@ -2475,70 +2468,44 @@ async function verifyAccessToken(token: string): Promise<AccessTokenClaims> {
   return claims;
 }
 
-let cachedPrivateKey: Promise<CryptoKey> | undefined;
-let cachedPublicKey: Promise<CryptoKey> | undefined;
+let cachedJwtKeyStore: Promise<JwtKeyStore> | undefined;
 
-function jwtPrivateKey() {
-  cachedPrivateKey ??= crypto.subtle.importKey(
-    "pkcs8",
-    pemToDer(requiredJwtKey("LUSH_AUTH_JWT_PRIVATE_KEY")),
-    {
-      name: "RSASSA-PKCS1-v1_5",
-      hash: "SHA-256"
-    },
-    false,
-    ["sign"]
-  );
-  return cachedPrivateKey;
+function jwtKeyStore() {
+  cachedJwtKeyStore ??= loadJwtKeyStore();
+  return cachedJwtKeyStore;
 }
 
-function jwtPublicKey() {
-  cachedPublicKey ??= crypto.subtle.importKey(
-    "spki",
-    pemToDer(requiredJwtKey("LUSH_AUTH_JWT_PUBLIC_KEY")),
-    {
-      name: "RSASSA-PKCS1-v1_5",
-      hash: "SHA-256"
-    },
-    false,
-    ["verify"]
-  );
-  return cachedPublicKey;
-}
-
-function requiredJwtKey(name: string) {
+async function loadJwtKeyStore() {
   try {
-    return requiredEnvValue(name).replace(/\\n/g, "\n");
+    const privateKey = requiredEnvValue("LUSH_AUTH_JWT_PRIVATE_KEY");
+    const publicKeySet = envValue("LUSH_AUTH_JWT_PUBLIC_KEYS");
+    if (publicKeySet) {
+      return new JwtKeyStore(
+        requiredEnvValue("LUSH_AUTH_JWT_KEY_ID"),
+        privateKey,
+        parseJwtPublicKeys(publicKeySet),
+        true
+      );
+    }
+
+    const legacyPublicKey = requiredEnvValue("LUSH_AUTH_JWT_PUBLIC_KEY");
+    const keyId = await jwtKeyIdForPublicKey(legacyPublicKey);
+    return new JwtKeyStore(
+      keyId,
+      privateKey,
+      { [keyId]: legacyPublicKey },
+      true
+    );
   } catch (error) {
-    if (error instanceof ConfigError) {
+    if (error instanceof ConfigError || error instanceof JwtKeyConfigError) {
       throw new AuthError(
-        "auth_key_missing",
-        `${name} is required for access token signing`,
+        "auth_key_invalid",
+        error.message,
         500
       );
     }
 
     throw error;
-  }
-}
-
-function pemToDer(pem: string) {
-  const base64 = pem
-    .replace(/-----BEGIN [^-]+-----/g, "")
-    .replace(/-----END [^-]+-----/g, "")
-    .replace(/\s+/g, "");
-  return bytesToArrayBuffer(base64DecodeBytes(base64));
-}
-
-function parseJson(value: string) {
-  try {
-    return JSON.parse(value) as Record<string, unknown>;
-  } catch {
-    throw new AuthError(
-      "invalid_access_token",
-      "Invalid access token",
-      401
-    );
   }
 }
 
@@ -2571,40 +2538,6 @@ function isUserRole(value: unknown): value is UserRole {
   return value === "admin" || value === "user";
 }
 
-function base64UrlEncode(value: string | Uint8Array) {
-  const bytes =
-    typeof value === "string" ? new TextEncoder().encode(value) : value;
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function base64UrlDecode(value: string) {
-  return new TextDecoder().decode(base64UrlDecodeBytes(value));
-}
-
-function base64UrlDecodeBytes(value: string) {
-  return base64DecodeBytes(
-    value.replace(/-/g, "+").replace(/_/g, "/")
-  );
-}
-
-function base64DecodeBytes(value: string) {
-  const padded = value.padEnd(value.length + ((4 - (value.length % 4)) % 4), "=");
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return bytes;
-}
 
 async function recordAuditEvent(
   db: Kysely<Database> | Transaction<Database>,
@@ -2645,11 +2578,4 @@ async function hashSecret(value: string) {
 
 function bytesToHex(bytes: Uint8Array) {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function bytesToArrayBuffer(bytes: Uint8Array) {
-  return bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength
-  ) as ArrayBuffer;
 }

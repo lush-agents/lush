@@ -20,11 +20,45 @@ error before it begins accepting requests.
 - `DATABASE_URL`
 - `LUSH_SECRET_KEY`
 - `LUSH_APP_ORIGIN`
+- `LUSH_AUTH_JWT_KEY_ID`
 - `LUSH_AUTH_JWT_PRIVATE_KEY`
-- `LUSH_AUTH_JWT_PUBLIC_KEY`
+- `LUSH_AUTH_JWT_PUBLIC_KEYS`
 
-The JWT keys must be an asymmetric keypair. The API signs short-lived access
-JWTs; backing services verify them with the public key.
+Generate an RS256 keypair and dotenv-ready configuration from the repository
+root:
+
+```sh
+bun run auth:keygen
+```
+
+Use `bun run auth:keygen -- --kid <key-id>` to assign an operator-controlled
+key ID. Key IDs must be unique and use only letters, numbers, `.`, `_`, and
+`-`. The command writes the private key to stdout; redirect it only to a secret
+store or another appropriately protected destination.
+
+`LUSH_AUTH_JWT_KEY_ID` selects the private signing key.
+`LUSH_AUTH_JWT_PUBLIC_KEYS` is a JSON object mapping every accepted key ID to
+its PEM public key. The signing key ID must be present in that map. Access JWTs
+carry the selected ID in their `kid` header, and verification remains pinned to
+`alg: RS256`.
+
+For a zero-downtime rotation:
+
+1. Generate the replacement keypair. Add its public key to
+   `LUSH_AUTH_JWT_PUBLIC_KEYS` on every verifier while leaving the old
+   `LUSH_AUTH_JWT_KEY_ID` and private key active, then deploy.
+2. Switch `LUSH_AUTH_JWT_KEY_ID` and `LUSH_AUTH_JWT_PRIVATE_KEY` to the new
+   signer while retaining both public keys, then deploy again.
+3. After the maximum `LUSH_ACCESS_TOKEN_TTL_MS` plus the deployment overlap has
+   elapsed, remove the old public key from the map.
+
+Never remove the old public key before all old-signer instances have stopped
+and their access tokens have expired. The legacy `LUSH_AUTH_JWT_PUBLIC_KEY`
+variable remains accepted only as an upgrade bridge for single-key installs;
+it cannot provide rotation and new deployments should use the keyed set.
+When first moving a pre-`kid` deployment to the keyed set, keep the old key as
+the selected signer through step 1 for at least the maximum access-token TTL so
+tokens without a key ID expire before step 2.
 
 `LUSH_SECRET_KEY` encrypts stored provider credentials and is also HMAC key
 material for deterministic refresh-token successors. Rotating it prevents the

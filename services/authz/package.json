@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsgo --noEmit",
+    "keygen": "bun run src/keygen.ts",
     "verify-email": "bun run src/verify-email.ts"
   },
   "dependencies": {
@@ -17,6 +18,7 @@
   },
   "exports": {
     "./email": "./src/email.ts",
+    "./jwt-keys": "./src/jwt-keys.ts",
     "./refresh-token": "./src/refresh-token.ts",
     "./runtime": "./src/runtime.ts",
     "./spec": "./src/spec.ts"

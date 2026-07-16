@@ -86,6 +86,10 @@ import {
   envSchema,
   readEnvSchema
 } from "@lush/config/env";
+import {
+  JwtKeyConfigError,
+  parseJwtPublicKeys
+} from "@lush/authz/jwt-keys";
 import { createLogger } from "@lush/logging/logger";
 import {
   ClientEventBroker,
@@ -1314,7 +1318,9 @@ function readApiRuntimeConfig() {
     DATABASE_URL: envSchema.string(),
     LUSH_APP_ORIGIN: envSchema.commaList(),
     LUSH_AUTH_JWT_PRIVATE_KEY: envSchema.string(),
-    LUSH_AUTH_JWT_PUBLIC_KEY: envSchema.string(),
+    LUSH_AUTH_JWT_KEY_ID: envSchema.optionalString(""),
+    LUSH_AUTH_JWT_PUBLIC_KEYS: envSchema.optionalString(""),
+    LUSH_AUTH_JWT_PUBLIC_KEY: envSchema.optionalString(""),
     LUSH_SECRET_KEY: envSchema.string(),
     LUSH_AUTH_PASSWORD_ENABLED: envSchema.boolean(true),
     LUSH_AUTH_PUBLIC_SIGNUP: envSchema.boolean(true),
@@ -1325,6 +1331,36 @@ function readApiRuntimeConfig() {
     LUSH_API_HOST: envSchema.optionalString("0.0.0.0")
   });
   const appOrigins = env.LUSH_APP_ORIGIN;
+  if (!env.LUSH_AUTH_JWT_PUBLIC_KEYS && !env.LUSH_AUTH_JWT_PUBLIC_KEY) {
+    throw new ConfigError(
+      "Missing required environment variable: LUSH_AUTH_JWT_PUBLIC_KEYS",
+      { missing: ["LUSH_AUTH_JWT_PUBLIC_KEYS"] }
+    );
+  }
+  if (env.LUSH_AUTH_JWT_PUBLIC_KEYS && !env.LUSH_AUTH_JWT_KEY_ID) {
+    throw new ConfigError(
+      "LUSH_AUTH_JWT_KEY_ID is required when LUSH_AUTH_JWT_PUBLIC_KEYS is configured.",
+      { missing: ["LUSH_AUTH_JWT_KEY_ID"] }
+    );
+  }
+  if (env.LUSH_AUTH_JWT_PUBLIC_KEYS) {
+    try {
+      const publicKeys = parseJwtPublicKeys(env.LUSH_AUTH_JWT_PUBLIC_KEYS);
+      if (!(env.LUSH_AUTH_JWT_KEY_ID in publicKeys)) {
+        throw new ConfigError(
+          "LUSH_AUTH_JWT_PUBLIC_KEYS must contain LUSH_AUTH_JWT_KEY_ID.",
+          { invalid: ["LUSH_AUTH_JWT_PUBLIC_KEYS"] }
+        );
+      }
+    } catch (error) {
+      if (error instanceof JwtKeyConfigError) {
+        throw new ConfigError(error.message, {
+          invalid: ["LUSH_AUTH_JWT_PUBLIC_KEYS"]
+        });
+      }
+      throw error;
+    }
+  }
   if (appOrigins.includes("*")) {
     throw new ConfigError(
       "Invalid environment variable LUSH_APP_ORIGIN: wildcard origins are not allowed because auth uses credentialed cookies.",

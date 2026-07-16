@@ -17,6 +17,7 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f lush-postgres",
     "db:migrate": "bun run --cwd packages/db migrate",
+    "auth:keygen": "bun run --cwd services/authz keygen",
     "auth:verify-email": "bun run --cwd services/authz verify-email",
     "api:codegen": "bun run --cwd services/api codegen",
     "api:openapi": "bun run --cwd services/api openapi:codegen",

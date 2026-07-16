@@ -112,8 +112,10 @@ mode so rows remain self-describing after configuration changes. The
 self-hosting guide documents the privacy and retention implications of each
 mode.
 
-Access tokens are RS256 JWTs signed by `services/authz` with
-`LUSH_AUTH_JWT_PRIVATE_KEY` and verified with `LUSH_AUTH_JWT_PUBLIC_KEY`.
+Access tokens are RS256 JWTs signed by `services/authz` with the key selected by
+`LUSH_AUTH_JWT_KEY_ID` and `LUSH_AUTH_JWT_PRIVATE_KEY`. The `kid` header selects
+the matching public key from `LUSH_AUTH_JWT_PUBLIC_KEYS`; the set can retain
+previous keys during rotation.
 `LUSH_AUTH_JWT_ISSUER` and `LUSH_AUTH_JWT_AUDIENCE` default to `lush-authz` and
 `lush-api`. Access tokens expire after `LUSH_ACCESS_TOKEN_TTL_MS`, defaulting
 to 5 minutes.
