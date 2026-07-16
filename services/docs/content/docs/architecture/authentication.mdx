@@ -27,6 +27,10 @@ HttpOnly cookie. The refresh token is not readable by application JavaScript.
 The refresh session is backed by database state and is scoped to the user,
 organization, membership, expiry, and revocation status.
 
+Each refresh rotates the cookie. If an earlier token from the same token family
+is presented again, Lush treats it as a theft signal, revokes the entire
+session, and records an audit event.
+
 ## Access Tokens
 
 Login and refresh mint short-lived asymmetric JWT access tokens. The app caches

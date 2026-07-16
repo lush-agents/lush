@@ -96,6 +96,7 @@ export type SessionsTable = {
   organizationId: string | null;
   membershipId: string | null;
   tokenHash: string;
+  refreshFamilyHash: string | null;
   userAgent: string | null;
   ipHash: string | null;
   createdAt: Timestamp;

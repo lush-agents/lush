@@ -7,6 +7,11 @@ import {
 } from "@lush/config/env";
 import { getDb } from "@lush/db/client";
 import type { Database, UserRole } from "@lush/db/schema";
+import {
+  createRefreshToken,
+  refreshTokenFamilySecret,
+  rotateRefreshToken
+} from "./refresh-token";
 
 export type Principal = {
   userId: string;
@@ -522,15 +527,119 @@ export async function refreshAccessSession(
   refreshToken: string,
   meta: RequestMeta = {}
 ) {
-  const resolved = await resolveRefreshSession(refreshToken, meta);
-  if (!resolved) {
+  const rotated = await rotateRefreshSession(refreshToken, meta);
+  if (!rotated) {
     throw new AuthError("invalid_session", "Session is no longer valid", 401);
   }
 
-  return issueAccessSession({
-    refreshToken,
-    session: resolved.session
+  return {
+    ...(await issueAccessSession(rotated)),
+    refreshToken: rotated.refreshToken
+  };
+}
+
+async function rotateRefreshSession(
+  refreshToken: string,
+  meta: RequestMeta
+) {
+  const db = getDb();
+  const tokenHash = await hashSecret(refreshToken);
+  const familySecret = refreshTokenFamilySecret(refreshToken);
+  const familyHash = await hashSecret(familySecret);
+  const ipHash = meta.ipAddress ? await hashSecret(meta.ipAddress) : null;
+
+  const result = await db.transaction().execute(async (trx) => {
+    const row = await trx
+      .selectFrom("sessions")
+      .innerJoin("users", "users.id", "sessions.userId")
+      .leftJoin("organizations", "organizations.id", "sessions.organizationId")
+      .leftJoin(
+        "organizationMemberships",
+        "organizationMemberships.id",
+        "sessions.membershipId"
+      )
+      .select([
+        "sessions.id as sessionId",
+        "sessions.userId",
+        "sessions.organizationId",
+        "sessions.membershipId",
+        "sessions.tokenHash",
+        "sessions.refreshFamilyHash",
+        "sessions.createdAt",
+        "sessions.expiresAt",
+        "sessions.revokedAt",
+        "organizationMemberships.role",
+        "organizationMemberships.userId as membershipUserId",
+        "organizationMemberships.organizationId as membershipOrganizationId",
+        "users.email",
+        "users.emailVerified",
+        "users.displayName",
+        "organizations.name as organizationName"
+      ])
+      .where((eb) =>
+        eb.or([
+          eb("sessions.tokenHash", "=", tokenHash),
+          eb("sessions.refreshFamilyHash", "=", familyHash)
+        ])
+      )
+      .forUpdate("sessions")
+      .executeTakeFirst();
+
+    if (!row || row.revokedAt) {
+      return { status: "invalid" as const };
+    }
+
+    if (row.tokenHash !== tokenHash) {
+      const now = new Date();
+      await trx
+        .updateTable("sessions")
+        .set({ revokedAt: now })
+        .where("id", "=", row.sessionId)
+        .where("revokedAt", "is", null)
+        .execute();
+      await recordAuditEvent(trx, {
+        organizationId: row.organizationId,
+        userId: row.userId,
+        sessionId: row.sessionId,
+        action: "auth.refresh_token_reused",
+        targetType: "session",
+        targetId: row.sessionId,
+        metadata: {}
+      });
+      return { status: "reused" as const };
+    }
+
+    if (row.expiresAt <= new Date() || !sessionRowIsUsable(row)) {
+      await revokeSessionId(trx, row.sessionId);
+      return { status: "invalid" as const };
+    }
+
+    const nextRefreshToken = rotateRefreshToken(refreshToken);
+    await trx
+      .updateTable("sessions")
+      .set({
+        tokenHash: await hashSecret(nextRefreshToken),
+        refreshFamilyHash: familyHash,
+        lastUsedAt: new Date(),
+        userAgent: meta.userAgent ?? null,
+        ipHash
+      })
+      .where("id", "=", row.sessionId)
+      .execute();
+
+    return {
+      status: "rotated" as const,
+      refreshToken: nextRefreshToken,
+      session: toSessionResponse(row)
+    };
   });
+
+  return result.status === "rotated"
+    ? {
+        refreshToken: result.refreshToken,
+        session: result.session
+      }
+    : undefined;
 }
 
 export async function resolveAccessPrincipal(accessToken: string) {
@@ -1572,7 +1681,8 @@ async function createSession(
     .executeTakeFirstOrThrow();
   assertEmailVerifiedForAccess(user.emailVerified);
 
-  const refreshToken = randomToken();
+  const refreshToken = createRefreshToken();
+  const familySecret = refreshTokenFamilySecret(refreshToken);
   const now = new Date();
   const expiresAt = new Date(now.getTime() + sessionTtlMs);
   const tokenHash = await hashSecret(refreshToken);
@@ -1587,6 +1697,7 @@ async function createSession(
       organizationId: options.organizationId,
       membershipId: options.membershipId,
       tokenHash,
+      refreshFamilyHash: await hashSecret(familySecret),
       userAgent: options.meta.userAgent ?? null,
       ipHash,
       createdAt: now,
@@ -1961,6 +2072,7 @@ async function recordAuditEvent(
   event: {
     organizationId: string | null;
     userId: string | null;
+    sessionId?: string | null;
     action: string;
     targetType: string | null;
     targetId: string | null;
@@ -1972,7 +2084,7 @@ async function recordAuditEvent(
     .values({
       organizationId: event.organizationId,
       userId: event.userId,
-      sessionId: null,
+      sessionId: event.sessionId ?? null,
       action: event.action,
       targetType: event.targetType,
       targetId: event.targetId,
@@ -1990,12 +2102,6 @@ async function hashSecret(value: string) {
   return [...new Uint8Array(bytes)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-}
-
-function randomToken() {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function hashPassword(password: string) {
