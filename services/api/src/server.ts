@@ -100,7 +100,6 @@ import {
   type RequestLogRoute
 } from "./request-log";
 import {
-  isTrustedProxyAddress,
   parseTrustedProxies,
   rateLimitNetworkKey,
   resolveClientIp
@@ -111,6 +110,19 @@ import {
   hashRateLimitKey,
   SlidingWindowRateLimiter
 } from "./rate-limit";
+import {
+  expiredSessionCookie,
+  hasLegacySessionCookie,
+  httpsRedirectUrl,
+  isSafeRedirectMethod,
+  isSecureRequest,
+  legacySessionCookieName,
+  readSessionCookie,
+  requestCarriesCredentials,
+  serializeSessionCookie,
+  sessionCookieName,
+  strictTransportSecurity
+} from "./transport-security";
 
 const apiConfig = readApiRuntimeConfig();
 const emailDelivery = configuredEmailDelivery();
@@ -122,7 +134,6 @@ const port = apiConfig.port;
 const hostname = apiConfig.hostname;
 const logger = createLogger("@lush/api");
 const app = new Hono();
-const sessionCookieName = "lush_session";
 const clientEvents = new ClientEventBroker();
 type ApiRouteId = (typeof apiSpec.routes)[number]["id"];
 type OrganizationPrincipal = Principal & {
@@ -202,6 +213,45 @@ app.use("*", async (c, next) => {
     } else {
       logger.debug(meta, "api request");
     }
+  }
+});
+
+app.use("*", async (c, next) => {
+  const request = c.req.raw;
+  const secure = isSecureRequest({
+    request,
+    remoteAddress: remoteAddresses.get(request),
+    trustedProxies: apiConfig.trustedProxies
+  });
+
+  if (apiConfig.requireHttps && !secure) {
+    const carriesCredentials = requestCarriesCredentials(request);
+    if (!carriesCredentials && isSafeRedirectMethod(request.method)) {
+      return c.redirect(httpsRedirectUrl(request), 308);
+    }
+
+    return c.json(
+      {
+        error: "https_required",
+        message: carriesCredentials
+          ? "LUSH_REQUIRE_HTTPS=true refuses credentials over plaintext HTTP."
+          : "LUSH_REQUIRE_HTTPS=true refuses this request over plaintext HTTP. Use HTTPS or explicitly set LUSH_REQUIRE_HTTPS=false for a trusted LAN deployment."
+      },
+      403
+    );
+  }
+
+  await next();
+
+  if (apiConfig.requireHttps) {
+    c.header("strict-transport-security", strictTransportSecurity);
+  }
+  if (hasLegacySessionCookie(request, apiConfig.requireHttps)) {
+    c.header(
+      "set-cookie",
+      expiredSessionCookie(legacySessionCookieName(apiConfig.requireHttps)),
+      { append: true }
+    );
   }
 });
 
@@ -377,7 +427,7 @@ app.post(routePath("login"), async (c) => {
     authRateLimiters.loginEmailIp.clear(emailIpKey);
     authRateLimiters.loginEmail.clear(emailKey);
     const { refreshToken, ...response } = session;
-    setSessionCookie(c, refreshToken, response.session.expiresAt, c.req.raw);
+    setSessionCookie(c, refreshToken, response.session.expiresAt);
     return c.json(response);
   } catch (error) {
     return handleAuthError(c, error, "Unable to log in");
@@ -417,8 +467,7 @@ app.post(routePath("refreshSession"), async (c) => {
     setSessionCookie(
       c,
       nextRefreshToken,
-      response.session.expiresAt,
-      c.req.raw
+      response.session.expiresAt
     );
     return c.json(response);
   } catch (error) {
@@ -430,7 +479,7 @@ app.post(routePath("logout"), async (c) => {
   const auth =
     (await authenticateAccess(c.req.raw)) ??
     (await authenticateRefresh(c.req.raw));
-  clearSessionCookie(c, c.req.raw);
+  clearSessionCookie(c);
 
   if (auth) {
     try {
@@ -446,7 +495,7 @@ app.post(routePath("logout"), async (c) => {
 
 app.post(routePath("logoutAllSessions"), async (c) => {
   const authorized = await authenticateAuthorized(c, "logoutAllSessions");
-  clearSessionCookie(c, c.req.raw);
+  clearSessionCookie(c);
   if ("response" in authorized) {
     return authorized.response;
   }
@@ -500,7 +549,7 @@ app.post(routePath("switchOrganization"), async (c) => {
       requestMeta(c.req.raw)
     );
     const { refreshToken, ...response } = session;
-    setSessionCookie(c, refreshToken, response.session.expiresAt, c.req.raw);
+    setSessionCookie(c, refreshToken, response.session.expiresAt);
     return c.json(response);
   } catch (error) {
     return handleAuthError(c, error, "Unable to switch organization");
@@ -521,7 +570,7 @@ app.post(routePath("createOrganization"), async (c) => {
       requestMeta(c.req.raw)
     );
     const { refreshToken, ...response } = session;
-    setSessionCookie(c, refreshToken, response.session.expiresAt, c.req.raw);
+    setSessionCookie(c, refreshToken, response.session.expiresAt);
     return c.json(response);
   } catch (error) {
     return handleAuthError(c, error, "Unable to create organization");
@@ -587,8 +636,7 @@ app.post(routePath("deleteCurrentOrganization"), async (c) => {
     setSessionCookie(
       c,
       result.refreshToken,
-      result.nextSession.session.expiresAt,
-      c.req.raw
+      result.nextSession.session.expiresAt
     );
     return c.json({
       requiresOrganization: result.requiresOrganization,
@@ -1272,6 +1320,7 @@ function readApiRuntimeConfig() {
     LUSH_AUTH_PUBLIC_SIGNUP: envSchema.boolean(true),
     LUSH_PUBLIC_APP_URL: envSchema.optionalString(""),
     LUSH_TRUSTED_PROXIES: envSchema.commaList(),
+    LUSH_REQUIRE_HTTPS: envSchema.boolean(true),
     LUSH_API_PORT: envSchema.number(7330),
     LUSH_API_HOST: envSchema.optionalString("0.0.0.0")
   });
@@ -1325,6 +1374,7 @@ function readApiRuntimeConfig() {
     passwordAuthEnabled: env.LUSH_AUTH_PASSWORD_ENABLED,
     publicSignup: env.LUSH_AUTH_PUBLIC_SIGNUP,
     publicAppUrl: env.LUSH_PUBLIC_APP_URL,
+    requireHttps: env.LUSH_REQUIRE_HTTPS,
     trustedProxies
   };
 }
@@ -1374,87 +1424,39 @@ function organizationPrincipal(
 }
 
 function sessionCookie(request: Request) {
-  const cookies = request.headers.get("cookie");
-  if (!cookies) {
-    return undefined;
-  }
-
-  for (const cookie of cookies.split(";")) {
-    const [name, ...valueParts] = cookie.trim().split("=");
-    if (name === sessionCookieName) {
-      const value = valueParts.join("=");
-      try {
-        return decodeURIComponent(value);
-      } catch {
-        return value;
-      }
-    }
-  }
-
-  return undefined;
+  return readSessionCookie(request, apiConfig.requireHttps);
 }
 
 function setSessionCookie(
   c: Context,
   token: string,
-  expiresAt: string,
-  request: Request
+  expiresAt: string
 ) {
   c.header(
     "set-cookie",
-    serializeSessionCookie(token, [
-      `Expires=${new Date(expiresAt).toUTCString()}`,
-      `Max-Age=${Math.max(
-        0,
-        Math.floor((Date.parse(expiresAt) - Date.now()) / 1000)
-      )}`,
-      ...secureCookieAttributes(request)
-    ])
+    serializeSessionCookie({
+      name: sessionCookieName(apiConfig.requireHttps),
+      value: token,
+      attributes: [
+        `Expires=${new Date(expiresAt).toUTCString()}`,
+        `Max-Age=${Math.max(
+          0,
+          Math.floor((Date.parse(expiresAt) - Date.now()) / 1000)
+        )}`
+      ],
+      secure: apiConfig.requireHttps
+    })
   );
 }
 
-function clearSessionCookie(c: Context, request: Request) {
+function clearSessionCookie(c: Context) {
   c.header(
     "set-cookie",
-    serializeSessionCookie("", [
-      "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
-      "Max-Age=0",
-      ...secureCookieAttributes(request)
-    ])
-  );
-}
-
-function serializeSessionCookie(value: string, attributes: string[]) {
-  return [
-    `${sessionCookieName}=${encodeURIComponent(value)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    ...attributes
-  ].join("; ");
-}
-
-function secureCookieAttributes(request: Request) {
-  return isSecureRequest(request) ? ["Secure"] : [];
-}
-
-function isSecureRequest(request: Request) {
-  if (new URL(request.url).protocol === "https:") {
-    return true;
-  }
-
-  const forwardedProto = request.headers.get("x-forwarded-proto");
-  if (
-    forwardedProto &&
-    isTrustedProxyAddress(
-      remoteAddresses.get(request),
-      apiConfig.trustedProxies
+    expiredSessionCookie(
+      sessionCookieName(apiConfig.requireHttps),
+      apiConfig.requireHttps
     )
-  ) {
-    return forwardedProto.split(",")[0]?.trim() === "https";
-  }
-
-  return false;
+  );
 }
 
 function requestMeta(request: Request) {

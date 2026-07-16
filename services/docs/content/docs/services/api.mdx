@@ -40,6 +40,18 @@ routes require those bearer tokens. Browser clients keep the refresh token in an
 HttpOnly cookie and cache only the short-lived access JWT in tab-scoped
 `sessionStorage`.
 
+`LUSH_REQUIRE_HTTPS=true` is the default. It uses the Secure,
+`__Host-lush_session` cookie, emits HSTS, redirects credential-free safe HTTP
+requests to HTTPS, and refuses credentials or state-changing requests over
+plaintext. `X-Forwarded-Proto` is honored only when the socket peer matches
+`LUSH_TRUSTED_PROXIES`. Loopback URLs remain available for local development.
+
+Set `LUSH_REQUIRE_HTTPS=false` only for deliberate plain-HTTP LAN deployments.
+That mode uses `lush_session` without Secure; any device able to intercept that
+network segment can steal the session. Changing the setting changes the cookie
+name and ends existing browser sessions; the API accepts the old name during
+migration and expires it on the next request.
+
 ## API Client Generation
 
 The public API surface is aggregated in `src/spec.ts` from service-owned route

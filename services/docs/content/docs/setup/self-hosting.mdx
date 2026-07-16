@@ -44,6 +44,7 @@ refresh tokens remain valid.
 - `LUSH_AUTH_JWT_AUDIENCE`, default `lush-api`
 - `LUSH_AUTH_PUBLIC_SIGNUP`, default `true`
 - `LUSH_TRUSTED_PROXIES`, default empty
+- `LUSH_REQUIRE_HTTPS`, default `true`
 
 `LUSH_APP_ORIGIN` is a comma-separated list of browser app origins allowed to
 use credentialed auth. Wildcard origins are rejected.
@@ -96,6 +97,22 @@ stops at the first untrusted hop. Every proxy in the chain must be listed, and
 the public-facing proxy must replace client-supplied forwarding headers.
 Do not trust an internet-wide range such as `0.0.0.0/0`; that lets callers
 choose the address used for throttling.
+
+## HTTPS and session cookies
+
+`LUSH_REQUIRE_HTTPS=true` uses a Secure, host-only `__Host-lush_session`
+cookie, emits HSTS, redirects credential-free safe requests from HTTP to HTTPS,
+and refuses credentials or state-changing requests over plaintext. HTTPS
+termination may be reported through `X-Forwarded-Proto` only by a socket peer
+listed in `LUSH_TRUSTED_PROXIES`; direct clients cannot spoof the header.
+Loopback URLs are treated as secure for local development.
+
+Set `LUSH_REQUIRE_HTTPS=false` only when a deployment intentionally serves the
+API over plain HTTP on a trusted LAN. The cookie is then named `lush_session`
+and omits Secure, so any party able to intercept the network segment can steal
+the session. Changing the flag changes the cookie name and ends existing browser
+sessions. The API accepts the previous name during migration and expires it on
+the next request so it is not stranded in the browser.
 
 ## Email verification
 
