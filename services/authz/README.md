@@ -19,6 +19,11 @@ reset revokes every active session for the user. Re-registering an unverified
 email supersedes its pending password registration and invalidates its prior
 verification token.
 
+Organization invites use the same token discipline. Accepting or declining
+requires both the secret token and an authenticated user whose normalized email
+matches the invite. Responses are transactional and audited, and accepted
+invites create the organization membership.
+
 The HTTP verifier accepts only a token. Operators can explicitly override
 verification from the CLI for development or installations without SMTP:
 

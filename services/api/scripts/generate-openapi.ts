@@ -258,6 +258,17 @@ const schemas: Record<string, JsonSchema> = {
   ListOrganizationInvitesResponse: objectSchema({
     invites: describeSchema(arraySchema(ref("OrganizationInvite")), "Invites for the active organization.")
   }, ["invites"], "Active organization invites."),
+  RespondToOrganizationInviteRequest: objectSchema({
+    token: describeSchema(stringSchema(), "Secret token from the invitation email."),
+    response: describeSchema(enumSchema(["accepted", "declined"]), "Invitation response.")
+  }, ["token", "response"], "Accepts or declines an organization invitation."),
+  RespondToOrganizationInviteResponse: objectSchema({
+    invite: describeSchema(ref("OrganizationInvite"), "Updated invitation."),
+    organization: describeSchema(objectSchema({
+      id: describeSchema(stringSchema("uuid"), "Organization identifier."),
+      name: describeSchema(stringSchema(), "Organization name.")
+    }, ["id", "name"], "Inviting organization."), "Inviting organization.")
+  }, ["invite", "organization"], "Organization invitation response."),
   CurrentSession: objectSchema({
     sessionId: describeSchema(stringSchema("uuid"), "Refresh-session identifier."),
     user: describeSchema(ref("CurrentSessionUser"), "Authenticated user profile."),
@@ -595,7 +606,7 @@ const operationDocs: Record<
   createOrganizationInvite: {
     summary: "Create organization invite",
     description:
-      "Creates a pending organization invite and emits an audit event that can drive an email sender or managed deployment integration.",
+      "Creates a pending organization invite, stores only a hash of its single-use token, sends the invitation through the configured email delivery provider, and emits an audit event.",
     requestDescription: "Invite email, role, and optional expiration window.",
     successDescription: "Created pending invite."
   },
@@ -604,6 +615,13 @@ const operationDocs: Record<
     description:
       "Lists invites for the active organization. The caller must be an organization admin.",
     successDescription: "Organization invite list."
+  },
+  respondToOrganizationInvite: {
+    summary: "Respond to organization invite",
+    description:
+      "Accepts or declines a pending organization invite using its secret email token. The signed-in user's email must match the invitation.",
+    requestDescription: "Invitation token and accepted or declined response.",
+    successDescription: "Updated invitation and inviting organization."
   },
   fetchInferenceConfig: {
     summary: "Get inference configuration",

@@ -101,6 +101,10 @@ test("authorizePrincipal requires an active organization for role-bound actions"
   expect(
     authorizePrincipal(noOrganizationPrincipal, "updateCurrentUser").allowed
   ).toBe(true);
+  expect(
+    authorizePrincipal(noOrganizationPrincipal, "respondToOrganizationInvite")
+      .allowed
+  ).toBe(true);
   expect(() =>
     authorizePrincipal(noOrganizationPrincipal, "fetchInferenceConfig")
   ).toThrow(AuthError);

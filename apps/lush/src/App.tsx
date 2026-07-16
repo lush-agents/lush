@@ -31,6 +31,7 @@ import {
   openClientEvents,
   registerAccount,
   removeOrganizationMember,
+  respondToOrganizationInvite,
   switchOrganization,
   truncateSession,
   updateCurrentOrganization,
@@ -729,6 +730,24 @@ function useAppController() {
     }
   };
 
+  const respondToInvite = async (
+    token: string,
+    response: "accepted" | "declined"
+  ) => {
+    const result = await runAuthenticated((session) =>
+      respondToOrganizationInvite(apiBaseUrl, session.accessToken, {
+        token,
+        response
+      })
+    );
+
+    if (response === "accepted") {
+      await switchActiveOrganization(result.organization.id);
+    }
+
+    return result;
+  };
+
   const setOrganizationMemberRole = async (
     membershipId: string,
     role: UserRole
@@ -1240,6 +1259,7 @@ function useAppController() {
     createNewOrganization,
     deleteActiveOrganization,
     inviteOrganizationMember,
+    respondToInvite,
     setOrganizationMemberRole,
     removeMemberFromOrganization,
     addInferenceProvider,

@@ -18,6 +18,7 @@ import { AuthPage } from "../routes/AuthPage";
 import { AccountRecoveryPage } from "../routes/AccountRecoveryPage";
 import { CreateOrganizationPage } from "../routes/CreateOrganizationPage";
 import { NotFoundPage } from "../routes/NotFoundPage";
+import { OrganizationInvitePage } from "../routes/OrganizationInvitePage";
 import { RoutePlaceholderPage } from "../routes/RoutePlaceholderPage";
 import { ConceptDetailPage } from "../routes/concepts/ConceptDetailPage";
 import { ConceptsPage } from "../routes/concepts/ConceptsPage";
@@ -70,6 +71,10 @@ const router = createBrowserRouter([
       {
         element: <AuthenticatedRoute />,
         children: [
+          {
+            path: "organization-invites/respond",
+            element: <OrganizationInvitePage />
+          },
           {
             element: <AppShell />,
             children: [
@@ -158,7 +163,13 @@ function AuthenticatedRoute() {
   const location = useLocation();
   if (app.sessionStatus === "loading") return null;
   if (!app.isAuthenticated) {
-    return <Navigate to="/sign-in" replace state={{ from: location.pathname }} />;
+    return (
+      <Navigate
+        to="/sign-in"
+        replace
+        state={{ from: `${location.pathname}${location.search}` }}
+      />
+    );
   }
   return <Outlet />;
 }

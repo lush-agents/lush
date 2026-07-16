@@ -53,6 +53,7 @@ export type OrganizationInvitesTable = {
   email: string;
   role: UserRole;
   status: OrganizationInviteStatus;
+  tokenHash: string;
   invitedByUserId: string | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;

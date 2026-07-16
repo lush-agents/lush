@@ -41,6 +41,11 @@ Auth email is delivered through the notifications service's `EmailDelivery`
 interface. SMTP and development log delivery are included; managed deployments
 can inject another provider.
 
+Organization invitation emails use the same delivery interface. Each invite
+link contains a random, single-use, expiring token whose SHA-256 hash is stored
+in the database. Accepting or declining also requires a signed-in user with the
+invited email address, records the response timestamp, and emits an audit event.
+
 ## Refresh Sessions
 
 After a successful sign-in, the browser receives an opaque refresh token in an

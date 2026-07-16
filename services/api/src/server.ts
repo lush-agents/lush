@@ -37,6 +37,7 @@ import {
   requestPasswordReset,
   resetPassword,
   removeOrganizationMember,
+  respondToOrganizationInvite,
   resolveAccessPrincipal,
   resolveRefreshSession,
   revokeSession,
@@ -719,7 +720,10 @@ app.post(routePath("createOrganizationInvite"), async (c) => {
   try {
     const body = await c.req.json().catch(() => undefined);
     return c.json(
-      await createOrganizationInvite(authorized.auth.principal, body)
+      await createOrganizationInvite(authorized.auth.principal, body, {
+        emailDelivery,
+        appBaseUrl: apiConfig.publicAppUrl
+      })
     );
   } catch (error) {
     return handleAuthError(c, error, "Unable to create invite");
@@ -736,6 +740,25 @@ app.get(routePath("listOrganizationInvites"), async (c) => {
     return c.json(await listOrganizationInvites(authorized.auth.principal));
   } catch (error) {
     return handleAuthError(c, error, "Unable to list invites");
+  }
+});
+
+app.post(routePath("respondToOrganizationInvite"), async (c) => {
+  const authorized = await authenticateAuthorized(
+    c,
+    "respondToOrganizationInvite"
+  );
+  if ("response" in authorized) {
+    return authorized.response;
+  }
+
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(
+      await respondToOrganizationInvite(authorized.auth.principal, body)
+    );
+  } catch (error) {
+    return handleAuthError(c, error, "Unable to respond to invite");
   }
 });
 

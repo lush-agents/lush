@@ -7,6 +7,7 @@ import { refreshTokenGrace } from "./006_refresh_token_grace";
 import { authActionTokens } from "./007_auth_action_tokens";
 import { sessionIpRetention } from "./008_session_ip_retention";
 import { sessionIpColumns } from "./009_session_ip_columns";
+import { organizationInviteTokens } from "./010_organization_invite_tokens";
 import type { Migration } from "./types";
 
 export const migrations: Migration[] = [
@@ -18,5 +19,6 @@ export const migrations: Migration[] = [
   refreshTokenGrace,
   authActionTokens,
   sessionIpRetention,
-  sessionIpColumns
+  sessionIpColumns,
+  organizationInviteTokens
 ];

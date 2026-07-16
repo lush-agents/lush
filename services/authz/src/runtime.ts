@@ -176,6 +176,11 @@ export type CreateOrganizationInviteRequest = {
   expiresInDays?: number;
 };
 
+export type RespondToOrganizationInviteRequest = {
+  token: string;
+  response: "accepted" | "declined";
+};
+
 const authzConfig = readEnvSchema({
   LUSH_SESSION_TTL_MS: envSchema.number(30 * 24 * 60 * 60 * 1000),
   LUSH_ACCESS_TOKEN_TTL_MS: envSchema.number(5 * 60 * 1000),
@@ -276,6 +281,7 @@ export const authzActions = [
   "removeOrganizationMember",
   "createOrganizationInvite",
   "listOrganizationInvites",
+  "respondToOrganizationInvite",
   "fetchInferenceConfig",
   "createInferenceProvider",
   "updateInferenceProvider",
@@ -313,7 +319,8 @@ const authenticatedActions = new Set<AuthzAction>([
   "listOrganizations",
   "switchOrganization",
   "createOrganization",
-  "updateCurrentUser"
+  "updateCurrentUser",
+  "respondToOrganizationInvite"
 ]);
 
 export const roleActionBindings: Record<UserRole, readonly AuthzAction[]> = {
@@ -1364,49 +1371,100 @@ export async function removeOrganizationMember(
 
 export async function createOrganizationInvite(
   principal: Principal,
-  request: unknown
+  request: unknown,
+  options: Pick<
+    AuthEmailOptions,
+    "appBaseUrl" | "db" | "emailDelivery" | "now"
+  > = {}
 ) {
   assertCanManageOrganization(principal);
   const organizationId = requireOrganizationId(principal);
   const body = normalizeCreateOrganizationInviteRequest(request);
-  const db = getDb();
-  const now = new Date();
+  const db = options.db ?? getDb();
+  const delivery = requireEmailDelivery(options.emailDelivery);
+  const appBaseUrl = requireAppBaseUrl(options.appBaseUrl);
+  const now = options.now ?? new Date();
   const expiresAt = new Date(
     now.getTime() + body.expiresInDays * 24 * 60 * 60 * 1000
   );
+  const token = randomActionToken();
+  const tokenHash = await hashSecret(token);
 
-  const invite = await db
-    .insertInto("organizationInvites")
-    .values({
+  const result = await db.transaction().execute(async (trx) => {
+    const organization = await trx
+      .selectFrom("organizations")
+      .select("name")
+      .where("id", "=", organizationId)
+      .executeTakeFirstOrThrow();
+    const pendingInvite = await trx
+      .selectFrom("organizationInvites")
+      .select("id")
+      .where("organizationId", "=", organizationId)
+      .where("email", "=", body.email)
+      .where("status", "=", "pending")
+      .forUpdate()
+      .executeTakeFirst();
+    const invite = pendingInvite
+      ? await trx
+          .updateTable("organizationInvites")
+          .set({
+            role: body.role,
+            tokenHash,
+            invitedByUserId: principal.userId,
+            updatedAt: now,
+            expiresAt
+          })
+          .where("id", "=", pendingInvite.id)
+          .returningAll()
+          .executeTakeFirstOrThrow()
+      : await trx
+          .insertInto("organizationInvites")
+          .values({
+            organizationId,
+            email: body.email,
+            role: body.role,
+            status: "pending",
+            tokenHash,
+            invitedByUserId: principal.userId,
+            createdAt: now,
+            updatedAt: now,
+            expiresAt,
+            respondedAt: null
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow();
+
+    await recordAuditEvent(trx, {
       organizationId,
-      email: body.email,
-      role: body.role,
-      status: "pending",
-      invitedByUserId: principal.userId,
-      createdAt: now,
-      updatedAt: now,
-      expiresAt,
-      respondedAt: null
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow();
+      userId: principal.userId,
+      sessionId: principal.sessionId,
+      action: "auth.organization_invite_created",
+      targetType: "organization_invite",
+      targetId: invite.id,
+      metadata: {
+        inviteId: invite.id,
+        email: invite.email,
+        role: invite.role,
+        expiresAt: invite.expiresAt.toISOString(),
+        reissued: Boolean(pendingInvite)
+      }
+    });
 
-  await recordAuditEvent(db, {
-    organizationId,
-    userId: principal.userId,
-    action: "auth.organization_invite_created",
-    targetType: "organization_invite",
-    targetId: invite.id,
-    metadata: {
-      inviteId: invite.id,
-      email: invite.email,
-      role: invite.role,
-      expiresAt: invite.expiresAt.toISOString()
-    }
+    return { invite, organizationName: organization.name };
   });
 
+  await deliverAuthEmail(
+    delivery,
+    {
+      to: result.invite.email,
+      subject: `You're invited to ${result.organizationName} on Lush`,
+      text: `Respond to your invitation: ${authLink(appBaseUrl, "/organization-invites/respond", token)}`
+    },
+    "organization_invite"
+  );
+
   return {
-    invite: toInviteResponse(invite)
+    invite: toInviteResponse(result.invite)
   };
 }
 
@@ -1423,6 +1481,107 @@ export async function listOrganizationInvites(principal: Principal) {
   return {
     invites: invites.map(toInviteResponse)
   };
+}
+
+export async function respondToOrganizationInvite(
+  principal: Principal,
+  request: unknown,
+  options: Pick<AuthEmailOptions, "db" | "now"> = {}
+) {
+  const body = normalizeRespondToOrganizationInviteRequest(request);
+  const db = options.db ?? getDb();
+  const now = options.now ?? new Date();
+  const tokenHash = await hashSecret(body.token);
+
+  return db.transaction().execute(async (trx) => {
+    const user = await trx
+      .selectFrom("users")
+      .select("email")
+      .where("id", "=", principal.userId)
+      .executeTakeFirstOrThrow();
+    const invite = await trx
+      .selectFrom("organizationInvites")
+      .innerJoin(
+        "organizations",
+        "organizations.id",
+        "organizationInvites.organizationId"
+      )
+      .select([
+        "organizationInvites.id",
+        "organizationInvites.organizationId",
+        "organizationInvites.email",
+        "organizationInvites.role",
+        "organizationInvites.status",
+        "organizationInvites.invitedByUserId",
+        "organizationInvites.createdAt",
+        "organizationInvites.updatedAt",
+        "organizationInvites.expiresAt",
+        "organizationInvites.respondedAt",
+        "organizations.name as organizationName"
+      ])
+      .where("organizationInvites.tokenHash", "=", tokenHash)
+      .forUpdate("organizationInvites")
+      .executeTakeFirst();
+
+    assertUsableOrganizationInvite(invite, now);
+    if (normalizeAuthEmail(user.email) !== invite.email) {
+      throw new AuthError(
+        "invite_email_mismatch",
+        "This invitation belongs to a different email address",
+        403
+      );
+    }
+
+    if (body.response === "accepted") {
+      await trx
+        .insertInto("organizationMemberships")
+        .values({
+          organizationId: invite.organizationId,
+          userId: principal.userId,
+          role: invite.role,
+          createdAt: now,
+          updatedAt: now
+        })
+        .onConflict((conflict) =>
+          conflict.columns(["organizationId", "userId"]).doNothing()
+        )
+        .execute();
+    }
+
+    const respondedInvite = await trx
+      .updateTable("organizationInvites")
+      .set({
+        status: body.response,
+        respondedAt: now,
+        updatedAt: now
+      })
+      .where("id", "=", invite.id)
+      .where("status", "=", "pending")
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    await recordAuditEvent(trx, {
+      organizationId: invite.organizationId,
+      userId: principal.userId,
+      sessionId: principal.sessionId,
+      action: `auth.organization_invite_${body.response}`,
+      targetType: "organization_invite",
+      targetId: invite.id,
+      metadata: {
+        inviteId: invite.id,
+        email: invite.email,
+        role: invite.role
+      }
+    });
+
+    return {
+      invite: toInviteResponse(respondedInvite),
+      organization: {
+        id: invite.organizationId,
+        name: invite.organizationName
+      }
+    };
+  });
 }
 
 export async function verifyEmailAddress(
@@ -1695,7 +1854,7 @@ function authLink(appBaseUrl: string, path: string, token?: string) {
 async function deliverAuthEmail(
   delivery: EmailDelivery,
   message: Parameters<EmailDelivery["send"]>[0],
-  purpose: AuthActionTokenPurpose | "existing_account"
+  purpose: AuthActionTokenPurpose | "existing_account" | "organization_invite"
 ) {
   try {
     await delivery.send(message);
@@ -1721,7 +1880,7 @@ function deliverAuthEmailInBackground(
 
 function logEmailDeliveryFailure(
   error: unknown,
-  purpose: AuthActionTokenPurpose | "existing_account"
+  purpose: AuthActionTokenPurpose | "existing_account" | "organization_invite"
 ) {
   logger.error({ err: error, purpose }, "authentication email delivery failed");
 }
@@ -1772,6 +1931,24 @@ function assertUsableAuthActionToken(
     throw new AuthError(
       "invalid_or_expired_token",
       "This authentication link is invalid or has expired",
+      400
+    );
+  }
+}
+
+function assertUsableOrganizationInvite(
+  invite:
+    | {
+        status: "pending" | "accepted" | "declined";
+        expiresAt: Date;
+      }
+    | undefined,
+  now: Date
+): asserts invite is NonNullable<typeof invite> {
+  if (!invite || invite.status !== "pending" || invite.expiresAt <= now) {
+    throw new AuthError(
+      "invalid_or_expired_invite",
+      "This organization invitation is invalid or has expired",
       400
     );
   }
@@ -2001,6 +2178,24 @@ function normalizeCreateOrganizationInviteRequest(
     email,
     role,
     expiresInDays
+  };
+}
+
+function normalizeRespondToOrganizationInviteRequest(
+  request: unknown
+): RespondToOrganizationInviteRequest {
+  const candidate = objectRequest(request);
+  const token = normalizeActionToken(candidate.token);
+  if (candidate.response !== "accepted" && candidate.response !== "declined") {
+    throw new AuthError(
+      "invalid_invite_response",
+      "Invitation response must be accepted or declined"
+    );
+  }
+
+  return {
+    token,
+    response: candidate.response
   };
 }
 

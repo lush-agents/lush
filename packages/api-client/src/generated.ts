@@ -136,6 +136,19 @@ export type ListOrganizationInvitesResponse = {
   invites: OrganizationInvite[];
 };
 
+export type RespondToOrganizationInviteRequest = {
+  token: string;
+  response: "accepted" | "declined";
+};
+
+export type RespondToOrganizationInviteResponse = {
+  invite: OrganizationInvite;
+  organization: {
+    id: string;
+    name: string;
+  };
+};
+
 export type CurrentSession = {
   sessionId: string;
   user: {
@@ -607,6 +620,15 @@ export const apiRoutes = [
     "kind": "json"
   },
   {
+    "id": "respondToOrganizationInvite",
+    "method": "POST",
+    "path": "/v1beta/session/organization/invites/respond",
+    "requestType": "RespondToOrganizationInviteRequest",
+    "responseType": "RespondToOrganizationInviteResponse",
+    "auth": true,
+    "kind": "json"
+  },
+  {
     "id": "fetchInferenceConfig",
     "method": "GET",
     "path": "/v1beta/inference/config",
@@ -848,6 +870,7 @@ const UPDATE_ORGANIZATION_MEMBER_ROLE_ROUTE = apiRoutes.find((route) => route.id
 const REMOVE_ORGANIZATION_MEMBER_ROUTE = apiRoutes.find((route) => route.id === "removeOrganizationMember")!;
 const CREATE_ORGANIZATION_INVITE_ROUTE = apiRoutes.find((route) => route.id === "createOrganizationInvite")!;
 const LIST_ORGANIZATION_INVITES_ROUTE = apiRoutes.find((route) => route.id === "listOrganizationInvites")!;
+const RESPOND_TO_ORGANIZATION_INVITE_ROUTE = apiRoutes.find((route) => route.id === "respondToOrganizationInvite")!;
 const FETCH_INFERENCE_CONFIG_ROUTE = apiRoutes.find((route) => route.id === "fetchInferenceConfig")!;
 const CREATE_INFERENCE_PROVIDER_ROUTE = apiRoutes.find((route) => route.id === "createInferenceProvider")!;
 const UPDATE_INFERENCE_PROVIDER_ROUTE = apiRoutes.find((route) => route.id === "updateInferenceProvider")!;
@@ -1358,6 +1381,27 @@ export async function listOrganizationInvites(
   }
 
   return response.json() as Promise<ListOrganizationInvitesResponse>;
+}
+
+export async function respondToOrganizationInvite(
+  apiBaseUrl: string,
+  sessionToken: string | undefined, body: RespondToOrganizationInviteRequest
+) {
+  const response = await fetch(apiUrl(apiBaseUrl, RESPOND_TO_ORGANIZATION_INVITE_ROUTE.path), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authorizationHeaders(sessionToken),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await apiError("respondToOrganizationInvite", response);
+  }
+
+  return response.json() as Promise<RespondToOrganizationInviteResponse>;
 }
 
 export async function fetchInferenceConfig(
