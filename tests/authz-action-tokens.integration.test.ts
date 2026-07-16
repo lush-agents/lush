@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createIsolatedTestDatabase } from "../packages/db/src/test";
 import type { EmailDelivery, EmailMessage } from "../services/notifications/src/email";
 import {
+  login,
   registerAccount,
   requestPasswordReset,
   resetPassword,
@@ -99,6 +100,90 @@ if (!databaseUrl) {
       await expect(
         verifyEmailAddress({ token: secondToken }, { db })
       ).resolves.toEqual({ ok: true });
+    });
+
+    test("public registration hides existing verified accounts", async () => {
+      const delivery = new CaptureEmailDelivery();
+      const email = uniqueEmail();
+      const response = await registerAccount(
+        { email, password: "initial-password" },
+        {},
+        { db, emailDelivery: delivery, appBaseUrl }
+      );
+      await verifyEmailAddress(
+        { token: deliveredToken(delivery.messages[0]) },
+        { db }
+      );
+
+      await expect(
+        registerAccount(
+          { email, password: "replacement-password" },
+          {},
+          { db, emailDelivery: delivery, appBaseUrl }
+        )
+      ).resolves.toEqual(response);
+      expect(delivery.messages).toHaveLength(2);
+      expect(delivery.messages[1]).toMatchObject({
+        to: email,
+        subject: "A Lush account already exists for this email"
+      });
+      expect(delivery.messages[1]?.text).toContain("https://app.example.com/login");
+      expect(delivery.messages[1]?.text).not.toContain("token=");
+    });
+
+    test("private registration reports existing verified accounts", async () => {
+      const delivery = new CaptureEmailDelivery();
+      const email = uniqueEmail();
+      await registerAccount(
+        { email, password: "initial-password" },
+        {},
+        { db, emailDelivery: delivery, appBaseUrl, publicSignup: false }
+      );
+      await verifyEmailAddress(
+        { token: deliveredToken(delivery.messages[0]) },
+        { db }
+      );
+
+      await expect(
+        registerAccount(
+          { email, password: "replacement-password" },
+          {},
+          { db, emailDelivery: delivery, appBaseUrl, publicSignup: false }
+        )
+      ).rejects.toMatchObject({ code: "email_in_use" });
+      expect(delivery.messages).toHaveLength(1);
+    });
+
+    test("unknown-email and wrong-password logins return the same error", async () => {
+      const delivery = new CaptureEmailDelivery();
+      const email = uniqueEmail();
+      await registerAccount(
+        { email, password: "correct-password" },
+        {},
+        { db, emailDelivery: delivery, appBaseUrl }
+      );
+
+      const wrongPassword = login(
+        { email, password: "wrong-password" },
+        {},
+        { db }
+      ).catch((error) => error);
+      const unknownEmail = login(
+        { email: uniqueEmail(), password: "wrong-password" },
+        {},
+        { db }
+      ).catch((error) => error);
+
+      await expect(wrongPassword).resolves.toMatchObject({
+        code: "invalid_credentials",
+        message: "Invalid email or password",
+        status: 401
+      });
+      await expect(unknownEmail).resolves.toMatchObject({
+        code: "invalid_credentials",
+        message: "Invalid email or password",
+        status: 401
+      });
     });
 
     test("password reset consumes its token and revokes every session", async () => {

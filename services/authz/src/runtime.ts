@@ -106,6 +106,7 @@ export type AuthEmailOptions = {
   appBaseUrl?: string;
   db?: Kysely<Database>;
   now?: Date;
+  publicSignup?: boolean;
 };
 
 export type OrganizationSummary = {
@@ -165,6 +166,7 @@ const authzConfig = readEnvSchema({
   LUSH_AUTH_JWT_AUDIENCE: envSchema.optionalString("lush-api"),
   LUSH_AUTH_PASSWORD_ENABLED: envSchema.boolean(true),
   LUSH_AUTH_SIGNUP_ENABLED: envSchema.boolean(true),
+  LUSH_AUTH_PUBLIC_SIGNUP: envSchema.boolean(true),
   LUSH_EMAIL_VERIFICATION_TTL_MS: envSchema.number(24 * 60 * 60 * 1000),
   LUSH_PASSWORD_RESET_TTL_MS: envSchema.number(60 * 60 * 1000)
 });
@@ -175,6 +177,7 @@ const jwtIssuer = authzConfig.LUSH_AUTH_JWT_ISSUER;
 const jwtAudience = authzConfig.LUSH_AUTH_JWT_AUDIENCE;
 const passwordAuthEnabled = authzConfig.LUSH_AUTH_PASSWORD_ENABLED;
 const signupEnabled = authzConfig.LUSH_AUTH_SIGNUP_ENABLED;
+const publicSignup = authzConfig.LUSH_AUTH_PUBLIC_SIGNUP;
 const emailVerificationTtlMs = authzConfig.LUSH_EMAIL_VERIFICATION_TTL_MS;
 const passwordResetTtlMs = authzConfig.LUSH_PASSWORD_RESET_TTL_MS;
 const logger = createLogger("@lush/authz");
@@ -403,6 +406,7 @@ export async function registerAccount(
   const db = options.db ?? getDb();
   const delivery = requireEmailDelivery(options.emailDelivery);
   const appBaseUrl = requireAppBaseUrl(options.appBaseUrl);
+  const protectAccountEnumeration = options.publicSignup ?? publicSignup;
 
   const pending = await db.transaction().execute(async (trx) => {
     const existingUser = await trx
@@ -421,15 +425,19 @@ export async function registerAccount(
       .where("users.email", "=", body.email)
       .executeTakeFirst();
 
-    if (
+    const registeredAccount =
       existingUser &&
-      (existingUser.emailVerified || !existingUser.credentialUserId)
-    ) {
+      (existingUser.emailVerified || !existingUser.credentialUserId);
+    if (registeredAccount && !protectAccountEnumeration) {
       throw new AuthError("email_in_use", "An account already exists for this email");
     }
 
     const now = options.now ?? new Date();
     const passwordHash = await hashPassword(body.password);
+    if (registeredAccount) {
+      return { kind: "existing_account" as const, email: existingUser.email };
+    }
+
     if (existingUser) {
       await trx
         .updateTable("users")
@@ -464,7 +472,7 @@ export async function registerAccount(
         metadata: requestAuditMetadata(meta)
       });
 
-      return { user: existingUser, token };
+      return { kind: "verify_email" as const, user: existingUser, token };
     }
 
     const user = await trx
@@ -543,8 +551,25 @@ export async function registerAccount(
       now,
       emailVerificationTtlMs
     );
-    return { user, token };
+    return { kind: "verify_email" as const, user, token };
   });
+
+  if (pending.kind === "existing_account") {
+    await deliverAuthEmail(
+      delivery,
+      {
+        to: pending.email,
+        subject: "A Lush account already exists for this email",
+        text: `Someone tried to register a Lush account with this email address, but an account already exists. Sign in instead: ${authLink(appBaseUrl, "/login")}`
+      },
+      "existing_account"
+    );
+
+    return {
+      emailVerificationRequired: true,
+      email: pending.email
+    } satisfies EmailVerificationRequired;
+  }
 
   await deliverAuthEmail(
     delivery,
@@ -562,10 +587,14 @@ export async function registerAccount(
   } satisfies EmailVerificationRequired;
 }
 
-export async function login(request: unknown, meta: RequestMeta = {}) {
+export async function login(
+  request: unknown,
+  meta: RequestMeta = {},
+  options: Pick<AuthEmailOptions, "db"> = {}
+) {
   ensurePasswordAuthEnabled();
   const body = normalizeLoginRequest(request);
-  const db = getDb();
+  const db = options.db ?? getDb();
 
   const user = await db
     .selectFrom("users")
@@ -579,7 +608,11 @@ export async function login(request: unknown, meta: RequestMeta = {}) {
     .where("users.email", "=", body.email)
     .executeTakeFirst();
 
-  if (!user || !(await verifyPassword(body.password, user.passwordHash))) {
+  const passwordMatches = await verifyPassword(
+    body.password,
+    user?.passwordHash ?? dummyPasswordHash
+  );
+  if (!user || !passwordMatches) {
     throw new AuthError("invalid_credentials", "Invalid email or password", 401);
   }
 
@@ -1614,16 +1647,18 @@ function requireAppBaseUrl(value: string | undefined) {
   return normalized;
 }
 
-function authLink(appBaseUrl: string, path: string, token: string) {
+function authLink(appBaseUrl: string, path: string, token?: string) {
   const url = new URL(path, `${appBaseUrl}/`);
-  url.searchParams.set("token", token);
+  if (token) {
+    url.searchParams.set("token", token);
+  }
   return url.toString();
 }
 
 async function deliverAuthEmail(
   delivery: EmailDelivery,
   message: Parameters<EmailDelivery["send"]>[0],
-  purpose: AuthActionTokenPurpose
+  purpose: AuthActionTokenPurpose | "existing_account"
 ) {
   try {
     await delivery.send(message);
@@ -1649,7 +1684,7 @@ function deliverAuthEmailInBackground(
 
 function logEmailDeliveryFailure(
   error: unknown,
-  purpose: AuthActionTokenPurpose
+  purpose: AuthActionTokenPurpose | "existing_account"
 ) {
   logger.error({ err: error, purpose }, "authentication email delivery failed");
 }
@@ -2592,6 +2627,11 @@ async function hashPassword(password: string) {
     bytesToHex(derived)
   ].join("$");
 }
+
+// A static, valid hash makes unknown-email logins pay the same PBKDF2 cost as
+// wrong-password logins without creating per-request salt-generation work.
+const dummyPasswordHash =
+  "pbkdf2-sha256$210000$00000000000000000000000000000000$a84e427790f2d6baca37009229fd7a0e141a9c05c77a7281aacc07068a496309";
 
 async function verifyPassword(password: string, passwordHash: string) {
   const [algorithm, iterationsValue, saltValue, hashValue] = passwordHash.split("$");
