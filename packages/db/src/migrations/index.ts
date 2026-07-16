@@ -3,6 +3,7 @@ import { sessionState } from "./002_session_state";
 import { sessionAgentId } from "./003_session_agent_id";
 import { projects } from "./004_projects";
 import { refreshTokenRotation } from "./005_refresh_token_rotation";
+import { refreshTokenGrace } from "./006_refresh_token_grace";
 import type { Migration } from "./types";
 
 export const migrations: Migration[] = [
@@ -10,5 +11,6 @@ export const migrations: Migration[] = [
   sessionState,
   sessionAgentId,
   projects,
-  refreshTokenRotation
+  refreshTokenRotation,
+  refreshTokenGrace
 ];

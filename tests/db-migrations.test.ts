@@ -15,7 +15,8 @@ test("database migration ids match their ordinal prefix", () => {
     "002_session_state",
     "003_session_agent_id",
     "004_projects",
-    "005_refresh_token_rotation"
+    "005_refresh_token_rotation",
+    "006_refresh_token_grace"
   ]);
 });
 
@@ -25,10 +26,19 @@ test("refresh-token rotation migration adds a unique token-family lookup", async
   ).text();
 
   expect(migration).toContain("add column if not exists refresh_family_hash text");
+  expect(migration).toContain("sessions_refresh_family_hash_idx");
+  expect(migration).toContain("where refresh_family_hash is not null");
+});
+
+test("refresh-token grace migration is append-only from deployed rotation schema", async () => {
+  const migration = await Bun.file(
+    "packages/db/src/migrations/006_refresh_token_grace.ts"
+  ).text();
+
   expect(migration).toContain("add column if not exists previous_token_hash text");
   expect(migration).toContain("add column if not exists rotated_at timestamptz");
   expect(migration).toContain("add column if not exists last_seen_user_agent text");
   expect(migration).toContain("add column if not exists last_seen_ip_hash text");
-  expect(migration).toContain("sessions_refresh_family_hash_idx");
-  expect(migration).toContain("where refresh_family_hash is not null");
+  expect(migration).toContain("last_seen_user_agent = user_agent");
+  expect(migration).toContain("last_seen_ip_hash = ip_hash");
 });
