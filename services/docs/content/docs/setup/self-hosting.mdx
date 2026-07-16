@@ -42,9 +42,45 @@ refresh tokens remain valid.
 - `LUSH_ACCESS_TOKEN_TTL_MS`, default `300000`
 - `LUSH_AUTH_JWT_ISSUER`, default `lush-authz`
 - `LUSH_AUTH_JWT_AUDIENCE`, default `lush-api`
+- `LUSH_TRUSTED_PROXIES`, default empty
 
 `LUSH_APP_ORIGIN` is a comma-separated list of browser app origins allowed to
 use credentialed auth. Wildcard origins are rejected.
+
+## Auth rate limits and reverse proxies
+
+The API enforces in-process sliding-window limits before password hashing,
+session refresh, or email delivery:
+
+| Endpoint | Source-IP limit | Target-email limit |
+| --- | ---: | ---: |
+| Register | 5/hour | 3/hour |
+| Login | 20/15 minutes | 5/15 minutes |
+| Refresh | 120/5 minutes | - |
+| Request password reset | 5/hour | 3/hour |
+
+A successful login clears that email address's login-attempt window. Rejected
+requests return `429` with a `Retry-After` header. Limits apply independently
+in each API process, so multi-replica deployments should also enforce a
+shared limit at the edge.
+
+With no reverse proxy, leave `LUSH_TRUSTED_PROXIES` empty. The API ignores
+`X-Forwarded-For`, `X-Real-IP`, and `X-Forwarded-Proto` from direct clients and
+keys limits on the socket peer address.
+
+Behind a reverse proxy, set `LUSH_TRUSTED_PROXIES` to the comma-separated IP
+addresses or CIDR ranges from which the API actually accepts proxy traffic.
+For example:
+
+```dotenv
+LUSH_TRUSTED_PROXIES=10.20.0.0/16,2001:db8:1234::/48
+```
+
+The API walks `X-Forwarded-For` from the direct peer toward the client and
+stops at the first untrusted hop. Every proxy in the chain must be listed, and
+the public-facing proxy must replace client-supplied forwarding headers.
+Do not trust an internet-wide range such as `0.0.0.0/0`; that lets callers
+choose the address used for throttling.
 
 ## Email verification
 

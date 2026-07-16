@@ -61,6 +61,7 @@ describe("api request logging", () => {
         statusCode: 200,
         durationMs: 12.34,
         requestId: "req-1",
+        ipAddress: "203.0.113.10",
         response
       })
     ).toEqual({

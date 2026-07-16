@@ -29,6 +29,7 @@ export function buildRequestLogMeta(
     statusCode: number;
     durationMs: number;
     requestId: string;
+    ipAddress?: string | null;
     response?: Response;
   }
 ): RequestLogMeta {
@@ -52,9 +53,7 @@ export function buildRequestLogMeta(
       options.response?.headers.get("content-length") ?? null
     ),
     userAgent: request.headers.get("user-agent"),
-    ipAddress:
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip")
+    ipAddress: options.ipAddress ?? null
   };
 }
 

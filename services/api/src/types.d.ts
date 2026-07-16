@@ -7,7 +7,12 @@ declare const Bun: {
   serve(options: {
     port: number;
     hostname: string;
-    fetch(request: Request): Response | Promise<Response>;
+    fetch(
+      request: Request,
+      server: {
+        requestIP(request: Request): { address: string } | null;
+      }
+    ): Response | Promise<Response>;
   }): {
     hostname: string;
     port: number;
