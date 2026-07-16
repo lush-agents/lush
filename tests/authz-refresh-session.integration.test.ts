@@ -5,6 +5,7 @@ import {
   refreshTokenFamilySecret
 } from "../services/authz/src/refresh-token";
 import { rotateRefreshSession } from "../services/authz/src/runtime";
+import { retainedSessionIpAddress } from "../services/authz/src/session-ip";
 
 const databaseUrl =
   process.env.LUSH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -59,10 +60,12 @@ if (!databaseUrl) {
       );
       expect(afterConcurrentRefresh.revokedAt).toBeNull();
       expect(afterConcurrentRefresh.userAgent).toBe("created-agent");
-      expect(afterConcurrentRefresh.ipHash).toBe(await hashSecret("192.0.2.1"));
+      expect(afterConcurrentRefresh.ipHash).toBe(
+        await retainedSessionIpAddress("192.0.2.1")
+      );
       expect(afterConcurrentRefresh.lastSeenUserAgent).toBe("refresh-agent");
       expect(afterConcurrentRefresh.lastSeenIpHash).toBe(
-        await hashSecret("198.51.100.2")
+        await retainedSessionIpAddress("198.51.100.2")
       );
 
       const next = await rotateRefreshSession(
@@ -94,7 +97,8 @@ if (!databaseUrl) {
         .executeTakeFirstOrThrow();
       expect(audit.action).toBe("auth.refresh_token_reused");
       expect(audit.metadata).toEqual({
-        ipHash: await hashSecret("203.0.113.99"),
+        ipValue: await retainedSessionIpAddress("203.0.113.99"),
+        ipMode: "hmac",
         userAgent: "reuse-agent"
       });
     });
@@ -249,9 +253,7 @@ async function insertSession(
     })
     .returning("id")
     .executeTakeFirstOrThrow();
-  const ipHash = options.ipAddress
-    ? await hashSecret(options.ipAddress)
-    : null;
+  const ipHash = await retainedSessionIpAddress(options.ipAddress);
   const row = await db
     .insertInto("sessions")
     .values({

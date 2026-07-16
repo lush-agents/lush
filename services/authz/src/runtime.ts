@@ -26,6 +26,10 @@ import {
   passwordMaxLength,
   verifyPassword
 } from "./password";
+import {
+  retainedSessionIpAddress,
+  sessionIpMode
+} from "./session-ip";
 
 export type Principal = {
   userId: string;
@@ -714,7 +718,7 @@ export async function rotateRefreshSession(
   const tokenHash = await hashSecret(refreshToken);
   const familySecret = refreshTokenFamilySecret(refreshToken);
   const familyHash = await hashSecret(familySecret);
-  const ipHash = meta.ipAddress ? await hashSecret(meta.ipAddress) : null;
+  const ipHash = await retainedSessionIpAddress(meta.ipAddress);
 
   const result = await db.transaction().execute(async (trx) => {
     const row = await trx
@@ -812,7 +816,8 @@ export async function rotateRefreshSession(
         targetType: "session",
         targetId: row.sessionId,
         metadata: {
-          ipHash,
+          ipValue: ipHash,
+          ipMode: sessionIpMode,
           userAgent: meta.userAgent ?? null
         }
       });
@@ -944,7 +949,7 @@ export async function resolveRefreshSession(
     .set({
       lastUsedAt: new Date(),
       lastSeenUserAgent: meta.userAgent ?? null,
-      lastSeenIpHash: meta.ipAddress ? await hashSecret(meta.ipAddress) : null
+      lastSeenIpHash: await retainedSessionIpAddress(meta.ipAddress)
     })
     .where("id", "=", row.sessionId)
     .execute();
@@ -2215,9 +2220,7 @@ async function createSession(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + sessionTtlMs);
   const tokenHash = await hashSecret(refreshToken);
-  const ipHash = options.meta.ipAddress
-    ? await hashSecret(options.meta.ipAddress)
-    : null;
+  const ipHash = await retainedSessionIpAddress(options.meta.ipAddress);
 
   const row = await db
     .insertInto("sessions")

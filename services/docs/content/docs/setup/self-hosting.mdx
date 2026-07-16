@@ -43,11 +43,30 @@ refresh tokens remain valid.
 - `LUSH_AUTH_JWT_ISSUER`, default `lush-authz`
 - `LUSH_AUTH_JWT_AUDIENCE`, default `lush-api`
 - `LUSH_AUTH_PUBLIC_SIGNUP`, default `true`
+- `LUSH_SESSION_IP_MODE`, default `hmac`
 - `LUSH_TRUSTED_PROXIES`, default empty
 - `LUSH_REQUIRE_HTTPS`, default `true`
 
 `LUSH_APP_ORIGIN` is a comma-separated list of browser app origins allowed to
 use credentialed auth. Wildcard origins are rejected.
+
+## Session IP retention
+
+`LUSH_SESSION_IP_MODE` controls values written to the session creation and
+last-seen IP fields and to refresh-token-reuse audit events:
+
+| Mode | Retained value | Operational and privacy effect |
+| --- | --- | --- |
+| `off` | None | Disables new session IP retention and IP-based audit correlation. |
+| `hmac` | HMAC-SHA-256 of the address | Default. Supports equality checks without making IPv4 values enumerable from a database dump. This is pseudonymous personal data, not anonymous data. |
+| `plain` | Raw address | Preserves the address for incident response and carries the corresponding disclosure, access-request, and deletion obligations. |
+
+The HMAC mode uses `LUSH_SECRET_KEY` with domain separation. Rotating that key
+changes future pseudonyms but does not rewrite existing rows. Changing modes
+controls new writes; it does not purge existing session or audit records, so
+operators must apply their own deletion schedule to those records. The database
+migration introducing this setting clears legacy unkeyed SHA-256 session and
+audit IP digests because they cannot be converted safely to keyed pseudonyms.
 
 ## Auth rate limits and reverse proxies
 

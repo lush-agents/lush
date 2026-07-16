@@ -47,8 +47,12 @@ successor, allowing concurrent requests and lost responses to converge safely.
 The tradeoff is explicit: a rotated token remains exchangeable for its
 successor during that grace period, including if the rotated token is stolen.
 An older token, or a previous token outside the grace period, is treated as a
-theft signal: Lush revokes the entire session and records the presenter's hashed
-IP and user agent in an audit event.
+theft signal: Lush revokes the entire session and records the presenter's
+configured IP representation and user agent in an audit event.
+
+`LUSH_SESSION_IP_MODE` controls that representation and session-row retention:
+`off` retains no IP value, `hmac` (the default) retains a domain-separated
+HMAC-SHA-256 keyed by `LUSH_SECRET_KEY`, and `plain` retains the raw address.
 
 `LUSH_SECRET_KEY` is the HMAC key used to derive deterministic successors; the
 database stores only token hashes. Rotating the key makes previous-token grace
