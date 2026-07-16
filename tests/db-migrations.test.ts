@@ -18,7 +18,8 @@ test("database migration ids match their ordinal prefix", () => {
     "005_refresh_token_rotation",
     "006_refresh_token_grace",
     "007_auth_action_tokens",
-    "008_session_ip_retention"
+    "008_session_ip_retention",
+    "009_session_ip_columns"
   ]);
 });
 
@@ -64,10 +65,20 @@ test("session IP retention migration removes enumerable legacy digests", async (
   expect(migration).toContain("ip_hash = null");
   expect(migration).toContain("last_seen_ip_hash = null");
   expect(migration).toContain("metadata - 'ipHash'");
+  expect(migration).not.toContain("rename column");
+});
+
+test("session IP columns are appended after the retention migration", async () => {
+  const migration = await Bun.file(
+    "packages/db/src/migrations/009_session_ip_columns.ts"
+  ).text();
+
   expect(migration).toContain("rename column ip_hash to ip_value");
   expect(migration).toContain(
     "rename column last_seen_ip_hash to last_seen_ip_value"
   );
-  expect(migration).toContain("add column ip_mode text");
-  expect(migration).toContain("add column last_seen_ip_mode text");
+  expect(migration).toContain("add column if not exists ip_mode text");
+  expect(migration).toContain(
+    "add column if not exists last_seen_ip_mode text"
+  );
 });
