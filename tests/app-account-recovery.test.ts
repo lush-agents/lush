@@ -32,3 +32,16 @@ test("registration success copy is neutral about the email contents", async () =
   );
   expect(source).not.toContain("Verify ${result.verificationEmail}");
 });
+
+test("invalid login copy offers verification recovery without identifying the account", async () => {
+  const source = await Bun.file("apps/lush/src/routes/AuthPage.tsx").text();
+
+  expect(source).toContain(
+    'mode === "login" && caught instanceof ApiError && caught.status === 401'
+  );
+  expect(source).toContain("Invalid email or password.");
+  expect(source).toContain("If you recently signed up, check your inbox");
+  expect(source).toContain('to="/register"');
+  expect(source).toContain("register again");
+  expect(source).toContain("to resend it.");
+});

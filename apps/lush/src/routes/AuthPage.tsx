@@ -1,3 +1,4 @@
+import { ApiError } from "@lush/api-client";
 import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../App";
@@ -10,11 +11,14 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [showVerificationRecovery, setShowVerificationRecovery] =
+    useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
+    setShowVerificationRecovery(false);
     setSubmitting(true);
 
     try {
@@ -37,12 +41,17 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
         { replace: true }
       );
     } catch (caught) {
+      const invalidCredentials =
+        mode === "login" && caught instanceof ApiError && caught.status === 401;
+      setShowVerificationRecovery(invalidCredentials);
       setError(
-        caught instanceof Error
-          ? caught.message
-          : mode === "register"
-            ? "Unable to register"
-            : "Unable to sign in"
+        invalidCredentials
+          ? "Invalid email or password."
+          : caught instanceof Error
+            ? caught.message
+            : mode === "register"
+              ? "Unable to register"
+              : "Unable to sign in"
       );
     } finally {
       setSubmitting(false);
@@ -115,9 +124,19 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
           </p>
         ) : null}
         {error ? (
-          <p className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-            {error}
-          </p>
+          <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+            <p>{error}</p>
+            {showVerificationRecovery ? (
+              <p className="mt-2">
+                If you recently signed up, check your inbox for a verification
+                link, or{" "}
+                <Link to="/register" className="underline hover:text-red-200">
+                  register again
+                </Link>{" "}
+                to resend it.
+              </p>
+            ) : null}
+          </div>
         ) : null}
 
         <button

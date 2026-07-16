@@ -182,17 +182,20 @@ if (!databaseUrl) {
 
       await expect(wrongPassword).resolves.toMatchObject({
         code: "invalid_credentials",
-        message: "Invalid email or password",
+        message:
+          "Invalid email or password. If you recently signed up, check your inbox for a verification link or register again to resend it.",
         status: 401
       });
       await expect(unknownEmail).resolves.toMatchObject({
         code: "invalid_credentials",
-        message: "Invalid email or password",
+        message:
+          "Invalid email or password. If you recently signed up, check your inbox for a verification link or register again to resend it.",
         status: 401
       });
       await expect(unverifiedAccount).resolves.toMatchObject({
         code: "invalid_credentials",
-        message: "Invalid email or password",
+        message:
+          "Invalid email or password. If you recently signed up, check your inbox for a verification link or register again to resend it.",
         status: 401
       });
     });

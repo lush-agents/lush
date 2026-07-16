@@ -631,7 +631,11 @@ export async function login(
     user?.passwordHash ?? dummyPasswordHash
   );
   if (!user || !passwordMatches || !user.emailVerified) {
-    throw new AuthError("invalid_credentials", "Invalid email or password", 401);
+    throw new AuthError(
+      "invalid_credentials",
+      "Invalid email or password. If you recently signed up, check your inbox for a verification link or register again to resend it.",
+      401
+    );
   }
 
   const membershipQuery = db
