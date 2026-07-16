@@ -8,6 +8,7 @@ import {
   resetPassword,
   verifyEmailAddress
 } from "../services/authz/src/runtime";
+import { verifyPassword } from "../services/authz/src/password";
 
 const databaseUrl = process.env.LUSH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
 const appBaseUrl = "https://app.example.com";
@@ -184,6 +185,48 @@ if (!databaseUrl) {
         message: "Invalid email or password",
         status: 401
       });
+    });
+
+    test("successful login upgrades a legacy PBKDF2 credential", async () => {
+      const delivery = new CaptureEmailDelivery();
+      const email = uniqueEmail();
+      await registerAccount(
+        { email, password: "initial-password" },
+        {},
+        { db, emailDelivery: delivery, appBaseUrl }
+      );
+      await verifyEmailAddress(
+        { token: deliveredToken(delivery.messages[0]) },
+        { db }
+      );
+      const user = await db
+        .selectFrom("users")
+        .select("id")
+        .where("email", "=", email)
+        .executeTakeFirstOrThrow();
+      const legacyPasswordHash =
+        "pbkdf2-sha256$210000$00000000000000000000000000000000$0874caac5987c61b6f423794064371a0532243af7fb62697cac9fc97e90c0341";
+      await db
+        .updateTable("passwordCredentials")
+        .set({ passwordHash: legacyPasswordHash })
+        .where("userId", "=", user.id)
+        .execute();
+
+      await expect(
+        login({ email, password: "legacy-password" }, {}, { db })
+      ).resolves.toHaveProperty("refreshToken");
+
+      const upgradedHash = (
+        await db
+          .selectFrom("passwordCredentials")
+          .select("passwordHash")
+          .where("userId", "=", user.id)
+          .executeTakeFirstOrThrow()
+      ).passwordHash;
+      expect(upgradedHash).toStartWith("$argon2id$");
+      await expect(verifyPassword("legacy-password", upgradedHash)).resolves.toBe(
+        true
+      );
     });
 
     test("password reset consumes its token and revokes every session", async () => {

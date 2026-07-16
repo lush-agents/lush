@@ -256,7 +256,8 @@
           "password": {
             "type": "string",
             "minLength": 8,
-            "description": "Password for the account. Must be at least 8 characters."
+            "maxLength": 512,
+            "description": "Password for the account. Must be between 8 and 512 characters."
           },
           "displayName": {
             "type": "string",
@@ -359,7 +360,8 @@
           "password": {
             "type": "string",
             "minLength": 8,
-            "description": "Replacement password. Must be at least 8 characters."
+            "maxLength": 512,
+            "description": "Replacement password. Must be between 8 and 512 characters."
           }
         },
         "required": [

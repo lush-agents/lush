@@ -12,6 +12,11 @@ The current implementation supports email/password accounts backed by
 PostgreSQL. Registration creates a user identity and password credential, then
 requires email verification before the account can sign in.
 
+New and reset passwords are limited to 8–512 characters and hashed with
+Argon2id using 64 MiB of memory and two iterations. Credentials stored with the
+legacy PBKDF2-SHA256 format are transparently rehashed after a successful
+login.
+
 Email verification is required before issuing app sessions. Verification and
 password-reset links contain random, single-use, expiring tokens; only token
 hashes are stored. A successful password reset revokes all sessions for the

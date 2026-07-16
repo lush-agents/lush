@@ -38,6 +38,9 @@ Registration is enumeration-resistant by default. With
 while callers receive the same verification-required response as new accounts.
 Private deployments can set the value to `false` to return `email_in_use`.
 Unknown-email and wrong-password logins both perform one password KDF.
+New and reset passwords are limited to 8–512 characters and hashed with
+Argon2id (64 MiB, two iterations). Legacy PBKDF2-SHA256 credentials remain
+verifiable and are replaced with Argon2id after the next successful login.
 
 External auth providers normalize into the `AuthAssertion` adapter shape in
 `src/runtime.ts`, then reuse the same user, organization, membership, and

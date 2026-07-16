@@ -121,8 +121,8 @@ const schemas: Record<string, JsonSchema> = {
       "Email address used for sign-in and verification."
     ),
     password: describeSchema(
-      stringSchema(undefined, 8),
-      "Password for the account. Must be at least 8 characters."
+      stringSchema(undefined, 8, 512),
+      "Password for the account. Must be between 8 and 512 characters."
     ),
     displayName: describeSchema(
       stringSchema(),
@@ -160,8 +160,8 @@ const schemas: Record<string, JsonSchema> = {
   ResetPasswordRequest: objectSchema({
     token: describeSchema(stringSchema(), "Single-use password-reset token."),
     password: describeSchema(
-      stringSchema(undefined, 8),
-      "Replacement password. Must be at least 8 characters."
+      stringSchema(undefined, 8, 512),
+      "Replacement password. Must be between 8 and 512 characters."
     )
   }, ["token", "password"], "Replaces the password and revokes every active session."),
   AuthActionResponse: objectSchema({
@@ -1052,11 +1052,16 @@ function enumSchema(values: string[]): JsonSchema {
   return { type: "string", enum: values };
 }
 
-function stringSchema(format?: string, minLength?: number): JsonSchema {
+function stringSchema(
+  format?: string,
+  minLength?: number,
+  maxLength?: number
+): JsonSchema {
   return {
     type: "string",
     ...(format ? { format } : {}),
-    ...(minLength ? { minLength } : {})
+    ...(minLength ? { minLength } : {}),
+    ...(maxLength ? { maxLength } : {})
   };
 }
 

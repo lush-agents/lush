@@ -19,6 +19,13 @@ import {
   rotateRefreshToken
 } from "./refresh-token";
 import { normalizeAuthEmail } from "./email";
+import {
+  dummyPasswordHash,
+  hashPassword,
+  passwordHashNeedsUpgrade,
+  passwordMaxLength,
+  verifyPassword
+} from "./password";
 
 export type Principal = {
   userId: string;
@@ -641,6 +648,16 @@ export async function login(
 
   if (!membership && body.organizationId) {
     throw new AuthError("membership_not_found", "No organization membership was found", 403);
+  }
+
+  if (passwordHashNeedsUpgrade(user.passwordHash)) {
+    const passwordHash = await hashPassword(body.password);
+    await db
+      .updateTable("passwordCredentials")
+      .set({ passwordHash, updatedAt: new Date() })
+      .where("userId", "=", user.id)
+      .where("passwordHash", "=", user.passwordHash)
+      .execute();
   }
 
   await recordAuditEvent(db, {
@@ -1760,6 +1777,12 @@ function normalizePassword(value: unknown) {
       "Password must be at least 8 characters"
     );
   }
+  if (password.length > passwordMaxLength) {
+    throw new AuthError(
+      "invalid_password",
+      `Password must be at most ${passwordMaxLength} characters`
+    );
+  }
   return password;
 }
 
@@ -2614,80 +2637,6 @@ async function hashSecret(value: string) {
     .join("");
 }
 
-async function hashPassword(password: string) {
-  const salt = new Uint8Array(16);
-  crypto.getRandomValues(salt);
-  const iterations = 210_000;
-  const derived = await derivePassword(password, salt, iterations);
-
-  return [
-    "pbkdf2-sha256",
-    iterations.toString(),
-    bytesToHex(salt),
-    bytesToHex(derived)
-  ].join("$");
-}
-
-// A static, valid hash makes unknown-email logins pay the same PBKDF2 cost as
-// wrong-password logins without creating per-request salt-generation work.
-const dummyPasswordHash =
-  "pbkdf2-sha256$210000$00000000000000000000000000000000$a84e427790f2d6baca37009229fd7a0e141a9c05c77a7281aacc07068a496309";
-
-async function verifyPassword(password: string, passwordHash: string) {
-  const [algorithm, iterationsValue, saltValue, hashValue] = passwordHash.split("$");
-  if (algorithm !== "pbkdf2-sha256" || !iterationsValue || !saltValue || !hashValue) {
-    return false;
-  }
-
-  const iterations = Number(iterationsValue);
-  if (!Number.isInteger(iterations) || iterations <= 0) {
-    return false;
-  }
-
-  const expected = hexToBytes(hashValue);
-  const actual = await derivePassword(password, hexToBytes(saltValue), iterations);
-  return timingSafeEqual(actual, expected);
-}
-
-async function derivePassword(
-  password: string,
-  salt: Uint8Array,
-  iterations: number
-) {
-  const material = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"]
-  );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt: bytesToArrayBuffer(salt),
-      iterations
-    },
-    material,
-    256
-  );
-
-  return new Uint8Array(bits);
-}
-
-function timingSafeEqual(left: Uint8Array, right: Uint8Array) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  let result = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    result |= left[index] ^ right[index];
-  }
-
-  return result === 0;
-}
-
 function bytesToHex(bytes: Uint8Array) {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -2697,12 +2646,4 @@ function bytesToArrayBuffer(bytes: Uint8Array) {
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength
   ) as ArrayBuffer;
-}
-
-function hexToBytes(value: string) {
-  const bytes = new Uint8Array(value.length / 2);
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
-  }
-  return bytes;
 }
