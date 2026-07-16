@@ -31,7 +31,6 @@ import {
   openClientEvents,
   registerAccount,
   removeOrganizationMember,
-  refreshSession,
   switchOrganization,
   truncateSession,
   updateCurrentOrganization,
@@ -486,7 +485,11 @@ function useAppController() {
     }
 
     try {
-      const session = await refreshSession(apiBaseUrl, {});
+      const session = await refreshAccessSession(apiBaseUrl, (accessSession) => {
+        if (requestId === sessionRequestIdRef.current) {
+          applySession(accessSession);
+        }
+      });
       if (requestId !== sessionRequestIdRef.current) {
         return;
       }
@@ -508,8 +511,7 @@ function useAppController() {
   const ensureSession = async (force = false) => {
     if (sessionStatusRef.current !== "ready" || force || sessionTokenExpiresSoon()) {
       try {
-        const session = await refreshSession(apiBaseUrl, {});
-        applySession(session);
+        await refreshAppliedSession();
       } catch (error) {
         clearSessionState();
         throw error;

@@ -7,6 +7,7 @@ import {
   normalizeAccessSession,
   parseAccessTokenClaims,
   readCachedAccessSession,
+  refreshAccessSession,
   withTokenRefresh,
   writeCachedAccessSession
 } from "../apps/lush/src/lib/api-session";
@@ -119,6 +120,35 @@ describe("app api session helper", () => {
     ).rejects.toThrow("forbidden");
 
     expect(refreshed).toBe(false);
+  });
+
+  test("single-flights concurrent refresh requests", async () => {
+    const refreshed = sessionWithToken(tokenWithClaims({ org: "new-org" }));
+    const applied: AccessSession[] = [];
+    let requests = 0;
+    let resolveRequest: ((session: AccessSession) => void) | undefined;
+    const requestRefresh = async () => {
+      requests += 1;
+      return new Promise<AccessSession>((resolve) => {
+        resolveRequest = resolve;
+      });
+    };
+
+    const first = refreshAccessSession(
+      "http://single-flight.test",
+      (session) => applied.push(session),
+      requestRefresh
+    );
+    const second = refreshAccessSession(
+      "http://single-flight.test",
+      (session) => applied.push(session),
+      requestRefresh
+    );
+
+    expect(requests).toBe(1);
+    resolveRequest?.(refreshed);
+    expect(await Promise.all([first, second])).toEqual([refreshed, refreshed]);
+    expect(applied).toEqual([refreshed, refreshed]);
   });
 });
 

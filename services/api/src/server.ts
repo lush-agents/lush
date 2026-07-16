@@ -241,7 +241,18 @@ app.post(routePath("refreshSession"), async (c) => {
       return unauthorized(c);
     }
 
-    return c.json(await refreshAccessSession(refreshToken, requestMeta(c.req.raw)));
+    const session = await refreshAccessSession(
+      refreshToken,
+      requestMeta(c.req.raw)
+    );
+    const { refreshToken: nextRefreshToken, ...response } = session;
+    setSessionCookie(
+      c,
+      nextRefreshToken,
+      response.session.expiresAt,
+      c.req.raw
+    );
+    return c.json(response);
   } catch (error) {
     return handleAuthError(c, error, "Unable to refresh session");
   }
