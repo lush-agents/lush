@@ -17,7 +17,9 @@ test("database migration ids match their ordinal prefix", () => {
     "004_projects",
     "005_refresh_token_rotation",
     "006_refresh_token_grace",
-    "007_auth_action_tokens"
+    "007_auth_action_tokens",
+    "008_session_ip_retention",
+    "009_session_ip_columns"
   ]);
 });
 
@@ -53,4 +55,30 @@ test("refresh-token grace migration is append-only from deployed rotation schema
   expect(migration).toContain("add column if not exists last_seen_ip_hash text");
   expect(migration).toContain("last_seen_user_agent = user_agent");
   expect(migration).toContain("last_seen_ip_hash = ip_hash");
+});
+
+test("session IP retention migration removes enumerable legacy digests", async () => {
+  const migration = await Bun.file(
+    "packages/db/src/migrations/008_session_ip_retention.ts"
+  ).text();
+
+  expect(migration).toContain("ip_hash = null");
+  expect(migration).toContain("last_seen_ip_hash = null");
+  expect(migration).toContain("metadata - 'ipHash'");
+  expect(migration).not.toContain("rename column");
+});
+
+test("session IP columns are appended after the retention migration", async () => {
+  const migration = await Bun.file(
+    "packages/db/src/migrations/009_session_ip_columns.ts"
+  ).text();
+
+  expect(migration).toContain("rename column ip_hash to ip_value");
+  expect(migration).toContain(
+    "rename column last_seen_ip_hash to last_seen_ip_value"
+  );
+  expect(migration).toContain("add column if not exists ip_mode text");
+  expect(migration).toContain(
+    "add column if not exists last_seen_ip_mode text"
+  );
 });

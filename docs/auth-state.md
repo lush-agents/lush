@@ -91,10 +91,10 @@ responses converge without advancing the token chain. This deliberately keeps
 a rotated token exchangeable for its successor for up to the configured grace
 period, including if that token is stolen. Reusing an older token, or the
 previous token after grace expires, revokes the entire session and records
-`auth.refresh_token_reused` in `audit_events` with the presenter's hashed IP and
-user agent. Refresh sessions expire after `LUSH_SESSION_TTL_MS`, defaulting to
-30 days. `POST /v1beta/auth/logout-all` revokes every active session for the
-current user.
+`auth.refresh_token_reused` in `audit_events` with the presenter's configured IP
+representation and user agent. Refresh sessions expire after
+`LUSH_SESSION_TTL_MS`, defaulting to 30 days. `POST /v1beta/auth/logout-all`
+revokes every active session for the current user.
 
 `LUSH_SECRET_KEY` is HMAC key material for deriving deterministic refresh-token
 successors. The database stores only token hashes, so database access alone
@@ -103,8 +103,14 @@ the previous token return `invalid_session` without revoking the session or
 emitting a theft audit; the current token remains usable and derives its next
 successor with the new key.
 
-Session rows preserve the user agent and hashed IP captured at creation, while
-separate last-seen fields update during refresh.
+`LUSH_SESSION_IP_MODE` controls session IP retention: `off` stores no IP value,
+`hmac` (the default) stores a domain-separated HMAC-SHA-256 keyed by
+`LUSH_SECRET_KEY`, and `plain` stores the address unchanged. Session rows
+preserve the user agent and configured IP representation captured at creation,
+while separate last-seen fields update during refresh. Both values store their
+mode so rows remain self-describing after configuration changes. The
+self-hosting guide documents the privacy and retention implications of each
+mode.
 
 Access tokens are RS256 JWTs signed by `services/authz` with
 `LUSH_AUTH_JWT_PRIVATE_KEY` and verified with `LUSH_AUTH_JWT_PUBLIC_KEY`.

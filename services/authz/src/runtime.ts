@@ -26,6 +26,9 @@ import {
   passwordMaxLength,
   verifyPassword
 } from "./password";
+import {
+  retainedSessionIp
+} from "./session-ip";
 
 export type Principal = {
   userId: string;
@@ -714,7 +717,7 @@ export async function rotateRefreshSession(
   const tokenHash = await hashSecret(refreshToken);
   const familySecret = refreshTokenFamilySecret(refreshToken);
   const familyHash = await hashSecret(familySecret);
-  const ipHash = meta.ipAddress ? await hashSecret(meta.ipAddress) : null;
+  const retainedIp = await retainedSessionIp(meta.ipAddress);
 
   const result = await db.transaction().execute(async (trx) => {
     const row = await trx
@@ -736,9 +739,7 @@ export async function rotateRefreshSession(
         "sessions.previousTokenHash",
         "sessions.rotatedAt",
         "sessions.userAgent",
-        "sessions.ipHash",
         "sessions.lastSeenUserAgent",
-        "sessions.lastSeenIpHash",
         "sessions.createdAt",
         "sessions.expiresAt",
         "sessions.revokedAt",
@@ -783,7 +784,8 @@ export async function rotateRefreshSession(
           .set({
             lastUsedAt: now,
             lastSeenUserAgent: meta.userAgent ?? null,
-            lastSeenIpHash: ipHash
+            lastSeenIpValue: retainedIp.value,
+            lastSeenIpMode: retainedIp.mode
           })
           .where("id", "=", row.sessionId)
           .execute();
@@ -812,7 +814,8 @@ export async function rotateRefreshSession(
         targetType: "session",
         targetId: row.sessionId,
         metadata: {
-          ipHash,
+          ipValue: retainedIp.value,
+          ipMode: retainedIp.mode,
           userAgent: meta.userAgent ?? null
         }
       });
@@ -832,7 +835,8 @@ export async function rotateRefreshSession(
         rotatedAt: now,
         lastUsedAt: now,
         lastSeenUserAgent: meta.userAgent ?? null,
-        lastSeenIpHash: ipHash
+        lastSeenIpValue: retainedIp.value,
+        lastSeenIpMode: retainedIp.mode
       })
       .where("id", "=", row.sessionId)
       .execute();
@@ -939,12 +943,14 @@ export async function resolveRefreshSession(
     return undefined;
   }
 
+  const retainedIp = await retainedSessionIp(meta.ipAddress);
   await db
     .updateTable("sessions")
     .set({
       lastUsedAt: new Date(),
       lastSeenUserAgent: meta.userAgent ?? null,
-      lastSeenIpHash: meta.ipAddress ? await hashSecret(meta.ipAddress) : null
+      lastSeenIpValue: retainedIp.value,
+      lastSeenIpMode: retainedIp.mode
     })
     .where("id", "=", row.sessionId)
     .execute();
@@ -2215,9 +2221,7 @@ async function createSession(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + sessionTtlMs);
   const tokenHash = await hashSecret(refreshToken);
-  const ipHash = options.meta.ipAddress
-    ? await hashSecret(options.meta.ipAddress)
-    : null;
+  const retainedIp = await retainedSessionIp(options.meta.ipAddress);
 
   const row = await db
     .insertInto("sessions")
@@ -2230,9 +2234,11 @@ async function createSession(
       previousTokenHash: null,
       rotatedAt: null,
       userAgent: options.meta.userAgent ?? null,
-      ipHash,
+      ipValue: retainedIp.value,
+      ipMode: retainedIp.mode,
       lastSeenUserAgent: options.meta.userAgent ?? null,
-      lastSeenIpHash: ipHash,
+      lastSeenIpValue: retainedIp.value,
+      lastSeenIpMode: retainedIp.mode,
       createdAt: now,
       lastUsedAt: now,
       expiresAt,

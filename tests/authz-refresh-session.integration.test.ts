@@ -5,6 +5,7 @@ import {
   refreshTokenFamilySecret
 } from "../services/authz/src/refresh-token";
 import { rotateRefreshSession } from "../services/authz/src/runtime";
+import { retainedSessionIp } from "../services/authz/src/session-ip";
 
 const databaseUrl =
   process.env.LUSH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -59,11 +60,13 @@ if (!databaseUrl) {
       );
       expect(afterConcurrentRefresh.revokedAt).toBeNull();
       expect(afterConcurrentRefresh.userAgent).toBe("created-agent");
-      expect(afterConcurrentRefresh.ipHash).toBe(await hashSecret("192.0.2.1"));
+      const creationIp = await retainedSessionIp("192.0.2.1");
+      const refreshedIp = await retainedSessionIp("198.51.100.2");
+      expect(afterConcurrentRefresh.ipValue).toBe(creationIp.value);
+      expect(afterConcurrentRefresh.ipMode).toBe(creationIp.mode);
       expect(afterConcurrentRefresh.lastSeenUserAgent).toBe("refresh-agent");
-      expect(afterConcurrentRefresh.lastSeenIpHash).toBe(
-        await hashSecret("198.51.100.2")
-      );
+      expect(afterConcurrentRefresh.lastSeenIpValue).toBe(refreshedIp.value);
+      expect(afterConcurrentRefresh.lastSeenIpMode).toBe(refreshedIp.mode);
 
       const next = await rotateRefreshSession(
         successor!,
@@ -93,8 +96,10 @@ if (!databaseUrl) {
         .where("sessionId", "=", sessionId)
         .executeTakeFirstOrThrow();
       expect(audit.action).toBe("auth.refresh_token_reused");
+      const reusedIp = await retainedSessionIp("203.0.113.99");
       expect(audit.metadata).toEqual({
-        ipHash: await hashSecret("203.0.113.99"),
+        ipValue: reusedIp.value,
+        ipMode: reusedIp.mode,
         userAgent: "reuse-agent"
       });
     });
@@ -249,9 +254,7 @@ async function insertSession(
     })
     .returning("id")
     .executeTakeFirstOrThrow();
-  const ipHash = options.ipAddress
-    ? await hashSecret(options.ipAddress)
-    : null;
+  const retainedIp = await retainedSessionIp(options.ipAddress);
   const row = await db
     .insertInto("sessions")
     .values({
@@ -266,9 +269,11 @@ async function insertSession(
       previousTokenHash: null,
       rotatedAt: null,
       userAgent: options.userAgent ?? null,
-      ipHash,
+      ipValue: retainedIp.value,
+      ipMode: retainedIp.mode,
       lastSeenUserAgent: options.userAgent ?? null,
-      lastSeenIpHash: ipHash,
+      lastSeenIpValue: retainedIp.value,
+      lastSeenIpMode: retainedIp.mode,
       createdAt: now,
       lastUsedAt: now,
       expiresAt: options.expiresAt ?? new Date(now.getTime() + 86_400_000),
