@@ -1032,37 +1032,41 @@ export async function listOrganizations(principal: Principal) {
 export async function switchOrganization(
   principal: Principal,
   request: unknown,
-  meta: RequestMeta = {}
+  meta: RequestMeta = {},
+  options: { db?: Kysely<Database> } = {}
 ) {
   const body = normalizeSwitchOrganizationRequest(request);
-  const db = getDb();
-  const membership = await db
-    .selectFrom("organizationMemberships")
-    .select(["id", "organizationId"])
-    .where("userId", "=", principal.userId)
-    .where("organizationId", "=", body.organizationId)
-    .executeTakeFirst();
+  const db = options.db ?? getDb();
 
-  if (!membership) {
-    throw new AuthError(
-      "membership_not_found",
-      "No membership was found for this organization",
-      403
-    );
-  }
+  return db.transaction().execute(async (trx) => {
+    const membership = await trx
+      .selectFrom("organizationMemberships")
+      .select(["id", "organizationId"])
+      .where("userId", "=", principal.userId)
+      .where("organizationId", "=", body.organizationId)
+      .executeTakeFirst();
 
-  await revokeSession(principal);
-  const refreshSession = await createSession(db, {
-    userId: principal.userId,
-    organizationId: membership.organizationId,
-    membershipId: membership.id,
-    meta
+    if (!membership) {
+      throw new AuthError(
+        "membership_not_found",
+        "No membership was found for this organization",
+        403
+      );
+    }
+
+    await revokeSessionId(trx, principal.sessionId);
+    const refreshSession = await createSession(trx, {
+      userId: principal.userId,
+      organizationId: membership.organizationId,
+      membershipId: membership.id,
+      meta
+    });
+
+    return {
+      ...(await issueAccessSession(refreshSession)),
+      refreshToken: refreshSession.refreshToken
+    };
   });
-
-  return {
-    ...(await issueAccessSession(refreshSession)),
-    refreshToken: refreshSession.refreshToken
-  };
 }
 
 export async function createOrganization(
@@ -1109,7 +1113,7 @@ export async function createOrganization(
       }
     });
 
-    await revokeSession(principal);
+    await revokeSessionId(trx, principal.sessionId);
     const refreshSession = await createSession(trx, {
       userId: principal.userId,
       organizationId: organization.id,
