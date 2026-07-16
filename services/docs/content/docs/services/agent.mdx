@@ -53,8 +53,8 @@ the API gateway:
 - `POST /agents/:agentSlug/prompt` requires `Authorization: Bearer <token>`.
 
 Sign in and refresh through the API auth routes, then pass the returned
-`accessToken` to direct agent requests. Set `LUSH_AUTH_JWT_PUBLIC_KEY` so the
-agent can verify tokens.
+`accessToken` to direct agent requests. Set `LUSH_AUTH_JWT_PUBLIC_KEYS` to the
+same keyed verification set so the agent can verify tokens during rotations.
 
 ## Chat Context
 

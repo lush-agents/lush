@@ -1,11 +1,17 @@
 import { constants, existsSync } from "node:fs";
 import { access } from "node:fs/promises";
+import {
+  generateJwtKeyPair,
+  quoteEnvJsonValue,
+  quoteEnvValue
+} from "../../services/authz/src/jwt-keys";
 
 export const devEnvPath = ".env.development";
 export const devEnvTemplatePath = ".env.template";
 
+const keyIdPlaceholder = "__GENERATED_LUSH_AUTH_JWT_KEY_ID__";
 const privateKeyPlaceholder = "__GENERATED_LUSH_AUTH_JWT_PRIVATE_KEY__";
-const publicKeyPlaceholder = "__GENERATED_LUSH_AUTH_JWT_PUBLIC_KEY__";
+const publicKeysPlaceholder = "__GENERATED_LUSH_AUTH_JWT_PUBLIC_KEYS__";
 const secretKeyPlaceholder = "__GENERATED_LUSH_SECRET_KEY__";
 const devEmailDefaults = {
   LUSH_EMAIL_DELIVERY: "log",
@@ -13,6 +19,7 @@ const devEmailDefaults = {
 } as const;
 
 export type DevEnvSecrets = {
+  keyId: string;
   privateKeyPem: string;
   publicKeyPem: string;
   secretKey: string;
@@ -62,8 +69,9 @@ function withDevEmailDefaults(contents: string) {
 
 export function fillDevEnvTemplate(template: string, secrets: DevEnvSecrets) {
   const missingPlaceholders = [
+    keyIdPlaceholder,
     privateKeyPlaceholder,
-    publicKeyPlaceholder,
+    publicKeysPlaceholder,
     secretKeyPlaceholder
   ].filter((placeholder) => !template.includes(placeholder));
 
@@ -74,59 +82,24 @@ export function fillDevEnvTemplate(template: string, secrets: DevEnvSecrets) {
   }
 
   return template
+    .replace(keyIdPlaceholder, secrets.keyId)
     .replace(privateKeyPlaceholder, quoteEnvValue(secrets.privateKeyPem))
-    .replace(publicKeyPlaceholder, quoteEnvValue(secrets.publicKeyPem))
+    .replace(
+      publicKeysPlaceholder,
+      quoteEnvJsonValue(
+        JSON.stringify({ [secrets.keyId]: secrets.publicKeyPem })
+      )
+    )
     .replace(secretKeyPlaceholder, quoteEnvValue(secrets.secretKey));
 }
 
 export async function generateDevEnvSecrets(): Promise<DevEnvSecrets> {
-  const keyPair = await crypto.subtle.generateKey(
-    {
-      name: "RSASSA-PKCS1-v1_5",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256"
-    },
-    true,
-    ["sign", "verify"]
-  );
-
-  const [privateKey, publicKey] = await Promise.all([
-    crypto.subtle.exportKey("pkcs8", keyPair.privateKey),
-    crypto.subtle.exportKey("spki", keyPair.publicKey)
-  ]);
+  const keyPair = await generateJwtKeyPair();
 
   return {
-    privateKeyPem: pem("PRIVATE KEY", privateKey),
-    publicKeyPem: pem("PUBLIC KEY", publicKey),
+    ...keyPair,
     secretKey: randomHex(32)
   };
-}
-
-function quoteEnvValue(value: string) {
-  return `"${value
-    .replace(/\\/g, "\\\\")
-    .replace(/\n/g, "\\n")
-    .replace(/"/g, '\\"')}"`;
-}
-
-function pem(label: string, keyData: ArrayBuffer) {
-  const base64 = base64Encode(new Uint8Array(keyData));
-  const lines = base64.match(/.{1,64}/g) ?? [];
-  return [
-    `-----BEGIN ${label}-----`,
-    ...lines,
-    `-----END ${label}-----`
-  ].join("\n");
-}
-
-function base64Encode(bytes: Uint8Array) {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-
-  return btoa(binary);
 }
 
 function randomHex(byteLength: number) {

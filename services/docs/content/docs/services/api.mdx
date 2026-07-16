@@ -34,11 +34,13 @@ The API requires PostgreSQL for auth, sessions, organization tenancy, and
 inference provider state. Set `DATABASE_URL` to the PostgreSQL database URL.
 Set `LUSH_APP_ORIGIN` to explicit app origins; wildcard CORS is rejected because
 browser auth uses credentialed session cookies.
-Set `LUSH_AUTH_JWT_PRIVATE_KEY` and `LUSH_AUTH_JWT_PUBLIC_KEY` to an RSA keypair;
-the API signs short-lived access JWTs after login and refresh, and protected
-routes require those bearer tokens. Browser clients keep the refresh token in an
-HttpOnly cookie and cache only the short-lived access JWT in tab-scoped
-`sessionStorage`.
+Set `LUSH_AUTH_JWT_KEY_ID` and `LUSH_AUTH_JWT_PRIVATE_KEY` for signing, and set
+`LUSH_AUTH_JWT_PUBLIC_KEYS` to the JSON map of accepted key IDs to RSA public
+keys. The API signs short-lived access JWTs after login and refresh, and
+protected routes require those bearer tokens. Generate a new configuration with
+`bun run auth:keygen`; the self-hosting guide documents rotation. Browser
+clients keep the refresh token in an HttpOnly cookie and cache only the
+short-lived access JWT in tab-scoped `sessionStorage`.
 
 `LUSH_REQUIRE_HTTPS=true` is the default. It uses the Secure,
 `__Host-lush_session` cookie, emits HSTS, redirects credential-free safe HTTP

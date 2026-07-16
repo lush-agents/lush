@@ -12,10 +12,12 @@ describe("dev env generation", () => {
     const contents = fillDevEnvTemplate(
       [
         "LUSH_SECRET_KEY=__GENERATED_LUSH_SECRET_KEY__",
+        "LUSH_AUTH_JWT_KEY_ID=__GENERATED_LUSH_AUTH_JWT_KEY_ID__",
         "LUSH_AUTH_JWT_PRIVATE_KEY=__GENERATED_LUSH_AUTH_JWT_PRIVATE_KEY__",
-        "LUSH_AUTH_JWT_PUBLIC_KEY=__GENERATED_LUSH_AUTH_JWT_PUBLIC_KEY__"
+        "LUSH_AUTH_JWT_PUBLIC_KEYS=__GENERATED_LUSH_AUTH_JWT_PUBLIC_KEYS__"
       ].join("\n"),
       {
+        keyId: "key-1",
         secretKey: "abc123",
         privateKeyPem: "-----BEGIN PRIVATE KEY-----\nprivate\n-----END PRIVATE KEY-----",
         publicKeyPem: "-----BEGIN PUBLIC KEY-----\npublic\n-----END PUBLIC KEY-----"
@@ -23,11 +25,12 @@ describe("dev env generation", () => {
     );
 
     expect(contents).toContain('LUSH_SECRET_KEY="abc123"');
+    expect(contents).toContain("LUSH_AUTH_JWT_KEY_ID=key-1");
     expect(contents).toContain(
       'LUSH_AUTH_JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\nprivate\\n-----END PRIVATE KEY-----"'
     );
     expect(contents).toContain(
-      'LUSH_AUTH_JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\\npublic\\n-----END PUBLIC KEY-----"'
+      `LUSH_AUTH_JWT_PUBLIC_KEYS='{"key-1":"-----BEGIN PUBLIC KEY-----\\npublic\\n-----END PUBLIC KEY-----"}'`
     );
   });
 
@@ -41,8 +44,9 @@ describe("dev env generation", () => {
       [
         "DATABASE_URL=postgres://lush:lush@127.0.0.1:5432/lush",
         "LUSH_SECRET_KEY=__GENERATED_LUSH_SECRET_KEY__",
+        "LUSH_AUTH_JWT_KEY_ID=__GENERATED_LUSH_AUTH_JWT_KEY_ID__",
         "LUSH_AUTH_JWT_PRIVATE_KEY=__GENERATED_LUSH_AUTH_JWT_PRIVATE_KEY__",
-        "LUSH_AUTH_JWT_PUBLIC_KEY=__GENERATED_LUSH_AUTH_JWT_PUBLIC_KEY__"
+        "LUSH_AUTH_JWT_PUBLIC_KEYS=__GENERATED_LUSH_AUTH_JWT_PUBLIC_KEYS__"
       ].join("\n")
     );
 
