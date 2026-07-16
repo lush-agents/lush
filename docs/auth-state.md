@@ -65,6 +65,14 @@ models.
 `LUSH_AUTH_PASSWORD_ENABLED=false` disables email/password registration and login.
 Hosted deployments can use that once another auth provider is implemented.
 
+`LUSH_AUTH_PUBLIC_SIGNUP=true` is the default and prevents registration from
+revealing whether an email already has an account. Registration returns the
+same verification-required response in either case; an existing address
+receives an account-exists email instead of a verification link. Private
+self-hosted deployments can set it to `false` to return the more explicit
+`email_in_use` error. Failed logins always perform one password KDF, including
+when no account exists, so response timing does not expose account existence.
+
 ## Session Model
 
 The app uses a refresh-token plus access-token split.

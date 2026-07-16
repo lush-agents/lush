@@ -42,6 +42,7 @@ refresh tokens remain valid.
 - `LUSH_ACCESS_TOKEN_TTL_MS`, default `300000`
 - `LUSH_AUTH_JWT_ISSUER`, default `lush-authz`
 - `LUSH_AUTH_JWT_AUDIENCE`, default `lush-api`
+- `LUSH_AUTH_PUBLIC_SIGNUP`, default `true`
 - `LUSH_TRUSTED_PROXIES`, default empty
 
 `LUSH_APP_ORIGIN` is a comma-separated list of browser app origins allowed to
@@ -107,10 +108,18 @@ authentication is enabled, startup fails unless `LUSH_EMAIL_DELIVERY` is
 - `LUSH_SMTP_URL` (an `smtp://` or `smtps://` URL)
 - `LUSH_PUBLIC_APP_URL`, the browser origin used in verification/reset links
 
-`LUSH_AUTH_SIGNUP_ENABLED` defaults to `true`. Token TTLs are controlled by
-`LUSH_EMAIL_VERIFICATION_TTL_MS` (24 hours) and `LUSH_PASSWORD_RESET_TTL_MS`
-(one hour). Tokens are random, single-use, expiring, and stored only as hashes.
-Successful password resets revoke every active session.
+`LUSH_AUTH_SIGNUP_ENABLED` defaults to `true`. `LUSH_AUTH_PUBLIC_SIGNUP` also
+defaults to `true`: registration returns the same verification-required
+response for new and existing emails, and an existing address receives an
+account-exists notification. This prevents unauthenticated account enumeration.
+Small private deployments can set `LUSH_AUTH_PUBLIC_SIGNUP=false` to return the
+friendlier but enumerable `email_in_use` error. Login always performs a password
+KDF even when the email is unknown.
+
+Token TTLs are controlled by `LUSH_EMAIL_VERIFICATION_TTL_MS` (24 hours) and
+`LUSH_PASSWORD_RESET_TTL_MS` (one hour). Tokens are random, single-use,
+expiring, and stored only as hashes. Successful password resets revoke every
+active session.
 
 Verification requires an explicit form submission after the link opens, so
 mail security scanners cannot consume the token or verify an account merely by

@@ -24,7 +24,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
       if (result.verificationEmail) {
         navigate("/sign-in", {
           replace: true,
-          state: { notice: `Verify ${result.verificationEmail} before signing in.` }
+          state: { notice: `Check ${result.verificationEmail} for next steps before signing in.` }
         });
         return;
       }

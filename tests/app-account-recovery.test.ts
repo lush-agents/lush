@@ -23,3 +23,12 @@ test("recovery routes remain available to authenticated users", async () => {
   expect(recoveryRoute).toBeGreaterThan(-1);
   expect(recoveryRoute).toBeLessThan(publicOnlyGuard);
 });
+
+test("registration success copy is neutral about the email contents", async () => {
+  const source = await Bun.file("apps/lush/src/routes/AuthPage.tsx").text();
+
+  expect(source).toContain(
+    "Check ${result.verificationEmail} for next steps before signing in."
+  );
+  expect(source).not.toContain("Verify ${result.verificationEmail}");
+});

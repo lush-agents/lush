@@ -277,7 +277,8 @@ app.post(routePath("registerAccount"), async (c) => {
     return c.json(
       await registerAccount(body, requestMeta(c.req.raw), {
         emailDelivery,
-        appBaseUrl: apiConfig.publicAppUrl
+        appBaseUrl: apiConfig.publicAppUrl,
+        publicSignup: apiConfig.publicSignup
       })
     );
   } catch (error) {
@@ -1268,6 +1269,7 @@ function readApiRuntimeConfig() {
     LUSH_AUTH_JWT_PUBLIC_KEY: envSchema.string(),
     LUSH_SECRET_KEY: envSchema.string(),
     LUSH_AUTH_PASSWORD_ENABLED: envSchema.boolean(true),
+    LUSH_AUTH_PUBLIC_SIGNUP: envSchema.boolean(true),
     LUSH_PUBLIC_APP_URL: envSchema.optionalString(""),
     LUSH_TRUSTED_PROXIES: envSchema.commaList(),
     LUSH_API_PORT: envSchema.number(7330),
@@ -1321,6 +1323,7 @@ function readApiRuntimeConfig() {
     hostname: env.LUSH_API_HOST,
     appOrigins,
     passwordAuthEnabled: env.LUSH_AUTH_PASSWORD_ENABLED,
+    publicSignup: env.LUSH_AUTH_PUBLIC_SIGNUP,
     publicAppUrl: env.LUSH_PUBLIC_APP_URL,
     trustedProxies
   };

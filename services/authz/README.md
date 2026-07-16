@@ -33,6 +33,12 @@ password authentication enabled unless delivery and `LUSH_PUBLIC_APP_URL` are
 configured. Password-reset delivery runs outside the response path; failures
 are logged without changing the uniform public response.
 
+Registration is enumeration-resistant by default. With
+`LUSH_AUTH_PUBLIC_SIGNUP=true`, existing accounts receive a notification email
+while callers receive the same verification-required response as new accounts.
+Private deployments can set the value to `false` to return `email_in_use`.
+Unknown-email and wrong-password logins both perform one password KDF.
+
 External auth providers normalize into the `AuthAssertion` adapter shape in
 `src/runtime.ts`, then reuse the same user, organization, membership, and
 session model. OAuth/OIDC adapters pass `emailVerified: true` when the provider
