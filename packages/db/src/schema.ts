@@ -90,6 +90,18 @@ export type PasswordCredentialsTable = {
   updatedAt: Timestamp;
 };
 
+export type AuthActionTokenPurpose = "verify_email" | "reset_password";
+
+export type AuthActionTokensTable = {
+  id: Generated<string>;
+  userId: string;
+  purpose: AuthActionTokenPurpose;
+  tokenHash: string;
+  expiresAt: Timestamp;
+  usedAt: Timestamp | null;
+  createdAt: Timestamp;
+};
+
 export type SessionsTable = {
   id: Generated<string>;
   userId: string;
@@ -248,6 +260,7 @@ export type Database = {
   authProviders: AuthProvidersTable;
   authIdentities: AuthIdentitiesTable;
   passwordCredentials: PasswordCredentialsTable;
+  authActionTokens: AuthActionTokensTable;
   sessions: SessionsTable;
   auditEvents: AuditEventsTable;
   inferenceProviders: InferenceProvidersTable;

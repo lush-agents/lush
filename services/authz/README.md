@@ -13,12 +13,25 @@ explicit refresh routes mint a short-lived access JWT that the app caches in
 browser `sessionStorage` for the current tab and sends as a bearer token on
 protected API requests.
 
-Email verification is always required before issuing or accepting app sessions.
-Local development can simulate verification by updating the real database state:
+Email verification uses random, single-use, expiring tokens stored only as
+SHA-256 hashes. Password-reset tokens use the same discipline, and a completed
+reset revokes every active session for the user. Re-registering an unverified
+email supersedes its pending password registration and invalidates its prior
+verification token.
+
+The HTTP verifier accepts only a token. Operators can explicitly override
+verification from the CLI for development or installations without SMTP:
 
 ```sh
 bun run auth:verify-email -- user@example.com
 ```
+
+Outbound auth email is injected through the `EmailDelivery` interface in
+`@lush/notifications/email`. The bundled implementations are SMTP and a
+development-only structured-log delivery. The API refuses to start with
+password authentication enabled unless delivery and `LUSH_PUBLIC_APP_URL` are
+configured. Password-reset delivery runs outside the response path; failures
+are logged without changing the uniform public response.
 
 External auth providers normalize into the `AuthAssertion` adapter shape in
 `src/runtime.ts`, then reuse the same user, organization, membership, and

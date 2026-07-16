@@ -32,3 +32,7 @@ The app runs on `http://localhost:5874`. The API gateway runs on
 Local services read the generated `.env.development` file through the same
 schema-validated config path used in hosted deployments. Delete the file to
 regenerate local-only secrets from `.env.template`.
+
+The generated environment uses `LUSH_EMAIL_DELIVERY=log`. Verification and
+password-reset links appear in API logs; they are bearer secrets and should not
+be used outside local development.

@@ -16,8 +16,20 @@ test("database migration ids match their ordinal prefix", () => {
     "003_session_agent_id",
     "004_projects",
     "005_refresh_token_rotation",
-    "006_refresh_token_grace"
+    "006_refresh_token_grace",
+    "007_auth_action_tokens"
   ]);
+});
+
+test("auth action tokens are hashed, expiring, and single-use", async () => {
+  const migration = await Bun.file(
+    "packages/db/src/migrations/007_auth_action_tokens.ts"
+  ).text();
+
+  expect(migration).toContain("token_hash text not null unique");
+  expect(migration).toContain("expires_at timestamptz not null");
+  expect(migration).toContain("used_at timestamptz");
+  expect(migration).toContain("'verify_email', 'reset_password'");
 });
 
 test("refresh-token rotation migration adds a unique token-family lookup", async () => {

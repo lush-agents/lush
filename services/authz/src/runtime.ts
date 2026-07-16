@@ -6,7 +6,13 @@ import {
   requiredEnvValue
 } from "@lush/config/env";
 import { getDb } from "@lush/db/client";
-import type { Database, UserRole } from "@lush/db/schema";
+import type {
+  AuthActionTokenPurpose,
+  Database,
+  UserRole
+} from "@lush/db/schema";
+import { createLogger } from "@lush/logging/logger";
+import type { EmailDelivery } from "@lush/notifications/email";
 import {
   createRefreshToken,
   refreshTokenFamilySecret,
@@ -81,6 +87,26 @@ export type LoginRequest = {
   organizationId?: string;
 };
 
+export type VerifyEmailRequest = {
+  token: string;
+};
+
+export type RequestPasswordResetRequest = {
+  email: string;
+};
+
+export type ResetPasswordRequest = {
+  token: string;
+  password: string;
+};
+
+export type AuthEmailOptions = {
+  emailDelivery?: EmailDelivery;
+  appBaseUrl?: string;
+  db?: Kysely<Database>;
+  now?: Date;
+};
+
 export type OrganizationSummary = {
   id: string;
   name: string;
@@ -136,7 +162,10 @@ const authzConfig = readEnvSchema({
   LUSH_REFRESH_TOKEN_GRACE_MS: envSchema.number(60 * 1000),
   LUSH_AUTH_JWT_ISSUER: envSchema.optionalString("lush-authz"),
   LUSH_AUTH_JWT_AUDIENCE: envSchema.optionalString("lush-api"),
-  LUSH_AUTH_PASSWORD_ENABLED: envSchema.boolean(true)
+  LUSH_AUTH_PASSWORD_ENABLED: envSchema.boolean(true),
+  LUSH_AUTH_SIGNUP_ENABLED: envSchema.boolean(true),
+  LUSH_EMAIL_VERIFICATION_TTL_MS: envSchema.number(24 * 60 * 60 * 1000),
+  LUSH_PASSWORD_RESET_TTL_MS: envSchema.number(60 * 60 * 1000)
 });
 const sessionTtlMs = authzConfig.LUSH_SESSION_TTL_MS;
 const accessTokenTtlMs = authzConfig.LUSH_ACCESS_TOKEN_TTL_MS;
@@ -144,6 +173,10 @@ const refreshTokenGraceMs = authzConfig.LUSH_REFRESH_TOKEN_GRACE_MS;
 const jwtIssuer = authzConfig.LUSH_AUTH_JWT_ISSUER;
 const jwtAudience = authzConfig.LUSH_AUTH_JWT_AUDIENCE;
 const passwordAuthEnabled = authzConfig.LUSH_AUTH_PASSWORD_ENABLED;
+const signupEnabled = authzConfig.LUSH_AUTH_SIGNUP_ENABLED;
+const emailVerificationTtlMs = authzConfig.LUSH_EMAIL_VERIFICATION_TTL_MS;
+const passwordResetTtlMs = authzConfig.LUSH_PASSWORD_RESET_TTL_MS;
+const logger = createLogger("@lush/authz");
 
 export type CurrentSession = {
   sessionId: string;
@@ -360,25 +393,79 @@ export function authorizePrincipal(principal: Principal, action: AuthzAction) {
 
 export async function registerAccount(
   request: unknown,
-  meta: RequestMeta = {}
+  meta: RequestMeta = {},
+  options: AuthEmailOptions = {}
 ) {
   ensurePasswordAuthEnabled();
+  ensureSignupEnabled();
   const body = normalizeRegisterRequest(request);
-  const db = getDb();
+  const db = options.db ?? getDb();
+  const delivery = requireEmailDelivery(options.emailDelivery);
+  const appBaseUrl = requireAppBaseUrl(options.appBaseUrl);
 
-  return db.transaction().execute(async (trx) => {
+  const pending = await db.transaction().execute(async (trx) => {
     const existingUser = await trx
       .selectFrom("users")
-      .select("id")
-      .where("email", "=", body.email)
+      .leftJoin(
+        "passwordCredentials",
+        "passwordCredentials.userId",
+        "users.id"
+      )
+      .select([
+        "users.id",
+        "users.email",
+        "users.emailVerified",
+        "passwordCredentials.userId as credentialUserId"
+      ])
+      .where("users.email", "=", body.email)
       .executeTakeFirst();
 
-    if (existingUser) {
+    if (
+      existingUser &&
+      (existingUser.emailVerified || !existingUser.credentialUserId)
+    ) {
       throw new AuthError("email_in_use", "An account already exists for this email");
     }
 
-    const now = new Date();
+    const now = options.now ?? new Date();
     const passwordHash = await hashPassword(body.password);
+    if (existingUser) {
+      await trx
+        .updateTable("users")
+        .set({ displayName: body.displayName, updatedAt: now })
+        .where("id", "=", existingUser.id)
+        .execute();
+      await trx
+        .updateTable("passwordCredentials")
+        .set({ passwordHash, updatedAt: now })
+        .where("userId", "=", existingUser.id)
+        .execute();
+      await trx
+        .updateTable("sessions")
+        .set({ revokedAt: now })
+        .where("userId", "=", existingUser.id)
+        .where("revokedAt", "is", null)
+        .execute();
+
+      const token = await issueAuthActionToken(
+        trx,
+        existingUser.id,
+        "verify_email",
+        now,
+        emailVerificationTtlMs
+      );
+      await recordAuditEvent(trx, {
+        organizationId: null,
+        userId: existingUser.id,
+        action: "auth.local_registration_superseded",
+        targetType: "user",
+        targetId: existingUser.id,
+        metadata: requestAuditMetadata(meta)
+      });
+
+      return { user: existingUser, token };
+    }
+
     const user = await trx
       .insertInto("users")
       .values({
@@ -445,14 +532,33 @@ export async function registerAccount(
       action: "auth.local_registered",
       targetType: "user",
       targetId: user.id,
-      metadata: {}
+      metadata: requestAuditMetadata(meta)
     });
 
-    return {
-      emailVerificationRequired: true,
-      email: user.email
-    } satisfies EmailVerificationRequired;
+    const token = await issueAuthActionToken(
+      trx,
+      user.id,
+      "verify_email",
+      now,
+      emailVerificationTtlMs
+    );
+    return { user, token };
   });
+
+  await deliverAuthEmail(
+    delivery,
+    {
+      to: pending.user.email,
+      subject: "Verify your Lush email",
+      text: `Verify your email address: ${authLink(appBaseUrl, "/verify-email", pending.token)}`
+    },
+    "verify_email"
+  );
+
+  return {
+    emailVerificationRequired: true,
+    email: pending.user.email
+  } satisfies EmailVerificationRequired;
 }
 
 export async function login(request: unknown, meta: RequestMeta = {}) {
@@ -1248,43 +1354,218 @@ export async function listOrganizationInvites(principal: Principal) {
   };
 }
 
-export async function verifyEmailAddress(email: string) {
+export async function verifyEmailAddress(
+  request: unknown,
+  options: Pick<AuthEmailOptions, "db" | "now"> = {}
+) {
+  const token = normalizeActionToken(objectRequest(request).token);
+  const db = options.db ?? getDb();
+  const now = options.now ?? new Date();
+  const tokenHash = await hashSecret(token);
+
+  return db.transaction().execute(async (trx) => {
+    const row = await trx
+      .selectFrom("authActionTokens")
+      .innerJoin("users", "users.id", "authActionTokens.userId")
+      .select([
+        "authActionTokens.userId",
+        "authActionTokens.expiresAt",
+        "authActionTokens.usedAt"
+      ])
+      .where("authActionTokens.tokenHash", "=", tokenHash)
+      .where("authActionTokens.purpose", "=", "verify_email")
+      .forUpdate("authActionTokens")
+      .executeTakeFirst();
+
+    assertUsableAuthActionToken(row, now);
+    await trx
+      .updateTable("authActionTokens")
+      .set({ usedAt: now })
+      .where("userId", "=", row.userId)
+      .where("purpose", "=", "verify_email")
+      .where("usedAt", "is", null)
+      .execute();
+    await trx
+      .updateTable("users")
+      .set({ emailVerified: true, updatedAt: now })
+      .where("id", "=", row.userId)
+      .execute();
+    await recordAuditEvent(trx, {
+      organizationId: null,
+      userId: row.userId,
+      action: "auth.email_verified",
+      targetType: "user",
+      targetId: row.userId,
+      metadata: { method: "email_token" }
+    });
+
+    return { ok: true as const };
+  });
+}
+
+export async function requestPasswordReset(
+  request: unknown,
+  meta: RequestMeta = {},
+  options: AuthEmailOptions = {}
+) {
+  ensurePasswordAuthEnabled();
+  const email = normalizeEmail(objectRequest(request).email);
+  if (!email) {
+    throw new AuthError("invalid_email", "A valid email is required");
+  }
+
+  const delivery = requireEmailDelivery(options.emailDelivery);
+  const appBaseUrl = requireAppBaseUrl(options.appBaseUrl);
+  const db = options.db ?? getDb();
+  const user = await db
+    .selectFrom("users")
+    .innerJoin("passwordCredentials", "passwordCredentials.userId", "users.id")
+    .select(["users.id", "users.email", "users.emailVerified"])
+    .where("users.email", "=", email)
+    .executeTakeFirst();
+
+  // Keep the response indistinguishable for unknown and unverified accounts.
+  if (!user?.emailVerified) {
+    return { ok: true as const };
+  }
+
+  const now = options.now ?? new Date();
+  const token = await db.transaction().execute(async (trx) => {
+    const issued = await issueAuthActionToken(
+      trx,
+      user.id,
+      "reset_password",
+      now,
+      passwordResetTtlMs
+    );
+    await recordAuditEvent(trx, {
+      organizationId: null,
+      userId: user.id,
+      action: "auth.password_reset_requested",
+      targetType: "user",
+      targetId: user.id,
+      metadata: requestAuditMetadata(meta)
+    });
+    return issued;
+  });
+
+  deliverAuthEmailInBackground(
+    delivery,
+    {
+      to: user.email,
+      subject: "Reset your Lush password",
+      text: `Reset your password: ${authLink(appBaseUrl, "/reset-password", token)}`
+    },
+    "reset_password"
+  );
+  return { ok: true as const };
+}
+
+export async function resetPassword(
+  request: unknown,
+  options: Pick<AuthEmailOptions, "db" | "now"> = {}
+) {
+  ensurePasswordAuthEnabled();
+  const body = objectRequest(request);
+  const token = normalizeActionToken(body.token);
+  const password = normalizePassword(body.password);
+  const db = options.db ?? getDb();
+  const now = options.now ?? new Date();
+  const tokenHash = await hashSecret(token);
+  const candidate = await db
+    .selectFrom("authActionTokens")
+    .select(["userId", "expiresAt", "usedAt"])
+    .where("tokenHash", "=", tokenHash)
+    .where("purpose", "=", "reset_password")
+    .executeTakeFirst();
+  assertUsableAuthActionToken(candidate, now);
+  const passwordHash = await hashPassword(password);
+
+  return db.transaction().execute(async (trx) => {
+    const row = await trx
+      .selectFrom("authActionTokens")
+      .select(["id", "userId", "expiresAt", "usedAt"])
+      .where("tokenHash", "=", tokenHash)
+      .where("purpose", "=", "reset_password")
+      .forUpdate()
+      .executeTakeFirst();
+
+    assertUsableAuthActionToken(row, now);
+    await trx
+      .updateTable("authActionTokens")
+      .set({ usedAt: now })
+      .where("userId", "=", row.userId)
+      .where("purpose", "=", "reset_password")
+      .where("usedAt", "is", null)
+      .execute();
+    await trx
+      .updateTable("passwordCredentials")
+      .set({ passwordHash, updatedAt: now })
+      .where("userId", "=", row.userId)
+      .execute();
+    await trx
+      .updateTable("sessions")
+      .set({ revokedAt: now })
+      .where("userId", "=", row.userId)
+      .where("revokedAt", "is", null)
+      .execute();
+    await recordAuditEvent(trx, {
+      organizationId: null,
+      userId: row.userId,
+      action: "auth.password_reset_completed",
+      targetType: "user",
+      targetId: row.userId,
+      metadata: { sessionsRevoked: true }
+    });
+
+    return { ok: true as const };
+  });
+}
+
+export async function verifyEmailAddressByOperator(email: string) {
   const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) {
     throw new AuthError("invalid_email", "A valid email is required");
   }
 
   const db = getDb();
-  const user = await db
-    .updateTable("users")
-    .set({
-      emailVerified: true,
-      updatedAt: new Date()
-    })
-    .where("email", "=", normalizedEmail)
-    .returning(["id", "email", "emailVerified"])
-    .executeTakeFirst();
+  return db.transaction().execute(async (trx) => {
+    const now = new Date();
+    const user = await trx
+      .updateTable("users")
+      .set({ emailVerified: true, updatedAt: now })
+      .where("email", "=", normalizedEmail)
+      .returning(["id", "email", "emailVerified"])
+      .executeTakeFirst();
 
-  if (!user) {
-    throw new AuthError("user_not_found", "No user exists for this email", 404);
-  }
-
-  await recordAuditEvent(db, {
-    organizationId: null,
-    userId: user.id,
-    action: "auth.email_verified",
-    targetType: "user",
-    targetId: user.id,
-    metadata: {
-      email: user.email,
-      method: "local_simulation"
+    if (!user) {
+      throw new AuthError("user_not_found", "No user exists for this email", 404);
     }
-  });
 
-  return {
-    email: user.email,
-    emailVerified: user.emailVerified
-  };
+    await trx
+      .updateTable("authActionTokens")
+      .set({ usedAt: now })
+      .where("userId", "=", user.id)
+      .where("purpose", "=", "verify_email")
+      .where("usedAt", "is", null)
+      .execute();
+    await recordAuditEvent(trx, {
+      organizationId: null,
+      userId: user.id,
+      action: "auth.email_verified",
+      targetType: "user",
+      targetId: user.id,
+      metadata: {
+        email: user.email,
+        method: "operator_override"
+      }
+    });
+
+    return {
+      email: user.email,
+      emailVerified: user.emailVerified
+    };
+  });
 }
 
 export function bearerToken(request: Request) {
@@ -1301,6 +1582,156 @@ function ensurePasswordAuthEnabled() {
       403
     );
   }
+}
+
+function ensureSignupEnabled() {
+  if (!signupEnabled) {
+    throw new AuthError("signup_disabled", "Account registration is disabled", 403);
+  }
+}
+
+function requireEmailDelivery(delivery: EmailDelivery | undefined) {
+  if (!delivery) {
+    throw new AuthError(
+      "email_delivery_unavailable",
+      "Email delivery is not configured",
+      503
+    );
+  }
+  return delivery;
+}
+
+function requireAppBaseUrl(value: string | undefined) {
+  const normalized = value?.trim().replace(/\/+$/, "");
+  if (!normalized) {
+    throw new AuthError(
+      "email_delivery_unavailable",
+      "The public application URL is not configured",
+      503
+    );
+  }
+  return normalized;
+}
+
+function authLink(appBaseUrl: string, path: string, token: string) {
+  const url = new URL(path, `${appBaseUrl}/`);
+  url.searchParams.set("token", token);
+  return url.toString();
+}
+
+async function deliverAuthEmail(
+  delivery: EmailDelivery,
+  message: Parameters<EmailDelivery["send"]>[0],
+  purpose: AuthActionTokenPurpose
+) {
+  try {
+    await delivery.send(message);
+  } catch (error) {
+    logEmailDeliveryFailure(error, purpose);
+    throw new AuthError(
+      "email_delivery_failed",
+      "Unable to deliver the authentication email",
+      503
+    );
+  }
+}
+
+function deliverAuthEmailInBackground(
+  delivery: EmailDelivery,
+  message: Parameters<EmailDelivery["send"]>[0],
+  purpose: AuthActionTokenPurpose
+) {
+  void Promise.resolve()
+    .then(() => delivery.send(message))
+    .catch((error) => logEmailDeliveryFailure(error, purpose));
+}
+
+function logEmailDeliveryFailure(
+  error: unknown,
+  purpose: AuthActionTokenPurpose
+) {
+  logger.error({ err: error, purpose }, "authentication email delivery failed");
+}
+
+async function issueAuthActionToken(
+  db: Kysely<Database> | Transaction<Database>,
+  userId: string,
+  purpose: AuthActionTokenPurpose,
+  now: Date,
+  ttlMs: number
+) {
+  await db
+    .updateTable("authActionTokens")
+    .set({ usedAt: now })
+    .where("userId", "=", userId)
+    .where("purpose", "=", purpose)
+    .where("usedAt", "is", null)
+    .execute();
+
+  const token = randomActionToken();
+  await db
+    .insertInto("authActionTokens")
+    .values({
+      userId,
+      purpose,
+      tokenHash: await hashSecret(token),
+      expiresAt: new Date(now.getTime() + ttlMs),
+      usedAt: null,
+      createdAt: now
+    })
+    .execute();
+  return token;
+}
+
+function randomActionToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return bytesToHex(bytes);
+}
+
+function assertUsableAuthActionToken(
+  row:
+    | { userId: string; expiresAt: Date; usedAt: Date | null }
+    | undefined,
+  now: Date
+): asserts row is { userId: string; expiresAt: Date; usedAt: Date | null } {
+  if (!row || row.usedAt || row.expiresAt <= now) {
+    throw new AuthError(
+      "invalid_or_expired_token",
+      "This authentication link is invalid or has expired",
+      400
+    );
+  }
+}
+
+function normalizeActionToken(value: unknown) {
+  const token = typeof value === "string" ? value.trim() : "";
+  if (!/^[a-f0-9]{64}$/.test(token)) {
+    throw new AuthError(
+      "invalid_or_expired_token",
+      "This authentication link is invalid or has expired",
+      400
+    );
+  }
+  return token;
+}
+
+function normalizePassword(value: unknown) {
+  const password = typeof value === "string" ? value : "";
+  if (password.length < 8) {
+    throw new AuthError(
+      "invalid_password",
+      "Password must be at least 8 characters"
+    );
+  }
+  return password;
+}
+
+function requestAuditMetadata(meta: RequestMeta) {
+  return {
+    userAgent: meta.userAgent ?? null,
+    hasIpAddress: Boolean(meta.ipAddress)
+  };
 }
 
 function assertEmailVerifiedForAccess(emailVerified: boolean) {
@@ -1352,7 +1783,7 @@ export function authAssertionEmailVerified(assertion: AuthAssertion) {
 function normalizeRegisterRequest(request: unknown): NormalizedRegisterAccountRequest {
   const candidate = objectRequest(request);
   const email = normalizeEmail(candidate.email);
-  const password = typeof candidate.password === "string" ? candidate.password : "";
+  const password = normalizePassword(candidate.password);
   const displayName =
     typeof candidate.displayName === "string" && candidate.displayName.trim()
       ? candidate.displayName.trim()
@@ -1364,13 +1795,6 @@ function normalizeRegisterRequest(request: unknown): NormalizedRegisterAccountRe
 
   if (!email) {
     throw new AuthError("invalid_email", "A valid email is required");
-  }
-
-  if (password.length < 8) {
-    throw new AuthError(
-      "invalid_password",
-      "Password must be at least 8 characters"
-    );
   }
 
   return {

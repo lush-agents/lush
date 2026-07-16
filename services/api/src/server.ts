@@ -33,6 +33,8 @@ import {
   type Principal,
   refreshAccessSession,
   registerAccount,
+  requestPasswordReset,
+  resetPassword,
   removeOrganizationMember,
   resolveAccessPrincipal,
   resolveRefreshSession,
@@ -41,8 +43,13 @@ import {
   switchOrganization,
   updateCurrentOrganization,
   updateOrganizationMemberRole,
-  updateCurrentUser
+  updateCurrentUser,
+  verifyEmailAddress
 } from "@lush/authz/runtime";
+import {
+  assertEmailDeliveryConfigured,
+  configuredEmailDelivery
+} from "@lush/notifications/email";
 import {
   createInferenceProvider,
   deleteInferenceProvider,
@@ -92,6 +99,11 @@ import {
 } from "./request-log";
 
 const apiConfig = readApiRuntimeConfig();
+const emailDelivery = configuredEmailDelivery();
+assertEmailDeliveryConfigured({
+  passwordAuthEnabled: apiConfig.passwordAuthEnabled,
+  delivery: emailDelivery
+});
 const port = apiConfig.port;
 const hostname = apiConfig.hostname;
 const logger = createLogger("@lush/api");
@@ -216,9 +228,46 @@ function contextIdParam(c: Context) {
 app.post(routePath("registerAccount"), async (c) => {
   try {
     const body = await c.req.json().catch(() => undefined);
-    return c.json(await registerAccount(body, requestMeta(c.req.raw)));
+    return c.json(
+      await registerAccount(body, requestMeta(c.req.raw), {
+        emailDelivery,
+        appBaseUrl: apiConfig.publicAppUrl
+      })
+    );
   } catch (error) {
     return handleAuthError(c, error, "Unable to register");
+  }
+});
+
+app.post(routePath("verifyEmail"), async (c) => {
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(await verifyEmailAddress(body));
+  } catch (error) {
+    return handleAuthError(c, error, "Unable to verify email");
+  }
+});
+
+app.post(routePath("requestPasswordReset"), async (c) => {
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(
+      await requestPasswordReset(body, requestMeta(c.req.raw), {
+        emailDelivery,
+        appBaseUrl: apiConfig.publicAppUrl
+      })
+    );
+  } catch (error) {
+    return handleAuthError(c, error, "Unable to request password reset");
+  }
+});
+
+app.post(routePath("resetPassword"), async (c) => {
+  try {
+    const body = await c.req.json().catch(() => undefined);
+    return c.json(await resetPassword(body));
+  } catch (error) {
+    return handleAuthError(c, error, "Unable to reset password");
   }
 });
 
@@ -1094,6 +1143,8 @@ function readApiRuntimeConfig() {
     LUSH_AUTH_JWT_PRIVATE_KEY: envSchema.string(),
     LUSH_AUTH_JWT_PUBLIC_KEY: envSchema.string(),
     LUSH_SECRET_KEY: envSchema.string(),
+    LUSH_AUTH_PASSWORD_ENABLED: envSchema.boolean(true),
+    LUSH_PUBLIC_APP_URL: envSchema.optionalString(""),
     LUSH_API_PORT: envSchema.number(7330),
     LUSH_API_HOST: envSchema.optionalString("0.0.0.0")
   });
@@ -1105,10 +1156,37 @@ function readApiRuntimeConfig() {
     );
   }
 
+  if (
+    env.LUSH_AUTH_PASSWORD_ENABLED && !env.LUSH_PUBLIC_APP_URL
+  ) {
+    throw new ConfigError(
+      "LUSH_PUBLIC_APP_URL is required when password authentication is enabled.",
+      { missing: ["LUSH_PUBLIC_APP_URL"] }
+    );
+  }
+
+  if (env.LUSH_PUBLIC_APP_URL) {
+    let publicAppUrl: URL;
+    try {
+      publicAppUrl = new URL(env.LUSH_PUBLIC_APP_URL);
+    } catch {
+      throw new ConfigError("LUSH_PUBLIC_APP_URL must be a valid URL.", {
+        invalid: ["LUSH_PUBLIC_APP_URL"]
+      });
+    }
+    if (publicAppUrl.protocol !== "http:" && publicAppUrl.protocol !== "https:") {
+      throw new ConfigError("LUSH_PUBLIC_APP_URL must use http or https.", {
+        invalid: ["LUSH_PUBLIC_APP_URL"]
+      });
+    }
+  }
+
   return {
     port: env.LUSH_API_PORT,
     hostname: env.LUSH_API_HOST,
-    appOrigins
+    appOrigins,
+    passwordAuthEnabled: env.LUSH_AUTH_PASSWORD_ENABLED,
+    publicAppUrl: env.LUSH_PUBLIC_APP_URL
   };
 }
 

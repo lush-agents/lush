@@ -56,4 +56,18 @@ describe("dev env generation", () => {
     expect(firstContents).toContain("-----BEGIN PRIVATE KEY-----");
     expect(firstContents).not.toContain("__GENERATED_");
   });
+
+  test("adds missing local email defaults without replacing configured values", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "lush-dev-env-"));
+    const envPath = path.join(directory, ".env.development");
+    await Bun.write(envPath, "LUSH_EMAIL_DELIVERY=smtp\n");
+
+    const result = await ensureDevEnvFile({ envPath });
+    const contents = await Bun.file(envPath).text();
+
+    expect(result).toMatchObject({ created: false, updated: true });
+    expect(contents).toContain("LUSH_EMAIL_DELIVERY=smtp");
+    expect(contents).toContain("LUSH_PUBLIC_APP_URL=http://localhost:5874");
+    expect(contents.match(/LUSH_EMAIL_DELIVERY=/g)).toHaveLength(1);
+  });
 });

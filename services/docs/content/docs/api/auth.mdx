@@ -12,4 +12,10 @@ short-lived access JWT. Browser clients cache that access JWT in tab-scoped
 `sessionStorage` and send it as `Authorization: Bearer ...` on protected API
 requests.
 
+Email verification and password reset are token-only HTTP flows. Their random
+bearer tokens are single-use and expiring, and the database stores only token
+hashes. Reset completion revokes all sessions for the account. Password-reset
+request responses do not reveal whether an account exists and do not wait for
+email delivery.
+
 <OpenApiRouteGroup spec={spec} />
