@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { createIsolatedTestDatabase } from "../packages/db/src/test";
 import { sessionIpColumns } from "../packages/db/src/migrations/009_session_ip_columns";
+import { integrationDatabaseUrl } from "./integration-database";
 
-const databaseUrl =
-  process.env.LUSH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+const databaseUrl = integrationDatabaseUrl();
 
 if (!databaseUrl) {
   test.skip("migration idempotency requires a test database URL", () => {});

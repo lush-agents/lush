@@ -352,12 +352,36 @@ export function resolveOrganizationName(organizationName: string) {
 }
 
 export function resolveApiBaseUrl() {
-  const resolved = configuredApiBaseUrl?.trim().replace(/\/+$/, "");
+  return resolveRuntimeApiBaseUrl({
+    runtimeApiBaseUrl: readRuntimeApiBaseUrl(),
+    configuredApiBaseUrl,
+    browserOrigin: window.location.origin,
+    tauriRuntime: isTauriRuntime()
+  });
+}
+
+export function resolveRuntimeApiBaseUrl({
+  runtimeApiBaseUrl,
+  configuredApiBaseUrl,
+  browserOrigin,
+  tauriRuntime
+}: {
+  runtimeApiBaseUrl?: string;
+  configuredApiBaseUrl?: string;
+  browserOrigin: string;
+  tauriRuntime: boolean;
+}) {
+  const selectedApiBaseUrl = runtimeApiBaseUrl?.trim() || configuredApiBaseUrl;
+  const resolved = selectedApiBaseUrl?.trim().replace(/\/+$/, "");
   if (!resolved) {
-    throw new Error("VITE_LUSH_API_BASE_URL is required.");
+    if (tauriRuntime) {
+      throw new Error("VITE_LUSH_API_BASE_URL is required in Tauri.");
+    }
+
+    return browserOrigin.replace(/\/+$/, "");
   }
 
-  if (!isTauriRuntime()) {
+  if (!tauriRuntime) {
     return resolved;
   }
 
@@ -372,6 +396,16 @@ export function resolveApiBaseUrl() {
   }
 
   return resolved;
+}
+
+function readRuntimeApiBaseUrl() {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  return (window as Window & {
+    __LUSH_CONFIG__?: { apiBaseUrl?: string };
+  }).__LUSH_CONFIG__?.apiBaseUrl;
 }
 
 function isTauriRuntime() {

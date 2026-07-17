@@ -1,0 +1,14 @@
+.git
+.github
+.agents
+.codex
+.env
+.env.*
+**/.DS_Store
+**/.next
+**/dist
+**/node_modules
+**/target
+build
+coverage
+logs

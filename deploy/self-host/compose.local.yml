@@ -1,0 +1,26 @@
+services:
+  api:
+    environment:
+      LUSH_APP_ORIGIN: https://localhost
+      LUSH_PUBLIC_APP_URL: https://localhost
+      LUSH_EMAIL_DELIVERY: log
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - caddy-local-data:/data
+      - caddy-local-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - edge
+
+volumes:
+  caddy-local-data:
+  caddy-local-config:

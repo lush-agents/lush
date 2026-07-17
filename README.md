@@ -104,3 +104,12 @@ bun test
 The root test command runs repo-wide checks: API client codegen, `tsgo`
 typechecking for the shared API client and app, and bundle checks for the API
 and agent services.
+
+## Deployment and releases
+
+Lush publishes version-matched API and browser-app container images for both
+managed and self-hosted deployments. See the [self-hosting guide](services/docs/content/docs/setup/self-hosting.mdx)
+for an end-to-end single-host deployment, email-provider integration, and the
+external-auth extension boundary. [Deployment artifacts](docs/deployment.md)
+defines the image runtime contract, and [Releases](docs/releases.md) defines the
+repository-wide SemVer policy and release process.

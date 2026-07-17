@@ -9,8 +9,10 @@ import {
   verifyEmailAddress
 } from "../services/authz/src/runtime";
 import { verifyPassword } from "../services/authz/src/password";
+import { generateJwtKeyPair } from "../services/authz/src/jwt-keys";
+import { integrationDatabaseUrl } from "./integration-database";
 
-const databaseUrl = process.env.LUSH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+const databaseUrl = integrationDatabaseUrl();
 const appBaseUrl = "https://app.example.com";
 
 if (!databaseUrl) {
@@ -21,6 +23,13 @@ if (!databaseUrl) {
     let db: Awaited<ReturnType<typeof createIsolatedTestDatabase>>["db"];
 
     beforeAll(async () => {
+      const jwtKeys = await generateJwtKeyPair("integration-test", 2048);
+      process.env.LUSH_SECRET_KEY = "integration-test-auth-secret";
+      process.env.LUSH_AUTH_JWT_KEY_ID = jwtKeys.keyId;
+      process.env.LUSH_AUTH_JWT_PRIVATE_KEY = jwtKeys.privateKeyPem;
+      process.env.LUSH_AUTH_JWT_PUBLIC_KEYS = JSON.stringify({
+        [jwtKeys.keyId]: jwtKeys.publicKeyPem
+      });
       harness = await createIsolatedTestDatabase(databaseUrl);
       db = harness.db;
     });

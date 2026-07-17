@@ -1,0 +1,72 @@
+name: lush
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lush}
+      POSTGRES_USER: ${POSTGRES_USER:-lush}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/self-host/.env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - data
+
+  migrate:
+    image: ghcr.io/lush-agents/lush-api:${LUSH_IMAGE_VERSION:?set LUSH_IMAGE_VERSION in deploy/self-host/.env}
+    restart: "no"
+    command: ["bun", "run", "db:migrate"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in deploy/self-host/.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - data
+
+  api:
+    image: ghcr.io/lush-agents/lush-api:${LUSH_IMAGE_VERSION:?set LUSH_IMAGE_VERSION in deploy/self-host/.env}
+    restart: unless-stopped
+    env_file: ${LUSH_API_ENV_FILE:-.env}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${LUSH_API_BIND_PORT:-7330}:7330"
+    networks:
+      - data
+      - edge
+
+  web:
+    image: ghcr.io/lush-agents/lush-web:${LUSH_IMAGE_VERSION:?set LUSH_IMAGE_VERSION in deploy/self-host/.env}
+    restart: unless-stopped
+    environment:
+      LUSH_API_URL: ""
+      LUSH_API_UPSTREAM: http://api:7330
+      LUSH_EXTERNAL_SCHEME: https
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${LUSH_WEB_BIND_PORT:-8080}:8080"
+    networks:
+      - edge
+
+networks:
+  data:
+    ipam:
+      config:
+        - subnet: ${LUSH_DATA_SUBNET:-172.31.250.0/24}
+  edge:
+    ipam:
+      config:
+        - subnet: ${LUSH_EDGE_SUBNET:-172.31.251.0/24}
+
+volumes:
+  postgres-data:

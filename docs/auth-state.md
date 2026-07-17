@@ -58,9 +58,12 @@ successful token exchange.
 
 The auth provider shape is intentionally pluggable. `AuthProviderAdapter`
 normalizes provider-specific login completion into an internal `AuthAssertion`.
-Only password auth is wired today; OAuth/OIDC, SAML, SSO, and managed enterprise
+Only the types and database shape exist today: provider login routes,
+assertion-to-identity resolution, adapter registration, and UI are not wired.
+Only password auth is operational. OAuth/OIDC, SAML, SSO, and managed enterprise
 policy should extend the adapter boundary rather than adding parallel user
-models.
+models; the self-hosting guide defines the required identity-linking and session
+contracts.
 
 `LUSH_AUTH_PASSWORD_ENABLED=false` disables email/password registration and login.
 Hosted deployments can use that once another auth provider is implemented.

@@ -58,8 +58,13 @@ New and reset passwords are limited to 8–512 characters and hashed with
 Argon2id (64 MiB, two iterations). Legacy PBKDF2-SHA256 credentials remain
 verifiable and are replaced with Argon2id after the next successful login.
 
-External auth providers normalize into the `AuthAssertion` adapter shape in
-`src/runtime.ts`, then reuse the same user, organization, membership, and
-session model. OAuth/OIDC adapters pass `emailVerified: true` when the provider
-explicitly verifies the email claim; known email-vendor assertions, such as
-Google, are treated as verified after successful token exchange.
+`src/runtime.ts` defines `AuthProviderAdapter` and `AuthAssertion` as the
+normalization boundary for future external auth providers. Provider login
+routes, assertion-to-identity resolution, adapter registration, and sign-in UI
+are not wired yet, so the stock API currently supports password auth only. A
+complete OAuth/OIDC or SAML implementation must validate the provider protocol,
+resolve the stable `(providerId, subject)` identity, apply an explicit policy
+for linking by verified email, and then reuse the same user, organization,
+membership, and Lush session model. The self-hosting guide describes the
+extension path and the boundary between standards-based provider adapters and
+Lush identity and session interfaces.

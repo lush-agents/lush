@@ -4,9 +4,9 @@ import {
   switchOrganization,
   type Principal
 } from "../services/authz/src/runtime";
+import { integrationDatabaseUrl } from "./integration-database";
 
-const databaseUrl =
-  process.env.LUSH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+const databaseUrl = integrationDatabaseUrl();
 
 if (!databaseUrl) {
   test.skip("organization session transactions require a test database URL", () => {});
