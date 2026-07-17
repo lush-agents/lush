@@ -275,7 +275,7 @@ edge-wide header policy described above.
 
 ### Caddy routing example
 
-```caddyfile
+```text
 @lush_api path /health /v1beta /v1beta/*
 handle @lush_api {
     reverse_proxy 127.0.0.1:7330
@@ -287,7 +287,7 @@ handle {
 
 ### HAProxy routing example
 
-```haproxy
+```text
 frontend lush_https
     bind :443 ssl crt /etc/haproxy/certs/lush.pem
     option forwardfor
