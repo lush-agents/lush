@@ -21,9 +21,7 @@ LABEL org.opencontainers.image.title="Lush Web" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
 
-ENV LUSH_API_URL= \
-    LUSH_API_UPSTREAM=http://lush-api:7330 \
-    LUSH_EXTERNAL_SCHEME=http
+ENV LUSH_API_URL=
 
 COPY --from=build --chown=101:101 /app/apps/lush/dist /usr/share/nginx/html
 COPY containers/web/default.conf.template /etc/nginx/templates/default.conf.template

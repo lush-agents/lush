@@ -48,11 +48,6 @@ services:
     restart: unless-stopped
     environment:
       LUSH_API_URL: ""
-      LUSH_API_UPSTREAM: http://api:7330
-      LUSH_EXTERNAL_SCHEME: https
-    depends_on:
-      api:
-        condition: service_healthy
     ports:
       - "127.0.0.1:${LUSH_WEB_BIND_PORT:-8080}:8080"
     networks:

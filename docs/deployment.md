@@ -40,11 +40,12 @@ must ship as an explicit expand/migrate/contract sequence across releases.
 ### `lush-web`
 
 `ghcr.io/lush-agents/lush-web:<version>` serves the browser app as an
-unprivileged user on port `8080`. It includes a same-origin API proxy for local
-and simple topologies. Production self-hosted deployments should terminate TLS
-and route web/API traffic at their operator-managed ingress. The browser uses
-the page origin by default, so the same immutable bundle works across
-deployments without rebuilding environment-specific API URLs.
+unprivileged user on port `8080`. It is a topology-neutral static origin: it
+serves built assets, SPA fallbacks, `GET /healthz`, and runtime browser
+configuration, but it never proxies API traffic. Deployments terminate TLS and
+route web/API traffic at their operator-managed ingress. The browser uses the
+page origin by default, so the same immutable bundle works across deployments
+without rebuilding environment-specific API URLs.
 
 Runtime environment:
 
@@ -52,24 +53,15 @@ Runtime environment:
   example `https://api.example.com`. It is written into a non-cacheable runtime
   config when the container starts, so changing environments does not rebuild
   the image. It defaults to empty.
-- `LUSH_API_UPSTREAM` is the private API origin visible from the web container
-  when `LUSH_API_URL` is empty and the browser uses the same-origin proxy. It
-  defaults to `http://lush-api:7330`.
-- `LUSH_EXTERNAL_SCHEME` is the scheme clients use at the outermost trusted
-  ingress in same-origin proxy mode, either `http` or `https`; it defaults to
-  `http`.
 
 When `LUSH_API_URL` is set, configure the API's `LUSH_APP_ORIGIN` to allow the
-web origin. When it is empty, the web image proxies `/v1beta/*` and `/health`,
-preserves streaming responses, and serves its own liveness endpoint at
-`GET /healthz`. Set `LUSH_EXTERNAL_SCHEME=https` when TLS terminates before the
-web container, and configure `LUSH_TRUSTED_PROXIES` on the API to trust only the
-web/ingress network that supplies forwarded headers.
+web origin. When it is empty, the browser uses its page origin. The ingress must
+route `/v1beta`, `/v1beta/*`, and `/health` directly to the API and route all
+remaining paths to the web image. Configure `LUSH_TRUSTED_PROXIES` on the API
+with only the ingress socket peers that supply forwarding headers.
 
-For production same-origin ingress, route `/v1beta`, `/v1beta/*`, and `/health`
-directly to the API; route all remaining paths to the web image. The ingress
-owns TLS, forwarding-header normalization, streaming timeouts, response
-buffering policy, public exposure, and any shared rate limits.
+The ingress owns TLS, forwarding-header normalization, streaming timeouts,
+response buffering policy, public exposure, and any shared rate limits.
 
 The Tauri app is intentionally different: it is not served from a browser
 origin and still requires an explicit `VITE_LUSH_API_BASE_URL` at build time.
