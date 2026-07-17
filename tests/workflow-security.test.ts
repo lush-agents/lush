@@ -45,4 +45,21 @@ describe("workflow security invariants", () => {
     const config = await Bun.file(".github/dependabot.yml").text();
     expect(config).toContain("package-ecosystem: github-actions");
   });
+
+  test("CI and release publication validate the static web distribution", async () => {
+    const testWorkflow = await Bun.file(".github/workflows/test.yml").text();
+    expect(testWorkflow).toContain("name: Build lush-web distribution");
+    expect(testWorkflow).toContain("web-distribution.ts verify");
+
+    const publishWorkflow = await Bun.file(
+      ".github/workflows/publish-images.yml"
+    ).text();
+    expect(publishWorkflow).toContain("name: Build lush-web distribution");
+    expect(publishWorkflow).toContain("subject-path:");
+    expect(publishWorkflow).toContain(".tar.gz.sha256");
+    expect(publishWorkflow).toContain("gh release upload");
+    expect(publishWorkflow).toMatch(
+      /publish:\n[\s\S]*?needs:\n\s+- prepare\n\s+- web-distribution/
+    );
+  });
 });

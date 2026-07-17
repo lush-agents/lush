@@ -37,7 +37,8 @@ messages on `main`:
 
 Merging the release pull request updates `package.json` and `CHANGELOG.md`,
 creates the matching `vMAJOR.MINOR.PATCH` tag, and publishes a GitHub Release.
-The same workflow then publishes both OCI images for that exact tag.
+The same workflow then publishes both OCI images and the static browser
+distribution for that exact tag.
 
 Repository settings must allow GitHub Actions to create pull requests. Add a
 fine-grained `RELEASE_PLEASE_TOKEN` Actions secret with repository Contents,
@@ -58,7 +59,8 @@ database URL is absent; they cannot silently degrade to skipped tests.
 Before the first public release:
 
 1. Add `RELEASE_PLEASE_TOKEN`, allow GitHub Actions to create pull requests,
-   and require the test and image-build checks on the release pull request.
+   and require the test, image-build, and `Build lush-web distribution` checks
+   on the release pull request.
 2. Confirm the two GHCR packages inherit public visibility from this public
    repository, or make them public after their first publication.
 
@@ -81,6 +83,41 @@ digest; `latest` is for evaluation only.
 Every published image uses digest-pinned base images and has OCI source,
 version, and revision metadata plus a GitHub/Sigstore build-provenance
 attestation.
+
+The same release also attaches a static browser distribution for CDN, object
+storage, and other static hosting:
+
+- `lush-web-dist-<version>.tar.gz`
+- `lush-web-dist-<version>.tar.gz.sha256`
+- `lush-web-dist-<version>.intoto.jsonl`
+
+The archive is built from the tagged checkout with the locked Bun dependencies
+used by the web image. Its root `lush-manifest.json` records the Lush version and
+full Git revision, and `runtime-config.js` is the empty same-origin placeholder.
+
+Download and verify all three assets before extracting the archive:
+
+```sh
+version=0.1.0
+gh release download "v$version" \
+  --repo lush-agents/lush \
+  --pattern "lush-web-dist-$version*"
+sha256sum --check "lush-web-dist-$version.tar.gz.sha256"
+gh attestation verify "lush-web-dist-$version.tar.gz" \
+  --repo lush-agents/lush \
+  --bundle "lush-web-dist-$version.intoto.jsonl" \
+  --source-ref "refs/tags/v$version" \
+  --signer-workflow lush-agents/lush/.github/workflows/publish-images.yml
+gh attestation verify "lush-web-dist-$version.tar.gz.sha256" \
+  --repo lush-agents/lush \
+  --bundle "lush-web-dist-$version.intoto.jsonl" \
+  --source-ref "refs/tags/v$version" \
+  --signer-workflow lush-agents/lush/.github/workflows/publish-images.yml
+```
+
+Changing either the archive or checksum makes this sequence fail. The checksum
+binds the downloaded filename and bytes, while the signed provenance binds both
+files to the repository, tag, commit, and release workflow.
 
 ## Release scope
 

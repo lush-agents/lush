@@ -3,8 +3,9 @@
 This repository owns portable Lush build artifacts and their runtime contract.
 A managed-service repository may own cloud resources, environment-specific
 configuration, secrets, rollout policy, and operational automation, but it
-should deploy the same images documented here. Self-hosted deployments consume
-those images directly.
+should deploy the same release artifacts documented here. Self-hosted
+deployments can consume the images directly or serve the signed static web
+distribution from purpose-built static infrastructure.
 
 The [self-hosting guide](../services/docs/content/docs/setup/self-hosting.mdx)
 provides a runnable single-host Compose stack plus configuration, SMTP,
@@ -68,15 +69,48 @@ response buffering policy, public exposure, and any shared rate limits.
 The Tauri app is intentionally different: it is not served from a browser
 origin and still requires an explicit `VITE_LUSH_API_BASE_URL` at build time.
 
+### Static `lush-web` distribution
+
+`lush-web-dist-<version>.tar.gz` contains the same Vite output as the web image,
+plus `lush-manifest.json` with its version and Git revision. It is an equally
+supported browser deployment artifact for CDNs, object storage, and static web
+servers; the image remains the supported choice when an nginx container and
+its same-origin API proxy are useful.
+
+Verify the archive and provenance as documented in [Releases](./releases.md),
+then extract it directly into the static host's document root. Configure the
+host to:
+
+- serve existing assets normally and fall back to `index.html` for browser
+  routes;
+- serve `runtime-config.js` without caching;
+- route `/v1beta`, `/v1beta/*`, and `/health` to the API for same-origin
+  deployments.
+
+The archive's `runtime-config.js` is deliberately empty, so same-origin hosts
+need no mutation. For a split-origin deployment, replace that file at deploy
+time, without rebuilding the bundle:
+
+```js
+window.__LUSH_CONFIG__ = Object.freeze({
+  apiBaseUrl: "https://api.example.com"
+});
+```
+
+Set the API's `LUSH_APP_ORIGIN` to the static site's origin. The static artifact
+does not provide nginx's `/healthz`; use the hosting platform's native health
+and availability checks.
+
 ## Deployment order
 
 For a single release:
 
-1. Resolve both images to the same exact version or recorded digests.
+1. Resolve the API image and chosen web artifact to the same exact version or
+   recorded digests.
 2. Run the API image's migration command once with deployment-level locking.
 3. Roll out the API image and wait for `/health`.
-4. Roll out the web image and verify the ingress routes public `/healthz` and
-   `/health` to the intended services.
+4. Roll out the web image or verified static distribution and verify its SPA,
+   runtime config, and API routing.
 5. Record the Git tag, image digests, and migration result in the deployment.
 
 Do not run migrations implicitly in every API replica. A distinct migration
