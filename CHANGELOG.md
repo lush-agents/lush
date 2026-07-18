@@ -17,5 +17,3 @@
 ### Performance Improvements
 
 * **code:** append session events incrementally ([#76](https://github.com/lush-agents/lush/issues/76)) ([c652546](https://github.com/lush-agents/lush/commit/c6525465437c1e50256a0ed403bd2a3350f106a9)), closes [#20](https://github.com/lush-agents/lush/issues/20)
-
-## Changelog
