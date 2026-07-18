@@ -62,4 +62,13 @@ describe("workflow security invariants", () => {
       /publish:\n[\s\S]*?needs:\n\s+- prepare\n\s+- web-distribution/
     );
   });
+
+  test("release verification pins the tagged commit and documents minimum PAT access", async () => {
+    const releases = await Bun.file("docs/releases.md").text();
+    expect(releases).toContain('--source-digest "$source_digest"');
+    expect(releases).not.toContain('--source-ref "refs/tags/v$version"');
+    expect(releases).toContain("Contents and Pull requests write access");
+    expect(releases).toContain("can remain\ndisabled");
+    expect(releases).not.toContain("Issues, and Pull requests write access");
+  });
 });
