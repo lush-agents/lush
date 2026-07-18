@@ -619,15 +619,19 @@ grace replay. Plan that rotation independently from JWT signing keys.
 
 ## Upgrade and rollback
 
-For each release:
+For each release, use either the `lush-web` image in this guide or the signed
+static distribution documented in the repository's `docs/deployment.md`. Both
+are built from the same tagged source; the static archive is intended for CDN,
+object-storage, and other dedicated static-hosting platforms.
 
-1. Read the release notes and resolve both Lush images to one exact version or
-   recorded digest.
+1. Read the release notes and resolve the API image and chosen web artifact to
+   one exact version or recorded digest.
 2. Back up PostgreSQL and verify the restore procedure.
-3. Pull the new images.
+3. Pull or download and verify the release artifacts.
 4. Run the migration job once and record its result.
 5. Roll out the API and wait for `/health`.
-6. Roll out the web image and verify public `/healthz` and `/health` routing.
+6. Roll out the web image or static distribution and verify browser-route
+   fallback, runtime configuration, and API routing.
 7. Exercise login, refresh, email verification, and one inference request.
 
 Roll application code back only if the old version is compatible with the

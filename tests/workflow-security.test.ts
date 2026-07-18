@@ -45,4 +45,55 @@ describe("workflow security invariants", () => {
     const config = await Bun.file(".github/dependabot.yml").text();
     expect(config).toContain("package-ecosystem: github-actions");
   });
+
+  test("CI and release publication validate the static web distribution", async () => {
+    const testWorkflow = await Bun.file(".github/workflows/test.yml").text();
+    expect(testWorkflow).toContain("name: Build lush-web distribution");
+    expect(testWorkflow).toContain("web-distribution.ts verify");
+
+    const publishWorkflow = await Bun.file(
+      ".github/workflows/publish-images.yml"
+    ).text();
+    expect(publishWorkflow).toContain("name: Build lush-web distribution");
+    expect(publishWorkflow).toContain("subject-path:");
+    expect(publishWorkflow).toContain(".tar.gz.sha256");
+    expect(publishWorkflow).toContain("gh release upload");
+    expect(publishWorkflow).toMatch(
+      /publish:\n[\s\S]*?needs:\n\s+- prepare\n\s+- web-distribution/
+    );
+  });
+
+  test("release verification pins the tagged commit and documents minimum PAT access", async () => {
+    const releases = await Bun.file("docs/releases.md").text();
+    expect(releases).toContain('--source-digest "$source_digest"');
+    expect(releases).not.toContain('--source-ref "refs/tags/v$version"');
+    expect(releases).toContain("Contents and Pull requests write access");
+    expect(releases).toContain("can remain\ndisabled");
+    expect(releases).not.toContain("Issues, and Pull requests write access");
+  });
+
+  test("static distribution docs preserve the topology-neutral web contract", async () => {
+    const deployment = await Bun.file("docs/deployment.md").text();
+    expect(deployment).toContain("it never proxies API traffic");
+    expect(deployment).not.toContain("same-origin API proxy");
+  });
+
+  test("manual publication and release workflow permissions preserve provenance", async () => {
+    const publishWorkflow = await Bun.file(
+      ".github/workflows/publish-images.yml"
+    ).text();
+    expect(publishWorkflow).toContain(
+      '"$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_SHA" != "$tag_commit"'
+    );
+
+    const releaseWorkflow = await Bun.file(".github/workflows/release.yml").text();
+    expect(releaseWorkflow).toMatch(/^permissions:\n  contents: read\n\njobs:/m);
+    expect(releaseWorkflow).not.toContain("issues: write");
+    expect(releaseWorkflow).not.toContain("pull-requests: write");
+
+    const releases = await Bun.file("docs/releases.md").text();
+    expect(releases).toContain(
+      "gh workflow run publish-images.yml --ref v0.1.0 -f ref=v0.1.0"
+    );
+  });
 });

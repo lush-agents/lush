@@ -48,6 +48,47 @@ jobs:
       - name: Run tests
         run: bun test
 
+  web-distribution:
+    name: Build lush-web distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.8
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build distribution
+        env:
+          REVISION: ${{ github.sha }}
+        run: |
+          version="$(bun -p 'require("./package.json").version')"
+          bun scripts/web-distribution.ts build "$version" "$REVISION"
+
+      - name: Package and validate distribution
+        env:
+          REVISION: ${{ github.sha }}
+        run: |
+          version="$(bun -p 'require("./package.json").version')"
+          archive="lush-web-dist-$version.tar.gz"
+          source_date_epoch="$(git show -s --format=%ct "$REVISION")"
+          mkdir -p artifacts extracted
+          tar --sort=name --mtime="@$source_date_epoch" \
+            --owner=0 --group=0 --numeric-owner --format=posix \
+            --pax-option=delete=atime,delete=ctime \
+            -czf "artifacts/$archive" -C apps/lush/dist .
+          tar -xzf "artifacts/$archive" -C extracted
+          bun scripts/web-distribution.ts verify "$version" "$REVISION" extracted
+          bun scripts/web-distribution.ts checksum "artifacts/$archive"
+
   containers:
     name: Build ${{ matrix.image }} image
     runs-on: ubuntu-latest

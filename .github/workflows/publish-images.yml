@@ -81,6 +81,10 @@ jobs:
           tag_commit="$(git rev-parse "refs/tags/$RELEASE_REF^{commit}")"
           head_commit="$(git rev-parse HEAD)"
           test "$tag_commit" = "$head_commit"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_SHA" != "$tag_commit" ]]; then
+            echo "::error::Manual publication must be dispatched at $RELEASE_REF so provenance identifies the release commit"
+            exit 1
+          fi
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -94,9 +98,79 @@ jobs:
         id: revision
         run: echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+  web-distribution:
+    name: Build lush-web distribution
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Check out release
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.8
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build distribution
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REVISION: ${{ needs.prepare.outputs.revision }}
+        run: bun scripts/web-distribution.ts build "$VERSION" "$REVISION"
+
+      - name: Package and validate distribution
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REVISION: ${{ needs.prepare.outputs.revision }}
+        run: |
+          archive="lush-web-dist-$VERSION.tar.gz"
+          source_date_epoch="$(git show -s --format=%ct "$REVISION")"
+          mkdir -p artifacts extracted
+          tar --sort=name --mtime="@$source_date_epoch" \
+            --owner=0 --group=0 --numeric-owner --format=posix \
+            --pax-option=delete=atime,delete=ctime \
+            -czf "artifacts/$archive" -C apps/lush/dist .
+          tar -xzf "artifacts/$archive" -C extracted
+          bun scripts/web-distribution.ts verify "$VERSION" "$REVISION" extracted
+          bun scripts/web-distribution.ts checksum "artifacts/$archive"
+
+      - name: Attest distribution provenance
+        id: provenance
+        uses: actions/attest@36051bcae73b7c2a8a6945a48cbf80953c6baa35 # v4
+        with:
+          subject-path: |
+            artifacts/lush-web-dist-${{ needs.prepare.outputs.version }}.tar.gz
+            artifacts/lush-web-dist-${{ needs.prepare.outputs.version }}.tar.gz.sha256
+
+      - name: Attach distribution to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: ${{ inputs.ref }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          archive="artifacts/lush-web-dist-$VERSION.tar.gz"
+          provenance="artifacts/lush-web-dist-$VERSION.intoto.jsonl"
+          cp "$PROVENANCE_BUNDLE" "$provenance"
+          gh release upload "$RELEASE_REF" \
+            "$archive" "$archive.sha256" "$provenance" \
+            --clobber
+
   publish:
     name: Publish ${{ matrix.image }}
-    needs: prepare
+    needs:
+      - prepare
+      - web-distribution
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
