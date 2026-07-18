@@ -9,7 +9,7 @@
   "dependencies": {
     "@lush/config": "workspace:*",
     "@lush/logging": "workspace:*",
-    "nodemailer": "^7.0.5"
+    "nodemailer": "^9.0.3"
   },
   "devDependencies": {
     "@types/nodemailer": "^7.0.1"
