@@ -74,8 +74,8 @@ origin and still requires an explicit `VITE_LUSH_API_BASE_URL` at build time.
 `lush-web-dist-<version>.tar.gz` contains the same Vite output as the web image,
 plus `lush-manifest.json` with its version and Git revision. It is an equally
 supported browser deployment artifact for CDNs, object storage, and static web
-servers; the image remains the supported choice when an nginx container and
-its same-origin API proxy are useful.
+servers; the image remains the supported choice when a packaged nginx origin,
+startup-generated runtime configuration, and `/healthz` are useful.
 
 Verify the archive and provenance as documented in [Releases](./releases.md),
 then extract it directly into the static host's document root. Configure the

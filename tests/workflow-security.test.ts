@@ -71,4 +71,10 @@ describe("workflow security invariants", () => {
     expect(releases).toContain("can remain\ndisabled");
     expect(releases).not.toContain("Issues, and Pull requests write access");
   });
+
+  test("static distribution docs preserve the topology-neutral web contract", async () => {
+    const deployment = await Bun.file("docs/deployment.md").text();
+    expect(deployment).toContain("it never proxies API traffic");
+    expect(deployment).not.toContain("same-origin API proxy");
+  });
 });
