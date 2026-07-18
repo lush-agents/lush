@@ -16,6 +16,18 @@ server {
         try_files $uri =404;
     }
 
+    location = /health {
+        return 404;
+    }
+
+    location = /v1beta {
+        return 404;
+    }
+
+    location ^~ /v1beta/ {
+        return 404;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }

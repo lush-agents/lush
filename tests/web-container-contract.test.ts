@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
 describe("web container contract", () => {
-  test("nginx is a static origin with health and SPA fallback", async () => {
+  test("nginx serves health and SPA routes but rejects API paths", async () => {
     const nginxConfig = await readFile(
       "containers/web/default.conf.template",
       "utf8"
@@ -13,6 +13,11 @@ describe("web container contract", () => {
     expect(nginxConfig).not.toContain("LUSH_EXTERNAL_SCHEME");
     expect(nginxConfig).toContain("location = /healthz");
     expect(nginxConfig).toContain('add_header Cache-Control "no-store"');
+    expect(nginxConfig).toMatch(/location = \/health \{\s+return 404;\s+\}/);
+    expect(nginxConfig).toMatch(/location = \/v1beta \{\s+return 404;\s+\}/);
+    expect(nginxConfig).toMatch(
+      /location \^~ \/v1beta\/ \{\s+return 404;\s+\}/
+    );
     expect(nginxConfig).toContain("try_files $uri $uri/ /index.html");
   });
 

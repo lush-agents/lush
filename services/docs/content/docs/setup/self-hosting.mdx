@@ -333,8 +333,9 @@ that exact address. Confirm the peer in API request logs. Never trust
 
 Leave the web container's `LUSH_API_URL` empty in same-origin mode. The browser
 then calls its page origin, and the operator-managed edge routes API paths
-directly to the API. Requests sent to the web image for those paths receive the
-SPA fallback; the web image has no API upstream.
+directly to the API. Requests sent to the web image for `/health`, `/v1beta`, or
+`/v1beta/*` receive `404`, making a broken ingress rule fail closed instead of
+serving the SPA with `200`. The web image has no API upstream.
 
 For separate origins, set `LUSH_API_URL` on the web container to the public API
 origin, expose the API through a trusted HTTPS ingress, and set

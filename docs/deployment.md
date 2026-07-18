@@ -45,7 +45,9 @@ serves built assets, SPA fallbacks, `GET /healthz`, and runtime browser
 configuration, but it never proxies API traffic. Deployments terminate TLS and
 route web/API traffic at their operator-managed ingress. The browser uses the
 page origin by default, so the same immutable bundle works across deployments
-without rebuilding environment-specific API URLs.
+without rebuilding environment-specific API URLs. The web origin returns `404`
+for `/health`, `/v1beta`, and `/v1beta/*` so an ingress routing error cannot
+masquerade as API health or return the SPA for an API request.
 
 Runtime environment:
 
