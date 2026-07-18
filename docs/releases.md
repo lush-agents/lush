@@ -66,8 +66,16 @@ Before the first public release:
 
 If image publication fails after the GitHub Release is created, rerun the
 failed workflow jobs. The `Publish images` workflow also accepts the same
-existing release tag as a manual recovery path. A release tag must never move
-to another commit.
+existing release tag as a manual recovery path. Dispatch both the workflow and
+its input at that tag so the artifact and attestation provenance identify the
+same commit:
+
+```sh
+gh workflow run publish-images.yml --ref v0.1.0 -f ref=v0.1.0
+```
+
+Manual publication fails before building if the workflow's `GITHUB_SHA` differs
+from the requested tag commit. A release tag must never move to another commit.
 
 ## Published artifacts
 

@@ -81,6 +81,10 @@ jobs:
           tag_commit="$(git rev-parse "refs/tags/$RELEASE_REF^{commit}")"
           head_commit="$(git rev-parse HEAD)"
           test "$tag_commit" = "$head_commit"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_SHA" != "$tag_commit" ]]; then
+            echo "::error::Manual publication must be dispatched at $RELEASE_REF so provenance identifies the release commit"
+            exit 1
+          fi
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

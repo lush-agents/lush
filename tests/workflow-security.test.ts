@@ -77,4 +77,23 @@ describe("workflow security invariants", () => {
     expect(deployment).toContain("it never proxies API traffic");
     expect(deployment).not.toContain("same-origin API proxy");
   });
+
+  test("manual publication and release workflow permissions preserve provenance", async () => {
+    const publishWorkflow = await Bun.file(
+      ".github/workflows/publish-images.yml"
+    ).text();
+    expect(publishWorkflow).toContain(
+      '"$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_SHA" != "$tag_commit"'
+    );
+
+    const releaseWorkflow = await Bun.file(".github/workflows/release.yml").text();
+    expect(releaseWorkflow).toMatch(/^permissions:\n  contents: read\n\njobs:/m);
+    expect(releaseWorkflow).not.toContain("issues: write");
+    expect(releaseWorkflow).not.toContain("pull-requests: write");
+
+    const releases = await Bun.file("docs/releases.md").text();
+    expect(releases).toContain(
+      "gh workflow run publish-images.yml --ref v0.1.0 -f ref=v0.1.0"
+    );
+  });
 });
