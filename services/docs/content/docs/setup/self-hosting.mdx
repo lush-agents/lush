@@ -53,6 +53,15 @@ paths to the web service. This keeps browser traffic on one public origin while
 allowing the edge to own certificates, forwarding headers, limits, access
 logging, and network policy. PostgreSQL is never publicly exposed.
 
+### Upgrade note: the web image is a static origin
+
+The web image no longer proxies `/health` or `/v1beta/*`. Deployments that
+previously exposed only `lush-web` must expose `lush-api` to their private
+ingress and add the path rules above before upgrading. `LUSH_API_UPSTREAM` and
+`LUSH_EXTERNAL_SCHEME` are no longer web-image configuration. This is an
+intentional compatibility break: API service discovery, TLS topology, trusted
+proxy policy, and streaming behavior now have one owner at the ingress.
+
 ## Prerequisites
 
 - A Linux host with Docker Engine and Docker Compose v2.
@@ -76,12 +85,12 @@ chmod 600 deploy/self-host/.env
 ```
 
 Edit `.env` and set the exact release version, PostgreSQL credentials, public
-URLs, and SMTP configuration. The bundled `LUSH_EDGE_SUBNET` and
-`LUSH_TRUSTED_PROXIES` defaults work together; change both if that subnet
-conflicts with the host or does not match the actual ingress topology. The
-password embedded in `DATABASE_URL` must be URL-encoded if it contains reserved
-URL characters. Keep the database hostname as `postgres` when using the bundled
-database.
+URLs, SMTP configuration, and the API socket peers allowed to supply forwarding
+headers. The example `LUSH_TRUSTED_PROXIES` value is the default edge-network
+gateway used by a host ingress connecting through the loopback-published API
+port. Replace it for any other topology. The password embedded in `DATABASE_URL`
+must be URL-encoded if it contains reserved URL characters. Keep the database
+hostname as `postgres` when using the bundled database.
 
 Generate a URL-safe PostgreSQL password if needed:
 
@@ -127,8 +136,9 @@ docker compose \
   up -d
 ```
 
-The migration container must finish successfully before the API starts. The
-web service starts only after the API health check passes. Inspect the result:
+The migration container must finish successfully before the API starts. The web
+service has no API or database dependency and starts independently. Inspect the
+result:
 
 ```sh
 docker compose \
@@ -233,35 +243,99 @@ The edge must:
 - keep ports `7330`, `8080`, and PostgreSQL unreachable from the public
   internet.
 
-The reference stack separates PostgreSQL onto a `data` network and puts only the
-API, web service, host bridge, and an optional ingress container on a fixed
-`edge` network. Its defaults are:
+These equivalent examples show the routing contract; Lush does not prescribe a
+production ingress.
+
+### Nginx routing example
+
+```nginx
+location = /health {
+    proxy_pass http://127.0.0.1:7330;
+}
+
+location = /v1beta {
+    proxy_pass http://127.0.0.1:7330;
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+}
+
+location ^~ /v1beta/ {
+    proxy_pass http://127.0.0.1:7330;
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+}
+
+location / {
+    proxy_pass http://127.0.0.1:8080;
+}
+```
+
+Set `Host`, `X-Forwarded-For`, and `X-Forwarded-Proto` according to the
+edge-wide header policy described above.
+
+### Caddy routing example
+
+```text
+@lush_api path /health /v1beta /v1beta/*
+handle @lush_api {
+    reverse_proxy 127.0.0.1:7330
+}
+handle {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+### HAProxy routing example
+
+```text
+frontend lush_https
+    bind :443 ssl crt /etc/haproxy/certs/lush.pem
+    option forwardfor
+    http-request set-header X-Forwarded-Proto https
+    acl is_lush_api path -i /health /v1beta
+    acl is_lush_api path_beg /v1beta/
+    use_backend lush_api if is_lush_api
+    default_backend lush_web
+
+backend lush_api
+    server api 127.0.0.1:7330
+
+backend lush_web
+    server web 127.0.0.1:8080
+```
+
+Apply explicit server/client timeouts suitable for streaming API requests.
+
+### Managed load balancer routing
+
+Configure ordered listener rules with exact `/health` and `/v1beta` matches
+plus a `/v1beta/*` prefix match targeting port `7330`. Send the default rule to
+port `8080`. Enable streaming and long-lived requests on the API target, and
+restrict both target ports to traffic from the load balancer.
+
+The reference stack separates PostgreSQL onto a `data` network and puts the API,
+web service, host bridge, and optional ingress on a fixed `edge` network. Its
+host-ingress defaults are:
 
 ```dotenv
 LUSH_DATA_SUBNET=172.31.250.0/24
 LUSH_EDGE_SUBNET=172.31.251.0/24
-LUSH_TRUSTED_PROXIES=172.31.251.0/24
+LUSH_TRUSTED_PROXIES=172.31.251.1/32
 ```
 
-The trusted range must match the source IPs from which the API actually receives
-edge traffic. This is the socket peer as observed by the API, not necessarily
-the edge's public address. A host reverse proxy reaching the API through the
-loopback-published port normally appears as the edge-network bridge gateway. A
-containerized ingress should attach only to the `edge` network.
-
-When the ingress follows the production routing table, API traffic flows
-directly from ingress to API. If a topology instead sends `/v1beta/*` through
-the web image's internal Nginx proxy, the web container is an additional
-trusted hop. The bundled edge CIDR includes both cases. If either fixed subnet
-conflicts with the host, change the corresponding subnet; when changing
-`LUSH_EDGE_SUBNET`, change `LUSH_TRUSTED_PROXIES` with it. Trust only the
-required edge network and never use `0.0.0.0/0`.
+`LUSH_TRUSTED_PROXIES` must match only the socket peers from which the API
+actually receives ingress traffic, not every service on the edge network and
+not necessarily the ingress's public address. A host reverse proxy reaching the
+API through the loopback-published port normally appears as the edge-network
+bridge gateway. Assign a stable private IP to a containerized ingress and trust
+that exact address. Confirm the peer in API request logs. Never trust
+`0.0.0.0/0` or an entire shared subnet merely for convenience.
 
 Leave the web container's `LUSH_API_URL` empty in same-origin mode. The browser
-then calls its page origin, and the operator-managed edge routes API paths. The
-web image retains an internal API proxy as a fallback for local and simple
-topologies, but production ingress should implement the explicit routing table
-above.
+then calls its page origin, and the operator-managed edge routes API paths
+directly to the API. Requests sent to the web image for `/health`, `/v1beta`, or
+`/v1beta/*` receive `404`, making a broken ingress rule fail closed instead of
+serving the SPA with `200`. The web image has no API upstream.
 
 For separate origins, set `LUSH_API_URL` on the web container to the public API
 origin, expose the API through a trusted HTTPS ingress, and set
@@ -293,7 +367,8 @@ workstation. It is not part of the production self-hosting stack.
 
 Use the local overlay with a copy of `.env` containing generated database and
 JWT secrets. The overlay changes the public origin to `https://localhost`, uses
-log email delivery, and attaches Caddy to the fixed trusted edge network:
+log email delivery, assigns Caddy the stable `LUSH_LOCAL_CADDY_IP`, and trusts
+only that address at the API:
 
 ```sh
 docker compose \
@@ -544,15 +619,19 @@ grace replay. Plan that rotation independently from JWT signing keys.
 
 ## Upgrade and rollback
 
-For each release:
+For each release, use either the `lush-web` image in this guide or the signed
+static distribution documented in the repository's `docs/deployment.md`. Both
+are built from the same tagged source; the static archive is intended for CDN,
+object-storage, and other dedicated static-hosting platforms.
 
-1. Read the release notes and resolve both Lush images to one exact version or
-   recorded digest.
+1. Read the release notes and resolve the API image and chosen web artifact to
+   one exact version or recorded digest.
 2. Back up PostgreSQL and verify the restore procedure.
-3. Pull the new images.
+3. Pull or download and verify the release artifacts.
 4. Run the migration job once and record its result.
 5. Roll out the API and wait for `/health`.
-6. Roll out the web image and verify public `/healthz` and `/health` routing.
+6. Roll out the web image or static distribution and verify browser-route
+   fallback, runtime configuration, and API routing.
 7. Exercise login, refresh, email verification, and one inference request.
 
 Roll application code back only if the old version is compatible with the

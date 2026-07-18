@@ -37,14 +37,16 @@ messages on `main`:
 
 Merging the release pull request updates `package.json` and `CHANGELOG.md`,
 creates the matching `vMAJOR.MINOR.PATCH` tag, and publishes a GitHub Release.
-The same workflow then publishes both OCI images for that exact tag.
+The same workflow then publishes both OCI images and the static browser
+distribution for that exact tag.
 
-Repository settings must allow GitHub Actions to create pull requests. Add a
-fine-grained `RELEASE_PLEASE_TOKEN` Actions secret with repository Contents,
-Issues, and Pull requests write access. Release Please needs this token so its
+Add a fine-grained `RELEASE_PLEASE_TOKEN` Actions secret with repository
+Contents and Pull requests write access. Release Please uses this token so its
 pull request triggers the normal test and image-build workflows; GitHub
 suppresses workflows caused by pull requests created with the repository
-`GITHUB_TOKEN`.
+`GITHUB_TOKEN`. The repository-level **Allow GitHub Actions to create and
+approve pull requests** setting applies to `GITHUB_TOKEN` and can remain
+disabled.
 
 Image publication uses the repository-scoped `GITHUB_TOKEN`, so no registry
 credential is required. Before publishing, the workflow confirms that the
@@ -57,15 +59,23 @@ database URL is absent; they cannot silently degrade to skipped tests.
 
 Before the first public release:
 
-1. Add `RELEASE_PLEASE_TOKEN`, allow GitHub Actions to create pull requests,
-   and require the test and image-build checks on the release pull request.
+1. Add `RELEASE_PLEASE_TOKEN` and require the test, image-build, and
+   `Build lush-web distribution` checks on the release pull request.
 2. Confirm the two GHCR packages inherit public visibility from this public
    repository, or make them public after their first publication.
 
 If image publication fails after the GitHub Release is created, rerun the
 failed workflow jobs. The `Publish images` workflow also accepts the same
-existing release tag as a manual recovery path. A release tag must never move
-to another commit.
+existing release tag as a manual recovery path. Dispatch both the workflow and
+its input at that tag so the artifact and attestation provenance identify the
+same commit:
+
+```sh
+gh workflow run publish-images.yml --ref v0.1.0 -f ref=v0.1.0
+```
+
+Manual publication fails before building if the workflow's `GITHUB_SHA` differs
+from the requested tag commit. A release tag must never move to another commit.
 
 ## Published artifacts
 
@@ -81,6 +91,44 @@ digest; `latest` is for evaluation only.
 Every published image uses digest-pinned base images and has OCI source,
 version, and revision metadata plus a GitHub/Sigstore build-provenance
 attestation.
+
+The same release also attaches a static browser distribution for CDN, object
+storage, and other static hosting:
+
+- `lush-web-dist-<version>.tar.gz`
+- `lush-web-dist-<version>.tar.gz.sha256`
+- `lush-web-dist-<version>.intoto.jsonl`
+
+The archive is built from the tagged checkout with the locked Bun dependencies
+used by the web image. Its root `lush-manifest.json` records the Lush version and
+full Git revision, and `runtime-config.js` is the empty same-origin placeholder.
+
+Download and verify all three assets before extracting the archive:
+
+```sh
+version=0.1.0
+gh release download "v$version" \
+  --repo lush-agents/lush \
+  --pattern "lush-web-dist-$version*"
+source_digest="$(gh api "repos/lush-agents/lush/commits/v$version" --jq .sha)"
+sha256sum --check "lush-web-dist-$version.tar.gz.sha256"
+gh attestation verify "lush-web-dist-$version.tar.gz" \
+  --repo lush-agents/lush \
+  --bundle "lush-web-dist-$version.intoto.jsonl" \
+  --source-digest "$source_digest" \
+  --signer-workflow lush-agents/lush/.github/workflows/publish-images.yml
+gh attestation verify "lush-web-dist-$version.tar.gz.sha256" \
+  --repo lush-agents/lush \
+  --bundle "lush-web-dist-$version.intoto.jsonl" \
+  --source-digest "$source_digest" \
+  --signer-workflow lush-agents/lush/.github/workflows/publish-images.yml
+```
+
+Changing either the archive or checksum makes this sequence fail. The checksum
+binds the downloaded filename and bytes, while the signed provenance binds both
+files to the repository, tagged commit, and release workflow. The attestation's
+source ref is the `main` caller workflow ref, so verification deliberately pins
+the commit resolved from the immutable release tag instead.
 
 ## Release scope
 

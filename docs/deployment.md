@@ -3,8 +3,9 @@
 This repository owns portable Lush build artifacts and their runtime contract.
 A managed-service repository may own cloud resources, environment-specific
 configuration, secrets, rollout policy, and operational automation, but it
-should deploy the same images documented here. Self-hosted deployments consume
-those images directly.
+should deploy the same release artifacts documented here. Self-hosted
+deployments can consume the images directly or serve the signed static web
+distribution from purpose-built static infrastructure.
 
 The [self-hosting guide](../services/docs/content/docs/setup/self-hosting.mdx)
 provides a runnable single-host Compose stack plus configuration, SMTP,
@@ -40,11 +41,14 @@ must ship as an explicit expand/migrate/contract sequence across releases.
 ### `lush-web`
 
 `ghcr.io/lush-agents/lush-web:<version>` serves the browser app as an
-unprivileged user on port `8080`. It includes a same-origin API proxy for local
-and simple topologies. Production self-hosted deployments should terminate TLS
-and route web/API traffic at their operator-managed ingress. The browser uses
-the page origin by default, so the same immutable bundle works across
-deployments without rebuilding environment-specific API URLs.
+unprivileged user on port `8080`. It is a topology-neutral static origin: it
+serves built assets, SPA fallbacks, `GET /healthz`, and runtime browser
+configuration, but it never proxies API traffic. Deployments terminate TLS and
+route web/API traffic at their operator-managed ingress. The browser uses the
+page origin by default, so the same immutable bundle works across deployments
+without rebuilding environment-specific API URLs. The web origin returns `404`
+for `/health`, `/v1beta`, and `/v1beta/*` so an ingress routing error cannot
+masquerade as API health or return the SPA for an API request.
 
 Runtime environment:
 
@@ -52,37 +56,61 @@ Runtime environment:
   example `https://api.example.com`. It is written into a non-cacheable runtime
   config when the container starts, so changing environments does not rebuild
   the image. It defaults to empty.
-- `LUSH_API_UPSTREAM` is the private API origin visible from the web container
-  when `LUSH_API_URL` is empty and the browser uses the same-origin proxy. It
-  defaults to `http://lush-api:7330`.
-- `LUSH_EXTERNAL_SCHEME` is the scheme clients use at the outermost trusted
-  ingress in same-origin proxy mode, either `http` or `https`; it defaults to
-  `http`.
 
 When `LUSH_API_URL` is set, configure the API's `LUSH_APP_ORIGIN` to allow the
-web origin. When it is empty, the web image proxies `/v1beta/*` and `/health`,
-preserves streaming responses, and serves its own liveness endpoint at
-`GET /healthz`. Set `LUSH_EXTERNAL_SCHEME=https` when TLS terminates before the
-web container, and configure `LUSH_TRUSTED_PROXIES` on the API to trust only the
-web/ingress network that supplies forwarded headers.
+web origin. When it is empty, the browser uses its page origin. The ingress must
+route `/v1beta`, `/v1beta/*`, and `/health` directly to the API and route all
+remaining paths to the web image. Configure `LUSH_TRUSTED_PROXIES` on the API
+with only the ingress socket peers that supply forwarding headers.
 
-For production same-origin ingress, route `/v1beta`, `/v1beta/*`, and `/health`
-directly to the API; route all remaining paths to the web image. The ingress
-owns TLS, forwarding-header normalization, streaming timeouts, response
-buffering policy, public exposure, and any shared rate limits.
+The ingress owns TLS, forwarding-header normalization, streaming timeouts,
+response buffering policy, public exposure, and any shared rate limits.
 
 The Tauri app is intentionally different: it is not served from a browser
 origin and still requires an explicit `VITE_LUSH_API_BASE_URL` at build time.
+
+### Static `lush-web` distribution
+
+`lush-web-dist-<version>.tar.gz` contains the same Vite output as the web image,
+plus `lush-manifest.json` with its version and Git revision. It is an equally
+supported browser deployment artifact for CDNs, object storage, and static web
+servers; the image remains the supported choice when a packaged nginx origin,
+startup-generated runtime configuration, and `/healthz` are useful.
+
+Verify the archive and provenance as documented in [Releases](./releases.md),
+then extract it directly into the static host's document root. Configure the
+host to:
+
+- serve existing assets normally and fall back to `index.html` for browser
+  routes;
+- serve `runtime-config.js` without caching;
+- route `/v1beta`, `/v1beta/*`, and `/health` to the API for same-origin
+  deployments.
+
+The archive's `runtime-config.js` is deliberately empty, so same-origin hosts
+need no mutation. For a split-origin deployment, replace that file at deploy
+time, without rebuilding the bundle:
+
+```js
+window.__LUSH_CONFIG__ = Object.freeze({
+  apiBaseUrl: "https://api.example.com"
+});
+```
+
+Set the API's `LUSH_APP_ORIGIN` to the static site's origin. The static artifact
+does not provide nginx's `/healthz`; use the hosting platform's native health
+and availability checks.
 
 ## Deployment order
 
 For a single release:
 
-1. Resolve both images to the same exact version or recorded digests.
+1. Resolve the API image and chosen web artifact to the same exact version or
+   recorded digests.
 2. Run the API image's migration command once with deployment-level locking.
 3. Roll out the API image and wait for `/health`.
-4. Roll out the web image and verify the ingress routes public `/healthz` and
-   `/health` to the intended services.
+4. Roll out the web image or verified static distribution and verify its SPA,
+   runtime config, and API routing.
 5. Record the Git tag, image digests, and migration result in the deployment.
 
 Do not run migrations implicitly in every API replica. A distinct migration

@@ -6,9 +6,7 @@ on:
       - main
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release:
@@ -33,7 +31,7 @@ jobs:
     with:
       ref: ${{ needs.release.outputs.tag }}
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
       attestations: write

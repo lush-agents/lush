@@ -4,6 +4,7 @@ services:
       LUSH_APP_ORIGIN: https://localhost
       LUSH_PUBLIC_APP_URL: https://localhost
       LUSH_EMAIL_DELIVERY: log
+      LUSH_TRUSTED_PROXIES: ${LUSH_LOCAL_CADDY_IP:-172.31.251.254}/32
 
   caddy:
     image: caddy:2-alpine
@@ -19,7 +20,8 @@ services:
       web:
         condition: service_healthy
     networks:
-      - edge
+      edge:
+        ipv4_address: ${LUSH_LOCAL_CADDY_IP:-172.31.251.254}
 
 volumes:
   caddy-local-data:
