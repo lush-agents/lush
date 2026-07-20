@@ -63,6 +63,24 @@ describe("workflow security invariants", () => {
     );
   });
 
+  test("release publication stages every artifact before locking the release", async () => {
+    const releaseConfig = JSON.parse(
+      await Bun.file("release-please-config.json").text()
+    ) as Record<string, unknown>;
+    expect(releaseConfig.draft).toBe(true);
+    expect(releaseConfig["force-tag-creation"]).toBe(true);
+
+    const publishWorkflow = await Bun.file(
+      ".github/workflows/publish-images.yml"
+    ).text();
+    expect(publishWorkflow).toMatch(
+      /finalize:\n[\s\S]*?needs:\n\s+- prepare\n\s+- web-distribution\n\s+- publish/
+    );
+    expect(publishWorkflow).toContain(
+      'gh release edit "$RELEASE_REF" --draft=false'
+    );
+  });
+
   test("release verification pins the tagged commit and documents minimum PAT access", async () => {
     const releases = await Bun.file("docs/releases.md").text();
     expect(releases).toContain('--source-digest "$source_digest"');
