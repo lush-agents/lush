@@ -9,10 +9,7 @@
   "dependencies": {
     "@lush/config": "workspace:*",
     "@lush/logging": "workspace:*",
-    "nodemailer": "^7.0.5"
-  },
-  "devDependencies": {
-    "@types/nodemailer": "^7.0.1"
+    "emailjs": "^5.0.2"
   },
   "exports": {
     "./email": "./src/email.ts"
