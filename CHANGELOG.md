@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/lush-agents/lush/compare/v0.1.1...v0.1.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **release:** stage assets before immutable publication ([#84](https://github.com/lush-agents/lush/issues/84)) ([79041d5](https://github.com/lush-agents/lush/commit/79041d5c57aad527115f0e4c8c7887a2f44007b3))
+
 ## [0.1.1](https://github.com/lush-agents/lush/compare/v0.1.0...v0.1.1) (2026-07-20)
 
 
