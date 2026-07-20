@@ -6,7 +6,11 @@ import {
   type EnvSource
 } from "@lush/config/env";
 import { createLogger, type LushLogger } from "@lush/logging/logger";
-import nodemailer from "nodemailer";
+import {
+  SMTPClient,
+  type MessageHeaders,
+  type SMTPConnectionOptions
+} from "emailjs";
 
 export type EmailMessage = {
   to: string;
@@ -19,18 +23,84 @@ export interface EmailDelivery {
   send(message: EmailMessage): Promise<void>;
 }
 
+type SmtpClient = {
+  sendAsync(message: MessageHeaders): Promise<unknown>;
+};
+
+type SmtpClientFactory = (
+  options: Partial<SMTPConnectionOptions>
+) => SmtpClient;
+
+function smtpClientOptions(smtpUrl: string): Partial<SMTPConnectionOptions> {
+  let url: URL;
+
+  try {
+    url = new URL(smtpUrl);
+  } catch {
+    throw invalidSmtpUrl();
+  }
+
+  const implicitTls = url.protocol === "smtps:";
+  if ((!implicitTls && url.protocol !== "smtp:") || !url.hostname) {
+    throw invalidSmtpUrl();
+  }
+
+  const port = url.port ? Number(url.port) : implicitTls ? 465 : 587;
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw invalidSmtpUrl();
+  }
+
+  try {
+    return {
+      host: url.hostname,
+      port,
+      user: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password),
+      ssl: implicitTls ? { servername: url.hostname } : false,
+      tls: !implicitTls,
+      timeout: 30_000
+    };
+  } catch {
+    throw invalidSmtpUrl();
+  }
+}
+
+function invalidSmtpUrl() {
+  return new ConfigError(
+    "LUSH_SMTP_URL must be a valid smtp:// or smtps:// URL",
+    { invalid: ["LUSH_SMTP_URL"] }
+  );
+}
+
 export class SmtpEmailDelivery implements EmailDelivery {
-  private readonly transport;
+  private readonly client: SmtpClient;
 
   constructor(
     smtpUrl: string,
-    private readonly from: string
+    private readonly from: string,
+    createClient: SmtpClientFactory = (options) => new SMTPClient(options)
   ) {
-    this.transport = nodemailer.createTransport(smtpUrl);
+    this.client = createClient(smtpClientOptions(smtpUrl));
   }
 
   async send(message: EmailMessage) {
-    await this.transport.sendMail({ from: this.from, ...message });
+    const email: MessageHeaders = {
+      from: this.from,
+      to: message.to,
+      subject: message.subject,
+      text: message.text
+    };
+
+    if (message.html) {
+      email.attachment = {
+        data: message.html,
+        alternative: true,
+        type: "text/html",
+        charset: "utf-8"
+      };
+    }
+
+    await this.client.sendAsync(email);
   }
 }
 
