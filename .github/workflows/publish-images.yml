@@ -234,3 +234,26 @@ jobs:
           subject-name: ghcr.io/lush-agents/${{ matrix.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  finalize:
+    name: Publish immutable GitHub Release
+    needs:
+      - prepare
+      - web-distribution
+      - publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Publish completed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: ${{ inputs.ref }}
+        run: |
+          is_draft="$(gh release view "$RELEASE_REF" --json isDraft --jq .isDraft)"
+          if [[ "$is_draft" != "true" ]]; then
+            echo "::error::$RELEASE_REF must remain a draft until every artifact is published"
+            exit 1
+          fi
+          gh release edit "$RELEASE_REF" --draft=false

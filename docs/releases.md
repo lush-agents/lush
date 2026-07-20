@@ -36,9 +36,11 @@ messages on `main`:
   force a version bump.
 
 Merging the release pull request updates `package.json` and `CHANGELOG.md`,
-creates the matching `vMAJOR.MINOR.PATCH` tag, and publishes a GitHub Release.
-The same workflow then publishes both OCI images and the static browser
-distribution for that exact tag.
+creates the matching `vMAJOR.MINOR.PATCH` tag, and creates a draft GitHub
+Release. The same workflow validates that tag, attaches the static browser
+distribution, publishes both OCI images, and only then publishes the GitHub
+Release. Repositories with immutable releases enabled require this ordering:
+published releases cannot accept new or replacement assets.
 
 Add a fine-grained `RELEASE_PLEASE_TOKEN` Actions secret with repository
 Contents and Pull requests write access. Release Please uses this token so its
@@ -64,11 +66,11 @@ Before the first public release:
 2. Confirm the two GHCR packages inherit public visibility from this public
    repository, or make them public after their first publication.
 
-If image publication fails after the GitHub Release is created, rerun the
-failed workflow jobs. The `Publish images` workflow also accepts the same
-existing release tag as a manual recovery path. Dispatch both the workflow and
-its input at that tag so the artifact and attestation provenance identify the
-same commit:
+If artifact or image publication fails, the GitHub Release remains a draft;
+rerun the failed workflow jobs before publishing it. The `Publish images`
+workflow also accepts the same existing release tag as a manual recovery path.
+Dispatch both the workflow and its input at that tag so the artifact and
+attestation provenance identify the same commit:
 
 ```sh
 gh workflow run publish-images.yml --ref v0.1.0 -f ref=v0.1.0
