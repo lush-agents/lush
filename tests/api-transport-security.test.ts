@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseTrustedProxies } from "../services/api/src/client-ip";
 import {
   expiredSessionCookie,
+  evaluateProxyTrust,
   hasLegacySessionCookie,
   httpsRedirectUrl,
   isSafeRedirectMethod,
@@ -72,6 +73,64 @@ describe("API transport security", () => {
       remoteAddress: "10.0.0.4",
       trustedProxies: parseTrustedProxies(["10.0.0.0/8"])
     })).toBe(true);
+  });
+
+  test("accepts forwarding headers from an authenticated dynamic proxy", async () => {
+    const trustedProxySecret = "a".repeat(32);
+    const request = new Request("http://api.example.com", {
+      headers: {
+        "x-forwarded-proto": "https",
+        "x-lush-proxy-secret": trustedProxySecret
+      }
+    });
+    const trust = await evaluateProxyTrust({
+      request,
+      remoteAddress: "198.51.100.7",
+      trustedProxies: parseTrustedProxies([]),
+      trustedProxySecret
+    });
+
+    expect(trust).toEqual({
+      forwardedHeadersTrusted: true,
+      requestAllowed: true
+    });
+    expect(isSecureRequest({
+      request,
+      remoteAddress: "198.51.100.7",
+      trustedProxies: parseTrustedProxies([]),
+      forwardedHeadersTrusted: trust.forwardedHeadersTrusted
+    })).toBe(true);
+  });
+
+  test("rejects missing or incorrect dynamic-proxy credentials before HTTPS", async () => {
+    const trustedProxySecret = "a".repeat(32);
+
+    for (const suppliedSecret of [undefined, "b".repeat(32)]) {
+      const headers = suppliedSecret
+        ? { "x-lush-proxy-secret": suppliedSecret, "x-forwarded-proto": "https" }
+        : { "x-forwarded-proto": "https" };
+      expect(await evaluateProxyTrust({
+        request: new Request("http://api.example.com", { headers }),
+        remoteAddress: "198.51.100.7",
+        trustedProxies: parseTrustedProxies([]),
+        trustedProxySecret
+      })).toEqual({
+        forwardedHeadersTrusted: false,
+        requestAllowed: false
+      });
+    }
+  });
+
+  test("keeps authenticated-proxy mode available to direct loopback health checks", async () => {
+    expect(await evaluateProxyTrust({
+      request: new Request("http://localhost:7330/health"),
+      remoteAddress: "127.0.0.1",
+      trustedProxies: parseTrustedProxies([]),
+      trustedProxySecret: "a".repeat(32)
+    })).toEqual({
+      forwardedHeadersTrusted: false,
+      requestAllowed: true
+    });
   });
 
   test("allows HTTPS and requires both a loopback origin and socket peer for HTTP", () => {

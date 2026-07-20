@@ -7,6 +7,12 @@ import {
 export const secureSessionCookieName = "__Host-lush_session";
 export const plaintextSessionCookieName = "lush_session";
 export const strictTransportSecurity = "max-age=31536000; includeSubDomains";
+export const trustedProxySecretHeader = "x-lush-proxy-secret";
+
+export type ProxyTrust = {
+  forwardedHeadersTrusted: boolean;
+  requestAllowed: boolean;
+};
 
 export function sessionCookieName(requireHttps: boolean) {
   return requireHttps ? secureSessionCookieName : plaintextSessionCookieName;
@@ -60,6 +66,7 @@ export function isSecureRequest(options: {
   request: Request;
   remoteAddress?: string | null;
   trustedProxies: TrustedProxySet;
+  forwardedHeadersTrusted?: boolean;
 }) {
   const url = new URL(options.request.url);
   if (url.protocol === "https:") {
@@ -72,12 +79,40 @@ export function isSecureRequest(options: {
     return true;
   }
 
-  if (!isTrustedProxyAddress(options.remoteAddress, options.trustedProxies)) {
+  const forwardedHeadersTrusted = options.forwardedHeadersTrusted ??
+    isTrustedProxyAddress(options.remoteAddress, options.trustedProxies);
+  if (!forwardedHeadersTrusted) {
     return false;
   }
 
   const forwardedProto = options.request.headers.get("x-forwarded-proto");
   return forwardedProto?.split(",")[0]?.trim().toLowerCase() === "https";
+}
+
+export async function evaluateProxyTrust(options: {
+  request: Request;
+  remoteAddress?: string | null;
+  trustedProxies: TrustedProxySet;
+  trustedProxySecret?: string;
+}): Promise<ProxyTrust> {
+  const addressTrusted = isTrustedProxyAddress(
+    options.remoteAddress,
+    options.trustedProxies
+  );
+  const secretConfigured = Boolean(options.trustedProxySecret);
+  const secretTrusted = secretConfigured && await proxySecretMatches(
+    options.request.headers.get(trustedProxySecretHeader),
+    options.trustedProxySecret!
+  );
+  const forwardedHeadersTrusted = addressTrusted || secretTrusted;
+  const url = new URL(options.request.url);
+  const directLoopback = isLoopbackHostname(url.hostname) &&
+    isLoopbackAddress(options.remoteAddress);
+
+  return {
+    forwardedHeadersTrusted,
+    requestAllowed: !secretConfigured || forwardedHeadersTrusted || directLoopback
+  };
 }
 
 export function requestCarriesCredentials(request: Request) {
@@ -124,4 +159,21 @@ function isLoopbackHostname(hostname: string) {
     || normalized.startsWith("127.")
     || normalized === "::1"
     || normalized === "[::1]";
+}
+
+async function proxySecretMatches(actual: string | null, expected: string) {
+  const encoder = new TextEncoder();
+  const [actualDigest, expectedDigest] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(actual ?? "")),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected))
+  ]);
+  const actualBytes = new Uint8Array(actualDigest);
+  const expectedBytes = new Uint8Array(expectedDigest);
+  let different = actual === null ? 1 : 0;
+
+  for (let index = 0; index < actualBytes.length; index += 1) {
+    different |= actualBytes[index]! ^ expectedBytes[index]!;
+  }
+
+  return different === 0;
 }

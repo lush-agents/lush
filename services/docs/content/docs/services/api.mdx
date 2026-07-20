@@ -45,9 +45,14 @@ short-lived access JWT in tab-scoped `sessionStorage`.
 `LUSH_REQUIRE_HTTPS=true` is the default. It uses the Secure,
 `__Host-lush_session` cookie, emits HSTS, redirects credential-free safe HTTP
 requests to HTTPS, and refuses credentials or state-changing requests over
-plaintext. `X-Forwarded-Proto` is honored only when the socket peer matches
-`LUSH_TRUSTED_PROXIES`. Loopback URLs remain available for local development.
-The loopback exception requires both a loopback URL and a loopback socket peer.
+plaintext. Forwarding headers are honored only when the socket peer matches
+`LUSH_TRUSTED_PROXIES` or the request supplies the configured
+`LUSH_TRUSTED_PROXY_SECRET` in `X-Lush-Proxy-Secret`. The secret alternative is
+for a private gateway with dynamic peer addresses: it rejects non-loopback
+requests without valid gateway authentication. The gateway must remove any
+client-supplied copy before setting the header, and the gateway-to-API network
+must remain private. Loopback URLs remain available for local development. The
+loopback exception requires both a loopback URL and a loopback socket peer.
 
 Set `LUSH_REQUIRE_HTTPS=false` only for deliberate plain-HTTP LAN deployments.
 That mode uses `lush_session` without Secure; any device able to intercept that

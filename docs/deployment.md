@@ -61,7 +61,10 @@ When `LUSH_API_URL` is set, configure the API's `LUSH_APP_ORIGIN` to allow the
 web origin. When it is empty, the browser uses its page origin. The ingress must
 route `/v1beta`, `/v1beta/*`, and `/health` directly to the API and route all
 remaining paths to the web image. Configure `LUSH_TRUSTED_PROXIES` on the API
-with only the ingress socket peers that supply forwarding headers.
+with only the ingress socket peers that supply forwarding headers. If a private
+gateway has dynamic peers that cannot be allowlisted, configure
+`LUSH_TRUSTED_PROXY_SECRET` instead and have the gateway replace
+`X-Lush-Proxy-Secret` on every request.
 
 The ingress owns TLS, forwarding-header normalization, streaming timeouts,
 response buffering policy, public exposure, and any shared rate limits.
