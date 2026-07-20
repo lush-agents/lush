@@ -118,6 +118,7 @@ import {
 } from "./rate-limit";
 import {
   expiredSessionCookie,
+  evaluateProxyTrust,
   hasLegacySessionCookie,
   httpsRedirectUrl,
   isSafeRedirectMethod,
@@ -180,6 +181,7 @@ const allowedOrigins = Array.from(
   new Set([...apiConfig.appOrigins, ...desktopAppOrigins])
 );
 const remoteAddresses = new WeakMap<Request, string>();
+const forwardedHeaderTrust = new WeakMap<Request, boolean>();
 // Separate maps keep source-key churn from evicting target-email state.
 const authRateLimiters = {
   registerIp: rateLimiter("registerIp"),
@@ -225,10 +227,26 @@ app.use("*", async (c, next) => {
 
 app.use("*", async (c, next) => {
   const request = c.req.raw;
+  const proxyTrust = await evaluateProxyTrust({
+    request,
+    remoteAddress: remoteAddresses.get(request),
+    trustedProxies: apiConfig.trustedProxies,
+    trustedProxySecret: apiConfig.trustedProxySecret
+  });
+  forwardedHeaderTrust.set(request, proxyTrust.forwardedHeadersTrusted);
+
+  if (!proxyTrust.requestAllowed) {
+    return c.json({
+      error: "proxy_authentication_required",
+      message: "This API requires an authenticated ingress gateway."
+    }, 403);
+  }
+
   const secure = isSecureRequest({
     request,
     remoteAddress: remoteAddresses.get(request),
-    trustedProxies: apiConfig.trustedProxies
+    trustedProxies: apiConfig.trustedProxies,
+    forwardedHeadersTrusted: proxyTrust.forwardedHeadersTrusted
   });
 
   if (apiConfig.requireHttps && !secure) {
@@ -1351,6 +1369,7 @@ function readApiRuntimeConfig() {
     LUSH_AUTH_PUBLIC_SIGNUP: envSchema.boolean(true),
     LUSH_PUBLIC_APP_URL: envSchema.optionalString(""),
     LUSH_TRUSTED_PROXIES: envSchema.commaList(),
+    LUSH_TRUSTED_PROXY_SECRET: envSchema.optionalString(""),
     LUSH_REQUIRE_HTTPS: envSchema.boolean(true),
     LUSH_API_PORT: envSchema.number(7330),
     LUSH_API_HOST: envSchema.optionalString("0.0.0.0")
@@ -1427,6 +1446,16 @@ function readApiRuntimeConfig() {
       { invalid: ["LUSH_TRUSTED_PROXIES"] }
     );
   }
+  if (
+    env.LUSH_TRUSTED_PROXY_SECRET &&
+    (env.LUSH_TRUSTED_PROXY_SECRET.length < 32 ||
+      env.LUSH_TRUSTED_PROXY_SECRET.length > 1024)
+  ) {
+    throw new ConfigError(
+      "LUSH_TRUSTED_PROXY_SECRET must contain 32-1024 characters.",
+      { invalid: ["LUSH_TRUSTED_PROXY_SECRET"] }
+    );
+  }
 
   return {
     port: env.LUSH_API_PORT,
@@ -1436,7 +1465,8 @@ function readApiRuntimeConfig() {
     publicSignup: env.LUSH_AUTH_PUBLIC_SIGNUP,
     publicAppUrl: env.LUSH_PUBLIC_APP_URL,
     requireHttps: env.LUSH_REQUIRE_HTTPS,
-    trustedProxies
+    trustedProxies,
+    trustedProxySecret: env.LUSH_TRUSTED_PROXY_SECRET
   };
 }
 
@@ -1532,7 +1562,8 @@ function clientIpAddress(request: Request) {
     remoteAddress: remoteAddresses.get(request),
     forwardedFor: request.headers.get("x-forwarded-for"),
     realIp: request.headers.get("x-real-ip"),
-    trustedProxies: apiConfig.trustedProxies
+    trustedProxies: apiConfig.trustedProxies,
+    forwardedHeadersTrusted: forwardedHeaderTrust.get(request)
   });
   if (!address && !missingRemoteAddressWarned) {
     missingRemoteAddressWarned = true;

@@ -42,14 +42,17 @@ export function resolveClientIp(options: {
   forwardedFor?: string | null;
   realIp?: string | null;
   trustedProxies: TrustedProxySet;
+  forwardedHeadersTrusted?: boolean;
 }) {
   const remoteAddress = parseIp(options.remoteAddress ?? "");
-  if (!remoteAddress) {
+  const forwardedHeadersTrusted = options.forwardedHeadersTrusted ??
+    (remoteAddress ? isTrusted(remoteAddress, options.trustedProxies) : false);
+  if (!remoteAddress && !forwardedHeadersTrusted) {
     return null;
   }
 
-  if (!isTrusted(remoteAddress, options.trustedProxies)) {
-    return remoteAddress.canonical;
+  if (!forwardedHeadersTrusted) {
+    return remoteAddress!.canonical;
   }
 
   const forwardedFor = options.forwardedFor
@@ -57,7 +60,7 @@ export function resolveClientIp(options: {
     .map((value) => parseIp(value));
   if (forwardedFor?.length) {
     if (forwardedFor.some((value) => !value)) {
-      return remoteAddress.canonical;
+      return remoteAddress?.canonical ?? null;
     }
 
     for (let index = forwardedFor.length - 1; index >= 0; index -= 1) {
@@ -71,7 +74,7 @@ export function resolveClientIp(options: {
   }
 
   const realIp = parseIp(options.realIp ?? "");
-  return realIp?.canonical ?? remoteAddress.canonical;
+  return realIp?.canonical ?? remoteAddress?.canonical ?? null;
 }
 
 export function isTrustedProxyAddress(

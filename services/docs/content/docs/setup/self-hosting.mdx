@@ -186,6 +186,7 @@ Important optional values:
 | `LUSH_REFRESH_TOKEN_GRACE_MS` | 60 seconds | Convergence window for concurrent refresh rotation. |
 | `LUSH_SESSION_IP_MODE` | `hmac` | `off`, `hmac`, or `plain`; see [Session IP retention](#session-ip-retention). |
 | `LUSH_TRUSTED_PROXIES` | empty | Exact IPs or CIDRs allowed to supply forwarding headers. |
+| `LUSH_TRUSTED_PROXY_SECRET` | empty | Alternative 32-1024 character credential for a private gateway with dynamic peer addresses. |
 | `LUSH_REQUIRE_HTTPS` | `true` | Secure-cookie and HTTPS enforcement. |
 
 See `.env.template` for the complete runtime template.
@@ -568,12 +569,19 @@ flow.
 With `LUSH_REQUIRE_HTTPS=true`, Lush uses a Secure, host-only
 `__Host-lush_session` cookie, sends HSTS, redirects credential-free safe
 requests to HTTPS, and rejects credentials or state changes over plaintext.
-Only a socket peer listed in `LUSH_TRUSTED_PROXIES` may establish HTTPS through
-`X-Forwarded-Proto` or supply the client address used for rate limiting.
+Only a socket peer listed in `LUSH_TRUSTED_PROXIES`, or a private gateway that
+authenticates with `LUSH_TRUSTED_PROXY_SECRET`, may establish HTTPS through
+`X-Forwarded-Proto` or supply the client address used for rate limiting. When
+the secret is configured, non-loopback requests without valid gateway
+authentication receive `403` before transport redirects.
 
 The public-facing proxy must replace client-supplied `X-Forwarded-For`,
 `X-Real-IP`, and `X-Forwarded-Proto`. List every trusted hop and no others. Do
-not use `0.0.0.0/0`.
+not use `0.0.0.0/0`. When a private gateway's socket peer is dynamic and cannot
+be narrowly allowlisted, generate at least 32 random characters, set the same
+value as `LUSH_TRUSTED_PROXY_SECRET`, remove any incoming
+`X-Lush-Proxy-Secret`, and add the authoritative header on the private hop. Do
+not send that credential across a public or shared network.
 
 Auth endpoints have in-process source and target limits. They are independent
 per API process, so a multi-replica deployment must enforce an additional

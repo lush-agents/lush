@@ -25,6 +25,16 @@ describe("API client IP resolution", () => {
     })).toBe("203.0.113.10");
   });
 
+  test("uses forwarding headers authorized independently of peer address", () => {
+    expect(resolveClientIp({
+      remoteAddress: "198.51.100.7",
+      forwardedFor: "203.0.113.10",
+      realIp: null,
+      trustedProxies: parseTrustedProxies([]),
+      forwardedHeadersTrusted: true
+    })).toBe("203.0.113.10");
+  });
+
   test("stops at the first untrusted hop", () => {
     expect(resolveClientIp({
       remoteAddress: "10.0.0.3",
