@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/lush-agents/lush/compare/v0.1.2...v0.2.0) (2026-07-20)
+
+
+### Features
+
+* **api:** authenticate dynamic proxy gateways ([#87](https://github.com/lush-agents/lush/issues/87)) ([a2eff42](https://github.com/lush-agents/lush/commit/a2eff425e73b2ef5dbc9d31777cab0857f1db9f8))
+
 ## [0.1.2](https://github.com/lush-agents/lush/compare/v0.1.1...v0.1.2) (2026-07-20)
 
 
