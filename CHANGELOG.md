@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/lush-agents/lush/compare/v0.1.0...v0.1.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* **notifications:** use Bun-compatible SMTP client ([#82](https://github.com/lush-agents/lush/issues/82)) ([30d635f](https://github.com/lush-agents/lush/commit/30d635f6a681730ee925fdf3cf6f915591c63df5))
+
 ## 0.1.0 (2026-07-18)
 
 
