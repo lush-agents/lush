@@ -2,10 +2,6 @@
 
 Open control plane for multi-model AI applications and agent runtimes.
 
-This repository is scaffolded as a Bun workspace monorepo. The initial layout
-separates client surfaces, backend services, and shared state/catalog packages
-without committing to service implementations yet.
-
 ## Workspace Layout
 
 - `apps/*` - end-user applications. `apps/lush` is the shared React app packaged for web, desktop, iOS, and Android through Tauri.
