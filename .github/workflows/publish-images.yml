@@ -249,11 +249,12 @@ jobs:
       - name: Publish completed release
         env:
           GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
           RELEASE_REF: ${{ inputs.ref }}
         run: |
-          is_draft="$(gh release view "$RELEASE_REF" --json isDraft --jq .isDraft)"
+          is_draft="$(gh release view "$RELEASE_REF" --repo "$REPOSITORY" --json isDraft --jq .isDraft)"
           if [[ "$is_draft" != "true" ]]; then
             echo "::error::$RELEASE_REF must remain a draft until every artifact is published"
             exit 1
           fi
-          gh release edit "$RELEASE_REF" --draft=false
+          gh release edit "$RELEASE_REF" --repo "$REPOSITORY" --draft=false

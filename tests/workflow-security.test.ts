@@ -77,7 +77,7 @@ describe("workflow security invariants", () => {
       /finalize:\n[\s\S]*?needs:\n\s+- prepare\n\s+- web-distribution\n\s+- publish/
     );
     expect(publishWorkflow).toContain(
-      'gh release edit "$RELEASE_REF" --draft=false'
+      'gh release edit "$RELEASE_REF" --repo "$REPOSITORY" --draft=false'
     );
   });
 
